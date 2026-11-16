@@ -113,7 +113,7 @@ struct QModel {
     double is,bf,nf,vaf,ikf,ise,ne,br,nr,var,ikr,isc,nc,cje,vje,mje,cjc,vjc,mjc,tf,tr,fc;
 };
 struct JModel { double vto,beta,is,lambda,cgs,cgd,pb,fc; };
-struct D { int a,b; double q1=0,q2=0,q=0,slope=0; std::array<int,4> slots{}; };
+struct D { int a,b; double q1=0,q2=0,q=0,slope=0,knee=0; std::array<int,4> slots{}; };
 struct Q { int c,b,e; double f1=0,f2=0,f=0,r1=0,r2=0,r=0; Jet fq{},rq{}; int sign=1; std::array<int,9> slots{}; };
 struct J { int d,g,s; std::array<int,9> slots{}; };
 
@@ -144,6 +144,8 @@ public:
     bool prepare(double rate) {
         x = deck.bias;
         previous = x;
+        older = x;
+        slope = {};
         fixed.resize(deck.constants.size());
         hostRate=rate;
         lastInput={};
@@ -184,12 +186,22 @@ public:
 
     using Frame = std::array<double,2>;
     Frame step(Frame input, const Controls& controls) {
-        if (controls!=lastControls) {
+        const bool changed=controls!=lastControls;
+        if (changed) {
             for (auto& contact : deck.contact) selectContact(contact,controls);
             lastControls=controls;
         }
         supply(input);
         prepareHistory();
+        const Frame difference{input[0]-lastInput[0],input[1]-lastInput[1]};
+        const double denominator=slope[0]*slope[0]+slope[1]*slope[1];
+        const double prediction=changed||denominator<1e-12?0.0:std::clamp(
+            (difference[0]*slope[0]+difference[1]*slope[1])/denominator,-1.5,1.5);
+        for (int i=0;i<deck.size;++i) {
+            x[i]=previous[i]+prediction*(previous[i]-older[i]);
+            older[i]=previous[i];
+        }
+        slope=difference;
         if (newton(12,0.16) || continueSource(input)) {
             accept(false);
             lastInput=input;
@@ -536,9 +548,16 @@ private:
             auto& d=deck.diodes[at];
             const Jet voltage{v(d.a)-v(d.b),1,0};
             Jet i=junction(voltage,m.n*thermal,m.is);
-            if constexpr (m.bv>0)
-                if (voltage.value < -m.bv+5*m.n*thermal)
-                    i=i-junction(voltage*(-1)+Jet{-m.bv},m.n*thermal,m.ibv)-Jet{m.ibv};
+            if constexpr (m.bv>0) {
+                const double knee=m.bv-thermal*std::log1p(m.ibv/m.is);
+                if constexpr (sizing) d.knee=knee;
+                if (voltage.value < -knee) {
+                    const double x=-(voltage.value+knee)/thermal;
+                    const double bounded=std::min(x,70.0);
+                    const double current=m.is*junctionExp(bounded);
+                    i={-current*(1+x-bounded),current/thermal,0};
+                }
+            }
             double j=i.value+voltage.value*gmin;
             double g=i.p+gmin;
             if constexpr (m.cjo!=0 || m.tt!=0) {
@@ -626,7 +645,22 @@ private:
             double maxNode=0, maxBranch=0;
             for (int i=0;i<deck.nodes;++i) maxNode=std::max(maxNode,std::abs(matrix.x[i]));
             for (int i=deck.nodes;i<deck.size;++i) maxBranch=std::max(maxBranch,std::abs(matrix.x[i]));
-            if (maxNode<0.055 && maxBranch<0.00011) {
+            const auto dx=[&](int n){return n<0?0:matrix.x[n];};
+            const auto peakJunction=[&](double forward,double reverse) {
+                double maximum=0;
+                const auto compare=[&](int a,int b,int sign,double knee) {
+                    const auto dv=sign*(dx(a)-dx(b));
+                    const auto voltage=sign*(v(a)-v(b));
+                    if (std::max(voltage,voltage+dv)>forward ||
+                       (knee>0 && std::min(voltage,voltage+dv)<-knee+reverse))
+                        maximum=std::max(maximum,std::abs(dv));
+                };
+                for (const auto& d:deck.diodes) compare(d.a,d.b,1,d.knee);
+                for (const auto& q:deck.bjts) {compare(q.b,q.e,q.sign,0);compare(q.b,q.c,q.sign,0);}
+                for (const auto& j:deck.jfets) {compare(j.g,j.s,1,0);compare(j.g,j.d,1,0);}
+                return maximum;
+            };
+            if ((maxNode<0.055 && maxBranch<0.00011) || (maxNode<1.5 && peakJunction(0.22,0.07)<0.021)) {
                 const auto delta=[&](int n){return n<0?0:matrix.x[n];};
                 for (int i=0;i<deck.size;++i) x[i]+=matrix.x[i];
                 for (const int at : diodeStorage) {
@@ -642,21 +676,8 @@ private:
                 }
                 return true;
             }
-            double scale=1;
-            // Limit the step across junctions, not harmless movement of
-            // high-gain op-amp internal nodes or ideal source currents.
-            const auto delta=[&](int n){return n<0?0:matrix.x[n];};
-            double junctionDelta=0;
-            if (maxNode>0.5*limit) {
-            for (const auto& d : deck.diodes)
-                junctionDelta=std::max(junctionDelta,std::abs(delta(d.a)-delta(d.b)));
-            for (const auto& d : deck.bjts)
-                junctionDelta=std::max({junctionDelta,std::abs(delta(d.b)-delta(d.e)),
-                                        std::abs(delta(d.b)-delta(d.c))});
-            for (const auto& d : deck.jfets)
-                junctionDelta=std::max(junctionDelta,std::abs(delta(d.g)-delta(d.s)));
-            if (junctionDelta>limit) scale=limit/junctionDelta;
-            }
+            const double junctionDelta=peakJunction(0.14,0.10);
+            const double scale=junctionDelta>limit?limit/junctionDelta:1.0;
             for (int i=0;i<deck.size;++i) x[i]+=scale*matrix.x[i];
         }
         return false;
@@ -705,7 +726,8 @@ private:
     std::vector<History> savedHistory;
     double inverse=0,history1=0,history2=0;
     double hostRate=0;
-    Frame lastInput{};
+    Frame lastInput{},slope{};
+    std::vector<double> older;
     Controls lastControls=defaults;
     unsigned misses=0,subdivisions=0;
 

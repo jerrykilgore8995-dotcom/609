@@ -57,9 +57,6 @@ jobs:
           build/generate.exe build/kernel/GeneratedSolve.hpp
           g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -pthread -I build/deck -I build/kernel -shared -static native/Runtime.cpp -o build/609-native.dll
           g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck -I build/kernel native/Probe.cpp -o build/probe.exe
-          build/probe.exe | tee build/through-native.txt
-          build/probe.exe 1 0 4 10 | tee build/compress-native.txt
-          build/probe.exe 0 1 1 20 | tee build/limit-native.txt
       - uses: actions/cache/restore@v4
         with:
           path: build-plugin
@@ -76,6 +73,17 @@ jobs:
         with:
           path: build-plugin
           key: 609-vst3-v1-${{ github.sha }}
+      - name: Record convergence and processing time under drive
+        id: cases
+        continue-on-error: true
+        shell: msys2 {0}
+        run: |
+          set -uo pipefail
+          failed=0
+          build/probe.exe | tee build/through-native.txt || failed=1
+          build/probe.exe 1 0 4 10 | tee build/compress-native.txt || failed=1
+          build/probe.exe 0 1 1 20 | tee build/limit-native.txt || failed=1
+          exit "$failed"
       - name: Test the packaged VST3 in a Windows host
         shell: pwsh
         run: |
@@ -86,6 +94,7 @@ jobs:
           $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
           & $test $bundle 2>&1 | Tee-Object -FilePath smoke-out.txt
           if ($LASTEXITCODE -ne 0) { throw "VST3 smoke test exited with code $LASTEXITCODE" }
+          if ("${{ steps.cases.outcome }}" -ne "success") { throw "The driven nodal-solver cases failed" }
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $bundle release -Recurse
           Copy-Item 609-faceplate.png,smoke-out.txt,build/*-native.txt,build/deck/*.json,README.md release

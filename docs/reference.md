@@ -16,3 +16,9 @@ The circuit connects both channels and the gain-reduction meters. The 1N4153 bri
 The fixed supply is +24 V. The bench has a balanced 40 Ω source and 600 Ω load. Switch networks retain their actual contacts and individual components. Bypass and stereo link are modeled with relay contact resistances. The meter winding is represented by a nominal 2.2 kΩ load and the isolated T1 primary uses an insulation resistance to reference its otherwise floating DC common mode. External relay controls can be selected by the simulator parameters ACTIVE and LINKED.
 
 The device parameters for the legacy semiconductors and electrical constants of the three audio transformers are initial engineering estimates. The winding configurations are from EX11475. Exact transformer impedance, phase, saturation, and device noise require measured data. Bench targets from the handbook can constrain the estimates, with individual model uncertainty retained.
+
+## Bench results
+
+The fixed-rail SPICE fixture runs both channels. At 1 kHz, the 4:1 compressor position changed output by 2.36 dB for a 10 dB input increase. At the +8 dBu limiter mark, the fixture returned +7.86 and +8.04 dBu for +10 and +20 dBu input. The latter case measured about 1.08% THD. Limiter distortion against the full manufacturer procedure and timing across every recovery position require further validation.
+
+An estimate of winding leakage was adjusted to fit the small-signal target. With both dynamics sections out, the AC fixture measured about −0.13 dB at 20 Hz and −0.44 dB at 20 kHz relative to 1 kHz. These are simulations of the characterized model.

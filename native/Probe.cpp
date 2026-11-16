@@ -29,5 +29,6 @@ int main(int argc,char** argv) {
     const double dbu=24+20*std::log10(2*std::hypot(sine,cosine)/8820);
     std::printf("%.3f dBu out, meter %.6f V, %.3f ms per 512 stereo, %u solve failures, %u refinements\n",dbu,
                 solver.meterVolts()[0],ms,solver.failures(),solver.refinedSamples());
-    return solver.failures()?3:0;
+    if (solver.failures()) return 3;
+    return ms<512000/rate?0:4;
 }

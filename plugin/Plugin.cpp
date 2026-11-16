@@ -164,8 +164,8 @@ public:
         for (int ch=0;ch<2;++ch) {
             const int y=7+95*ch;
             g.setColour(juce::Colour(0xff92979a));
-            g.drawRect(97,y,243,98,0.7f);
-            g.drawRect(344,y,348,98,0.7f);
+            g.drawRect(juce::Rectangle<float>(97,float(y),243,98),0.7f);
+            g.drawRect(juce::Rectangle<float>(344,float(y),348,98),0.7f);
             const int knobY=66+95*ch;
             dialScale(g,131,knobY,"threshold dBu",controls[4].values,2);
             dialScale(g,206,knobY,"recovery ms",controls[5].values,1);
