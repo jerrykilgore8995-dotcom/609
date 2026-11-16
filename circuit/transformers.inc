@@ -1,0 +1,40 @@
+* Drawing winding connections with estimated electrical constants.
+* K and winding capacitances represent leakage and high-frequency loading.
+.subckt TF10016 P N S T
+RP P IP 58
+LP IP N 26
+RSH S ISH 9
+LSH ISH ST 1.625
+RSL ST ISL 9
+LSL ISL T 1.625
+KPH LP LSH .9995
+KPL LP LSL .9995
+KHL LSH LSL .9995
+CP P N 120p
+CS S T 180p
+.ends TF10016
+
+* Secondary windings are strapped in parallel by the EX11475 PCB.
+.subckt TF10015 P N S T
+RP P IP 61
+LP IP N 47
+RS1 S IS1 140
+RS2 S IS2 140
+LS1 IS1 T 188
+LS2 IS2 T 188
+KPS1 LP LS1 .999998
+KPS2 LP LS2 .999998
+KSS LS1 LS2 .999998
+CP P N 130p
+CS S T 95p
+.ends TF10015
+
+.subckt TF12009 P N S T
+RP P IP 13
+LP IP N 9
+RS S IS 79
+LS IS T 56.25
+K1 LP LS .9999985
+CP P N 110p
+CS S T 180p
+.ends TF12009
