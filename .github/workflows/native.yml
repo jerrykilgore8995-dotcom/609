@@ -1,0 +1,105 @@
+name: 609 circuit and native VST3
+on:
+  push:
+    branches: [main]
+    paths: ['circuit/**', 'native/**', 'plugin/**', 'tools/**', '.github/workflows/native.yml']
+  workflow_dispatch:
+
+jobs:
+  circuit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Measure SPICE and generate the native circuit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ngspice
+          python -m pip install numpy
+          mkdir build
+          python tools/switch_assemblies.py
+          git diff --exit-code circuit/switches.inc
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+          python tools/measure.py --ac > build/response.json
+          python tools/measure.py --level 0 --level 9 > build/through.json
+          python tools/measure.py --level 0 --level 10 --set CEL=1 --set CRL=4 > build/compress.json
+          python tools/measure.py --level 10 --level 20 --set LEL=1 > build/limit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiled-609-circuit
+          path: |
+            build/Deck.hpp
+            build/*.json
+  windows:
+    needs: circuit
+    runs-on: windows-2022
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: compiled-609-circuit
+          path: build/deck
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Compile and exercise the native solver
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p build/kernel
+          g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck native/GenerateSolve.cpp -o build/generate.exe
+          build/generate.exe build/kernel/GeneratedSolve.hpp
+          g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -pthread -I build/deck -I build/kernel -shared -static native/Runtime.cpp -o build/609-native.dll
+          g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck -I build/kernel native/Probe.cpp -o build/probe.exe
+          build/probe.exe | tee build/through-native.txt
+          build/probe.exe 1 0 4 10 | tee build/compress-native.txt
+          build/probe.exe 0 1 1 20 | tee build/limit-native.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: build-plugin
+          key: 609-vst3-v1-${{ github.sha }}
+          restore-keys: 609-vst3-v1-
+      - name: Build the VST3 and test host
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-plugin -A x64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+      - uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: build-plugin
+          key: 609-vst3-v1-${{ github.sha }}
+      - name: Test the packaged VST3 in a Windows host
+        shell: pwsh
+        run: |
+          $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
+          $resources = Join-Path $bundle "Contents/Resources"
+          New-Item -ItemType Directory -Force $resources | Out-Null
+          Copy-Item build/609-native.dll $resources
+          $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
+          & $test $bundle 2>&1 | Tee-Object -FilePath smoke-out.txt
+          if ($LASTEXITCODE -ne 0) { throw "VST3 smoke test exited with code $LASTEXITCODE" }
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item $bundle release -Recurse
+          Copy-Item 609-faceplate.png,smoke-out.txt,build/*-native.txt,build/deck/*.json,README.md release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-Windows-x64-VST3
+          path: release
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-Windows-diagnostics
+          path: |
+            smoke-out.txt
+            609-faceplate.png
+            build/*-native.txt
+          if-no-files-found: ignore

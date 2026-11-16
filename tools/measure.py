@@ -23,7 +23,7 @@ def simulate(settings, command, ngspice):
     source = re.sub(r'(?m)^\.include (\S+)', lambda m: f'.include "{CIRCUIT / m[1]}"', source)
     with tempfile.TemporaryDirectory() as temporary:
         work = Path(temporary)
-        (work / 'deck.cir').write_text(source + '\n.control\nset wr_singlescale\n' + command + '\nquit\n.endc\n.end\n')
+        (work / 'deck.cir').write_text(source + '\n.options method=gear reltol=0.002\n.control\nset wr_singlescale\n' + command + '\nquit\n.endc\n.end\n')
         run = subprocess.run([ngspice, '-b', 'deck.cir'], cwd=work, capture_output=True, text=True, timeout=180)
         if run.returncode or 'aborted' in run.stdout + run.stderr or not (work / 'trace.dat').is_file():
             raise RuntimeError(run.stdout[-4000:] + run.stderr[-4000:])
