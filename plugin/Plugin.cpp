@@ -1,6 +1,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../native/Client.hpp"
+#include "../native/SupplyNoise.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -50,6 +51,7 @@ public:
         for (int ch=0;ch<2;++ch) for (int i=0;i<9;++i)
             channelParams[ch][i]=state.getRawParameterValue(parameterId(ch,controls[i].id));
         for (int i=0;i<6;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
+        noiseParam=state.getRawParameterValue("noise");
     }
     const String getName() const override {return "609";}
     bool acceptsMidi() const override {return false;}
@@ -70,6 +72,7 @@ public:
     }
     void prepareToPlay(double rate,int block) override {
         ready=engine.prepare(rate,getTotalNumInputChannels(),block);
+        supplyNoise.prepare(rate);
         setLatencySamples(ready?engine.latency():0);
     }
     void releaseResources() override {engine.stop();ready=false;}
@@ -96,6 +99,7 @@ private:
         }
         for (int i=0;i<6;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{modes[i],1},modeTitles[i],i==0 || i==2 || i==4));
+        layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"noise",1},"PSU Noise",false));
         return layout;
     }
     void process(juce::AudioBuffer<float>& audio,bool dry) {
@@ -108,11 +112,16 @@ private:
         positions[19]=modeParams[remote?5:1]->load()>0.5f;
         positions[20]=modeParams[2]->load()>0.5f;
         const bool complete=engine.process(audio.getArrayOfWritePointers(),audio.getNumSamples(),positions,isNonRealtime(),dry);
+        if (dry || !positions[18] || !positions[20]) supplyNoise.silence();
+        else supplyNoise.process(audio.getArrayOfWritePointers(),audio.getNumChannels(),audio.getNumSamples(),
+                                 noiseParam->load()>0.5f);
         readyForPlayback.store(complete && engine.failedSolves()==0);
         const auto current=engine.readMeters();
         for (int i=0;i<2;++i) meters[i].store(current[i]);
     }
     mkii::native::Client engine;
+    mkii::native::SupplyNoise supplyNoise;
+    const std::atomic<float>* noiseParam=nullptr;
     std::array<std::array<const std::atomic<float>*,9>,2> channelParams{};
     std::array<const std::atomic<float>*,6> modeParams{};
     bool ready=false;
@@ -138,7 +147,10 @@ public:
             } else bindToggle(switches[ch][i-6],id,controls[i].title);
         }
         for (int i=0;i<4;++i) bindToggle(chassis[i],modes[i],modeTitles[i]);
-        setSize(1200,220);
+        noise.setButtonText("PSU NOISE");
+        addAndMakeVisible(noise);
+        toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,"noise",noise));
+        setSize(1200,247);
         startTimerHz(30);
     }
     ~Panel() override {
@@ -154,12 +166,15 @@ public:
             for (int i=0;i<6;++i) knobs[ch][i].setBounds(x[i]-24,y-24,48,48);
             for (int i=0;i<3;++i) switches[ch][i].setBounds(sx[i]-10,y-17,20,34);
         }
+        noise.setBounds(1045,221,112,24);
         for (int i=0;i<4;++i) chassis[i].setBounds(i<2?707:1049,35+91*(i<2?i%2:1-i%2),60,61);
     }
     void paint(juce::Graphics& g) override {
         const auto dark=juce::Colour(0xff202d42), light=juce::Colour(0xff33445f);
         g.setGradientFill({light,0,0,dark,0,220,false});
-        g.fillAll();
+        g.fillRect(0,0,getWidth(),220);
+        g.setColour(juce::Colour(0xff15171a));
+        g.fillRect(0,220,getWidth(),getHeight()-220);
         g.setColour(juce::Colour(0xff14171a));
         for (int x:{9,1163}) for (int y:{6,195}) g.fillRoundedRectangle(float(x),float(y),28,18,9);
         for (int x:{62,1125}) for (int y:{59,149}) {
@@ -303,30 +318,42 @@ private:
                 g.fillRoundedRectangle(b.reduced(4,7).translated(0,active?-4.0f:4.0f),3);
                 return;
             }
-            g.setGradientFill({juce::Colour(0xffeef0e9),0,0,juce::Colour(0xff9b9e99),0,b.getBottom(),false});
-            g.fillRect(b.reduced(1));
-            const auto interior=b.reduced(6);
-            g.setColour(pressed?juce::Colour(0xffa5a7ab):juce::Colour(0xffe0e1dd));g.fillRect(interior);
+            const auto frame=b.reduced(1.5f);
+            g.setGradientFill({juce::Colour(0xfff0f0e8),0,frame.getY(),
+                               juce::Colour(0xff6c706d),0,frame.getBottom(),false});
+            g.fillRoundedRectangle(frame,2.5f);
+            g.setColour(juce::Colour(0xff424742));
+            g.fillRoundedRectangle(frame.reduced(3),2);
+            const auto interior=b.reduced(6).translated(0,pressed?1.0f:0.0f);
             const auto name=button.getName();
+            const auto drawLens=[&](juce::Rectangle<float> bound,juce::Colour lens,bool lit) {
+                auto gradient=juce::ColourGradient(lens.brighter(lit?.27f:.08f),0,bound.getY(),
+                                                   lens.darker(.43f),0,bound.getBottom(),false);
+                gradient.addColour(.35,lens);
+                g.setGradientFill(gradient);
+                g.fillRoundedRectangle(bound,1.8f);
+                g.setColour(juce::Colours::white.withAlpha(lit?.46f:.30f));
+                g.drawHorizontalLine(int(bound.getY()+1),bound.getX()+2,bound.getRight()-2);
+                g.setColour(juce::Colours::black.withAlpha(.26f));
+                g.drawRoundedRectangle(bound,1.8f,.65f);
+            };
             if (name=="Power") {
-                if (active) {g.setColour(juce::Colour(0xffffc1ad));g.fillRect(interior.reduced(1));}
+                drawLens(interior,juce::Colour(active?0xffedb198:0xffc5c6bd),active);
                 label(g,"POWER",0,20,button.getWidth(),21,10,juce::Colour(0xff25251c));
                 return;
             }
             const String top=name=="Bypass In"?"BYPASS":name=="Stereo Link"?"MONO":"EXT";
             const String bottom=name=="Bypass In"?"IN":name=="Stereo Link"?"STEREO":"INT";
             const bool topActive=name=="External Control"?active:!active;
-            const bool bottomActive=!topActive;
-            const auto topFace=interior.withTrimmedBottom(interior.getHeight()/2);
-            const auto bottomFace=interior.withTrimmedTop(interior.getHeight()/2);
+            const auto topFace=interior.withTrimmedBottom(interior.getHeight()/2+.5f);
+            const auto bottomFace=interior.withTrimmedTop(interior.getHeight()/2+.5f);
             if (name=="External Control") {
-                g.setColour(active?juce::Colour(0xff8aff59):juce::Colour(0xff4c9137));g.fillRect(topFace);
-                g.setColour(active?juce::Colour(0xff953532):juce::Colour(0xffff6960));g.fillRect(bottomFace);
+                drawLens(topFace,juce::Colour(topActive?0xff79e646:0xff527b41),topActive);
+                drawLens(bottomFace,juce::Colour(topActive?0xff873e3a:0xffef6d5d),!topActive);
             } else {
-                g.setColour(topActive?juce::Colour(0xfff7f5dd):juce::Colour(0xffedffcb));
-                g.fillRect(topActive?topFace:bottomFace);
+                drawLens(topFace,juce::Colour(topActive?0xffeeefd8:0xffc9cac2),topActive);
+                drawLens(bottomFace,juce::Colour(topActive?0xffc9cac2:0xffdbeab5),!topActive);
             }
-            g.setColour(juce::Colour(0xff514e41));g.drawHorizontalLine(30,5,b.getWidth()-5);
             const auto ink=juce::Colour(0xff25251c);
             label(g,top,0,10,button.getWidth(),18,10,ink);label(g,bottom,0,33,button.getWidth(),18,10,ink);
         }
@@ -356,6 +383,7 @@ private:
     std::array<std::array<juce::Slider,6>,2> knobs;
     std::array<std::array<juce::ToggleButton,3>,2> switches;
     std::array<juce::ToggleButton,4> chassis;
+    juce::ToggleButton noise;
     std::vector<std::unique_ptr<DialBinding>> dialBindings;
     std::vector<std::unique_ptr<ToggleBinding>> toggleBindings;
 };
