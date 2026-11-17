@@ -2,7 +2,7 @@ name: 609 dynamics measurements
 on:
   workflow_dispatch:
   push:
-    paths: ['.github/workflows/measure-dynamics.yml', 'tools/measure_dynamics.py']
+    paths: ['.github/workflows/measure-dynamics.yml', 'tools/measure_dynamics.py', 'circuit/**']
 jobs:
   measure:
     runs-on: ubuntu-latest

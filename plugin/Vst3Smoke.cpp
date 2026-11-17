@@ -6,6 +6,7 @@
 
 #include <array>
 #include <chrono>
+#include <complex>
 #include <iostream>
 #include <cmath>
 #include <numbers>
@@ -46,6 +47,55 @@ bool setControl(juce::AudioProcessor& plugin,const juce::String& name,float valu
     }
     std::cerr<<"VST3 parameter not found: "<<name<<'\n';
     return false;
+}
+
+bool checkSupplyNoise(juce::AudioProcessor& plugin) {
+    constexpr int rate=44100,blockSize=512,settle=8192;
+    constexpr int fft=4096,pinkBin=93;
+    constexpr double tau=2*std::numbers::pi;
+    if (!setControl(plugin,"Stereo Link",0)) return false;
+    for (int channel=1;channel<=2;++channel)
+        if (!setControl(plugin,"Channel "+juce::String(channel)+" Limit In",0)) return false;
+
+    const auto render=[&](bool enabled,std::array<double,rate>& samples) {
+        if (!setControl(plugin,"PSU Noise",enabled?1.0f:0.0f)) return false;
+        plugin.prepareToPlay(rate,blockSize);
+        juce::AudioBuffer<float> block(2,blockSize);
+        juce::MidiBuffer midi;
+        for (int frame=0;frame<settle+rate;frame+=blockSize) {
+            block.clear();
+            plugin.processBlock(block,midi);
+            for (int i=0;i<blockSize && frame+i<settle+rate;++i)
+                if (frame+i>=settle) samples[frame+i-settle]=block.getSample(0,i);
+        }
+        plugin.releaseResources();
+        return true;
+    };
+    auto dry=std::make_unique<std::array<double,rate>>();
+    auto wet=std::make_unique<std::array<double,rate>>();
+    if (!render(false,*dry) || !render(true,*wet)) return false;
+    for (int i=0;i<rate;++i) (*wet)[i]-=(*dry)[i];
+
+    const auto humLevel=[&](int frequency) {
+        std::complex<double> sum{};
+        for (int i=0;i<rate;++i)
+            sum+=(*wet)[i]*std::polar(1.0,-tau*frequency*i/rate);
+        return 20*std::log10(2*std::abs(sum)/rate);
+    };
+    double binPower=0;
+    for (int block=0;block<rate/fft;++block) {
+        std::complex<double> sum{};
+        for (int i=0;i<fft;++i) {
+            const double angle=tau*i/fft;
+            const double hann=(1-std::cos(angle))*.5;
+            sum+=(*wet)[block*fft+i]*std::polar(hann,-pinkBin*angle);
+        }
+        binPower+=std::norm(sum*(4.0/fft));
+    }
+    const auto pink=10*std::log10(binPower/(rate/fft));
+    const auto hum60=humLevel(60),hum120=humLevel(120);
+    std::cout<<"PSU noise at 1 kHz "<<pink<<" dBFS, 60 Hz "<<hum60<<" dBFS, 120 Hz "<<hum120<<" dBFS\n";
+    return std::abs(pink+96)<3.5 && std::abs(hum60+78)<.6 && std::abs(hum120+86)<.7;
 }
 }
 
@@ -182,6 +232,10 @@ int main(int argc,char** argv) {
                      <<peakCallback<<" ms\n";
             passed=!differingSamples && (offline || peakCallback<1000.0*n/rate) && passed;
         }
+    }
+    if (offline && !checkSupplyNoise(*vst)) {
+        std::cerr<<"PSU noise spectrum outside calibration tolerance\n";
+        return 13;
     }
     return passed?0:10;
 }

@@ -1,59 +1,134 @@
-import sys,json,re,tempfile,subprocess
-from pathlib import Path
-import numpy as np
-sys.path.insert(0,'tools')
-from measure import CIRCUIT
-mode,pos,fast=sys.argv[1],int(sys.argv[2]),int(sys.argv[3])
-settings={'CEL':int(mode=='comp'),'LEL':int(mode=='limit'),'CRL':pos if mode=='comp' else 4,'CML':1,'LRL':1,'FASTL':fast}
-def run(settings, stepped=False):
-    s=(CIRCUIT/'609.cir').read_text().rsplit('.end',1)[0]
-    for k,v in settings.items():
-        s,n=re.subn(r'(?<=\s)'+k+r'=[^\s{}]+(?=\s)',f'{k}={v}',s,count=1)
-        assert n==1,k
-    s=re.sub(r'(?m)^\.include (\S+)',lambda m:f'.include "{CIRCUIT/m[1]}"',s)
-    if stepped:
-        s=re.sub(r'(?m)^VINL .*$', 'BINPUT SL 0 V=sin(2*pi*1000*time)*(0.1095873+ (3.465-0.1095873)*(u(time-0.3)-u(time-1.3)))',s)
-    with tempfile.TemporaryDirectory() as d:
-        p=Path(d)
-        (p/'deck.cir').write_text(s+'\n.options method=gear reltol=0.002\n.control\nset wr_singlescale\n'+('tran 10u 8.3 0 10u' if stepped else 'tran 10u .7 .59 10u')+'\nwrdata trace.dat v(olh,oll)\nquit\n.endc\n.end\n')
-        r=subprocess.run(['ngspice','-b','deck.cir'],cwd=d,capture_output=True,text=True,timeout=600)
-        if r.returncode or 'aborted' in r.stdout+r.stderr: raise RuntimeError(r.stdout[-2000:]+r.stderr[-2000:])
-        a=np.loadtxt(p/'trace.dat')
-        if a[-1,0] < (8.299 if stepped else .699): raise RuntimeError('incomplete transient')
-        return a
-def tone(level):
-    a=run({**settings,'AMP_L':.775*np.sqrt(2)*10**(level/20)})
-    t=.6+np.arange(10000)/100000
-    y=np.interp(t,a[:,0],a[:,1])
-    h=np.abs(np.fft.rfft(y)*2/len(y))[100:2100:100]
-    return {'input_dBu':level,'output_dBu':float(20*np.log10(h[0]/(.775*np.sqrt(2)))),'THD_pct':float(100*np.linalg.norm(h[1:])/h[0]),'K2_K20_dBc':(20*np.log10(np.maximum(h[1:]/h[0],1e-15))).tolist()}
-def timing(recovery):
-    a=run({**settings,('CML' if mode=='comp' else 'LRL'):recovery},True)
-    t=np.arange(830000)/100000
-    y=np.interp(t,a[:,0],a[:,1]).reshape(-1,100)
-    phase=2*np.pi*np.arange(100)/100
-    amp=2*np.hypot(y@np.sin(phase),y@np.cos(phase))/100
-    inp=np.where((np.arange(len(amp))>=300)&(np.arange(len(amp))<1300),3.465,.1095873)
-    g=20*np.log10(np.maximum(amp,1e-15)/inp)
-    lo=float(np.median(g[200:290])); hi=float(np.median(g[1200:1290])); gr=lo-hi
-    def cross(arr,threshold,less):
-        ix=np.flatnonzero(arr<=threshold if less else arr>=threshold)
-        return float(ix[0]+.5) if len(ix) else None
-    return {'recovery_position':recovery,'GR_dB':gr,'attack_63_ms':cross(g[300:1300],lo-.632*gr,True) if gr>1 else None,'attack_90_ms':cross(g[300:1300],lo-.9*gr,True) if gr>1 else None,'release_63_ms':cross(g[1300:],hi+.632*gr,False) if gr>1 else None,'release_90_ms':cross(g[1300:],hi+.9*gr,False) if gr>1 else None}
-out={'mode':mode,'ratio_position':pos,'fast':fast,'tones':[],'timing':[],'errors':[]}
-for level in (0,5,10,15,20):
-    try: out['tones'].append(tone(level))
-    except Exception as e: out['errors'].append(str(e))
-    print(json.dumps(out),flush=True)
-if mode=='limit' or pos==4:
-    for recovery in range(1,7):
-        try: out['timing'].append(timing(recovery))
-        except Exception as e: out['errors'].append(str(e))
-        print(json.dumps(out),flush=True)
-if len(out['tones'])==5:
-    delta=out['tones'][-1]['output_dBu']-out['tones'][-3]['output_dBu']
-    out['ratio_10_to_20']=10/delta if abs(delta)>1e-9 else None
-Path('result.json').write_text(json.dumps(out,indent=2))
-print(json.dumps(out,indent=2))
+"""Measure the 609 reconstruction against the JD bench level and timing steps."""
 
-if out['errors']: sys.exit(1)
+import argparse
+import json
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
+import numpy as np
+
+from measure import CIRCUIT
+
+
+def simulate(settings, stop, signals, step=None):
+    deck = (CIRCUIT / '609.cir').read_text().rsplit('.end', 1)[0]
+    for key, value in settings.items():
+        deck, count = re.subn(r'(?<=\s)' + key + r'=[^\s{}]+(?=\s)', f'{key}={value}', deck, count=1)
+        if count != 1:
+            raise ValueError(f'Unknown fixture parameter {key}')
+    deck = re.sub(r'(?m)^\.include (\S+)', lambda m: f'.include "{CIRCUIT / m[1]}"', deck)
+    if step:
+        low, high = step
+        source = f'BINPUT SL 0 V=sin(2*pi*1000*time)*({low}+({high-low})*(u(time-0.45)-u(time-1.25)))'
+        deck = re.sub(r'(?m)^VINL .*$', source, deck)
+
+    with tempfile.TemporaryDirectory() as temporary:
+        work = Path(temporary)
+        fixture = deck + f'''
+.options method=gear reltol=0.002
+.control
+set wr_singlescale
+tran 10u {stop} {0 if step else stop-0.11} 10u
+wrdata trace.dat {signals}
+quit
+.endc
+.end
+'''
+        (work / 'deck.cir').write_text(fixture)
+        run = subprocess.run(['ngspice', '-b', 'deck.cir'], cwd=work,
+                             capture_output=True, text=True, timeout=600)
+        if run.returncode or 'aborted' in run.stdout + run.stderr:
+            raise RuntimeError((run.stdout + run.stderr)[-2000:])
+        trace = np.loadtxt(work / 'trace.dat')
+        if trace[-1, 0] < stop-0.001:
+            raise RuntimeError('Incomplete transient')
+        return trace
+
+
+def peak(level):
+    return .775*np.sqrt(2)*10**(level/20)
+
+
+def tone(settings, level):
+    trace = simulate({**settings, 'AMP_L': peak(level)}, .7, 'v(olh,oll)')
+    t = .6 + np.arange(10000)/100000
+    y = np.interp(t, trace[:, 0], trace[:, 1])
+    harmonics = np.abs(np.fft.rfft(y)*2/len(y))[100:2100:100]
+    ratio = harmonics[1:]/harmonics[0]
+    return {'input_dBu': level, 'output_dBu': float(20*np.log10(harmonics[0]/peak(0))),
+            'THD_pct': float(100*np.linalg.norm(ratio)),
+            'K2_K20_dBc': (20*np.log10(np.maximum(ratio, 1e-15))).tolist()}
+
+
+def crossing(values, threshold):
+    hits = np.flatnonzero(values >= threshold)
+    return float(hits[0]+.5) if len(hits) else None
+
+
+def times(series):
+    idle = float(np.median(series[380:430]))
+    driven = float(np.median(series[1170:1230]))
+    if abs(driven-idle) < 1e-6:
+        return dict(attack_63_ms=None, release_63_ms=None, release_90_ms=None)
+    attack = (series[450:1250]-idle)/(driven-idle)
+    release = (series[1250:]-driven)/(idle-driven)
+    return dict(attack_63_ms=crossing(attack, .632),
+                release_63_ms=crossing(release, .632),
+                release_90_ms=crossing(release, .9))
+
+
+def timing(mode, settings, recovery):
+    compress = mode == 'comp'
+    low, high = map(peak, (-30, 10) if compress else (10, 20))
+    stop = 1.25 + (1, 1.8, 2.5, 4.5, 5.5, 8)[recovery-1]
+    control = 'comp_env' if compress else 'limit_env'
+    step_settings = {**settings, ('CML' if compress else 'LRL'): recovery}
+    trace = simulate(step_settings, stop, f'v(olh,oll) v(xleft.xboard.{control})', (low, high))
+    bins = np.arange(int(stop*1000)-1)
+    t = np.arange(len(bins)*100)/100000
+    y = np.interp(t, trace[:, 0], trace[:, 1]).reshape(-1, 100)
+    envelope = np.interp(t, trace[:, 0], trace[:, 2]).reshape(-1, 100).mean(1)
+    phase = 2*np.pi*np.arange(100)/100
+    amplitude = 2*np.abs(y @ np.exp(-1j*phase))/100
+    output = 20*np.log10(np.maximum(amplitude, 1e-15)/peak(0))
+    gain = 20*np.log10(np.maximum(amplitude, 1e-15) /
+                       np.where((bins >= 450) & (bins < 1250), high, low))
+    before = float(np.median(output[380:430]))
+    return dict(recovery_position=recovery, gain=times(gain), control=times(envelope),
+                limiter_attack_within_1dB_ms=None if compress else
+                crossing(before+1-output[450:1250], 0))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('mode', choices=('comp', 'limit'))
+    parser.add_argument('ratio', type=int, choices=range(1, 6))
+    parser.add_argument('fast', type=int, choices=(0, 1))
+    args = parser.parse_args()
+    compress = args.mode == 'comp'
+    settings = {'CEL': int(compress), 'LEL': int(not compress), 'CRL': args.ratio if compress else 4,
+                'CML': 1, 'LRL': 1, 'FASTL': args.fast}
+    results = dict(mode=args.mode, ratio_position=args.ratio, fast=args.fast,
+                   tones=[], timing=[])
+    for level in (0, 5, 10, 15, 20):
+        result = tone(settings, level)
+        results['tones'].append(result)
+        print(json.dumps(result), flush=True)
+    if not compress or args.ratio == 4:
+        for recovery in range(1, 7):
+            result = timing(args.mode, settings, recovery)
+            results['timing'].append(result)
+            print(json.dumps(result), flush=True)
+    lo, hi = (0, 2) if compress else (2, 4)
+    delta = results['tones'][hi]['output_dBu']-results['tones'][lo]['output_dBu']
+    results['ratio_input_levels_dBu'] = [results['tones'][i]['input_dBu'] for i in (lo, hi)]
+    results['ratio_output_delta_dB'] = delta
+    results['ratio'] = 10/delta if delta > 0 else None
+    Path('result.json').write_text(json.dumps(results, indent=2)+'\n')
+    print(json.dumps(results, indent=2))
+
+
+if __name__ == '__main__':
+    main()
