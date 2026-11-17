@@ -62,7 +62,7 @@ bool tone(const char* label,Controls controls,double level,double frequency,doub
         const auto full=std::abs(spectrum[0][harmonic]/spectrum[0][0]);
         const auto bounded=std::abs(spectrum[1][harmonic]/spectrum[1][0]);
         if (logEven && (harmonic+1)%2==0)
-            std::printf("Nodal limiter even %d %.9f\n",harmonic+1,db(full));
+            std::printf("Nodal limiter even %.0f %d %.9f\n",frequency,harmonic+1,db(full));
         power[0]+=full*full;
         power[1]+=bounded*bounded;
         if (full>=1e-4 || bounded>=1e-4) {
@@ -166,7 +166,7 @@ int main() {
         passed=tone("Bass compressor",controls,10,hz,gainDelta) && passed;
         controls[6]=controls[15]=0;
         controls[7]=controls[16]=1;
-        passed=tone("Bass limiter",controls,20,hz,gainDelta,nullptr,hz==110) && passed;
+        passed=tone("Bass limiter",controls,20,hz,gainDelta,nullptr,true) && passed;
     }
     for (int mode:{1,2,3}) {
         passed=burst(mode,true) && passed;

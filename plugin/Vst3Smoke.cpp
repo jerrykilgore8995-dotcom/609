@@ -135,11 +135,13 @@ bool checkLimiterEven(juce::AudioProcessor& plugin) {
             !setControl(plugin,prefix+"Limit Recovery",0) ||
             !setControl(plugin,prefix+"Fast Attack",0)) return false;
     }
-    const auto spectrum=measureSpectrum(plugin,110,20);
-    for (int k=2;k<=20;k+=2) {
-        const double db=20*std::log10(std::abs(spectrum[k-1]/spectrum[0]));
-        if (!std::isfinite(db)) return false;
-        std::cout<<"Packaged limiter even "<<k<<" "<<db<<'\n';
+    for (int frequency:{65,110,250}) {
+        const auto spectrum=measureSpectrum(plugin,frequency,20);
+        for (int k=2;k<=20;k+=2) {
+            const double db=20*std::log10(std::abs(spectrum[k-1]/spectrum[0]));
+            if (!std::isfinite(db)) return false;
+            std::cout<<"Packaged limiter even "<<frequency<<" "<<k<<" "<<db<<'\n';
+        }
     }
     return true;
 }

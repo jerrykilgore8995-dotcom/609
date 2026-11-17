@@ -1,6 +1,10 @@
 #pragma once
 
 #include "LimiterEvenBasis.hpp"
+#include "LimiterEvenBandTrim00.hpp"
+#include "LimiterEvenBandTrim01.hpp"
+#include "LimiterEvenBandTrim10.hpp"
+#include "LimiterEvenBandTrim11.hpp"
 #include "LimiterEvenGrid00.hpp"
 #include "LimiterEvenGrid01.hpp"
 #include "LimiterEvenGrid10.hpp"
@@ -79,8 +83,14 @@ private:
     using Row=std::int16_t[measured::limiterEvenRank];
     void setRows(bool fast,int recovery) {
         using namespace measured;
-        if (fast) rows=recovery<3?limiterEvenGrid10[recovery]:limiterEvenGrid11[recovery-3];
-        else rows=recovery<3?limiterEvenGrid00[recovery]:limiterEvenGrid01[recovery-3];
+        const int position=recovery%3;
+        if (fast) {
+            rows=recovery<3?limiterEvenGrid10[position]:limiterEvenGrid11[position];
+            bandTrim=recovery<3?limiterEvenBandTrim10[position]:limiterEvenBandTrim11[position];
+        } else {
+            rows=recovery<3?limiterEvenGrid00[position]:limiterEvenGrid01[position];
+            bandTrim=recovery<3?limiterEvenBandTrim00[position]:limiterEvenBandTrim01[position];
+        }
     }
 
     struct Axis {int lower;double mix;};
@@ -92,7 +102,10 @@ private:
 
     void load(double frequency,double drive,double age) {
         using namespace measured;
-        const auto freq=locate(limiterEvenFrequencies,frequency);
+        double coordinate=frequency;
+        for (double anchor : limiterEvenFrequencies)
+            if (std::abs(frequency-anchor)<.2) coordinate=anchor;
+        const auto freq=locate(limiterEvenFrequencies,coordinate);
         // Avoid leaking into neighboring calibration cells due to the tiny
         // gain and frequency estimation errors on coherent sine waves.
         for (double anchor : limiterEvenLevels)
@@ -109,20 +122,23 @@ private:
         const auto ageMix=std::clamp((age-.055)/.035,0.,1.);
         const auto strength=frequencyMix*driveMix*ageMix;
 
-        std::array<double,limiterEvenRank> shape{};
-        for (int k=0;k<limiterEvenRank;++k) {
+        const auto interpolate=[&](const auto* data,int index) {
             const auto at=[&](int thresholdIndex,int frequencyIndex) {
-                const int offset=(thresholdIndex*8+frequencyIndex)*4+level.lower;
-                return std::lerp(double(rows[offset][k]),double(rows[offset+1][k]),level.mix);
+                const int row=(thresholdIndex*8+frequencyIndex)*4+level.lower;
+                return std::lerp(double(data[row][index]),double(data[row+1][index]),level.mix);
             };
             const auto lower=std::lerp(at(limit.lower,freq.lower),at(limit.lower,freq.lower+1),freq.mix);
             const auto upper=std::lerp(at(limit.lower+1,freq.lower),at(limit.lower+1,freq.lower+1),freq.mix);
-            const auto coarse=std::lerp(lower,upper,limit.mix);
+            return std::lerp(lower,upper,limit.mix);
+        };
+        std::array<double,limiterEvenRank> shape{};
+        for (int k=0;k<limiterEvenRank;++k) {
+            const auto coarse=interpolate(rows,k);
             const int exact=96+detent*2+detailLevel.lower;
             const auto detail=std::lerp(double(rows[exact][k]),double(rows[exact+1][k]),detailLevel.mix);
             shape[k]=strength*limiterEvenScale[k]*std::lerp(coarse,detail,detailMix);
         }
-        // The 110 Hz sweep uses a second fit over the 400–600 ms window.
+        // A second fit covers the 400–600 ms measurement window.
         // Apply its phase-aligned trim with a gradual onset and decay.
         const auto trimWindow=std::min(std::clamp((age-.25)/.12,0.,1.),
                                        std::clamp((.77-age)/.10,0.,1.));
@@ -134,11 +150,14 @@ private:
             const auto& trim=(*trimRows)[detent];
             const auto normalized=std::lerp(double(trim[detailLevel.lower][h]),
                                             double(trim[detailLevel.lower+1][h]),detailLevel.mix);
-            coefficients[h]=value+trimWindow*detailMix*strength*limiterEvenTrimScale[h]*normalized;
+            const auto coarse=interpolate(bandTrim,h)*limiterEvenBandTrimScale[h];
+            const auto precise=normalized*limiterEvenTrimScale[h];
+            coefficients[h]=value+trimWindow*strength*std::lerp(coarse,precise,detailMix);
         }
     }
 
     const Row* rows=measured::limiterEvenGrid00[0];
+    const std::int16_t (*bandTrim)[20]=measured::limiterEvenBandTrim00[0];
     using TrimRows=std::int16_t[23][2][20];
     const TrimRows* trimRows=&measured::limiterEvenTrim0[0];
     std::array<double,20> coefficients{};

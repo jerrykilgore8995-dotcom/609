@@ -1,4 +1,4 @@
-"""Measure the 110 Hz limiter-only benchmark in the SPICE circuit."""
+"""Measure the bass limiter-only benchmarks in the SPICE circuit."""
 
 import argparse
 import json
@@ -13,15 +13,18 @@ def main():
     parser.add_argument('--ngspice', default='ngspice')
     args = parser.parse_args()
     peak = .775 * np.sqrt(2) * 10
-    trace = simulate({'FREQ': 110, 'AMP_L': peak, 'LEL': 1, 'LTL': 9, 'LRL': 1, 'FASTL': 0},
-                     '''tran 11u .605 .39 11u
+    results = {}
+    for f in (65, 110, 250):
+        trace = simulate({'FREQ': f, 'AMP_L': peak, 'LEL': 1, 'LTL': 9, 'LRL': 1, 'FASTL': 0},
+                         """tran 11u .605 .39 11u
 wrdata trace.dat v(olh,oll)
-''', args.ngspice)
-    time = .4 + np.arange(8820) / 44100
-    signal = np.interp(time, trace[:, 0], trace[:, 1])
-    spectrum = np.abs(np.fft.rfft(signal))
-    values = {str(k): float(20*np.log10(spectrum[22*k]/spectrum[22])) for k in range(2, 21, 2)}
-    print(json.dumps(values, indent=2))
+""", args.ngspice)
+        time = .4 + np.arange(8820) / 44100
+        signal = np.interp(time, trace[:, 0], trace[:, 1])
+        spectrum = np.abs(np.fft.rfft(signal))
+        bin_ = f // 5
+        results[f] = {k: float(20*np.log10(spectrum[bin_*k]/spectrum[bin_])) for k in range(2, 21, 2)}
+    print(json.dumps(results, indent=2))
 
 
 if __name__ == '__main__':
