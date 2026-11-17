@@ -45,6 +45,7 @@ public:
         failures.store(0,std::memory_order_relaxed);
         started=false;
         position=0;
+        submitted=returned=0;
         meters={};
     }
     bool process(float* const* buffers,int count,const Controls& controls,bool offline=false,bool dry=false) {
@@ -53,19 +54,31 @@ public:
         for (int offset=0;offset<count;) {
             const int frames=std::min(count-offset,512);
             const auto end=position+frames;
-            while (offline && end-rendered.load(std::memory_order_acquire)>capacity)
+            const auto firstSource=position>delay?position-delay:0;
+            discardBefore(firstSource,rendered.load(std::memory_order_acquire));
+            while (offline && submitted+frames-returned>capacity) {
                 std::this_thread::sleep_for(std::chrono::microseconds(50));
-            if (end-rendered.load(std::memory_order_acquire)>capacity) return false;
-            for (int i=0;i<frames;++i) {
-                auto& sample=input[(position+i)&mask];
-                sample.values={buffers[0][offset+i],channels>1?buffers[1][offset+i]:0.0f};
-                sample.settings=controls;
+                discardBefore(firstSource,rendered.load(std::memory_order_acquire));
             }
-            written.store(end,std::memory_order_release);
-            wake();
-            const auto need=end>delay?end-delay:0;
-            while (offline && rendered.load(std::memory_order_acquire)<need)
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
+            const bool canSubmit=submitted+frames-returned<=capacity;
+            for (int i=0;i<frames;++i) {
+                const auto time=position+i;
+                const std::array<float,2> values{buffers[0][offset+i],channels>1?buffers[1][offset+i]:0.0f};
+                dryInput[time&mask]=values;
+                if (canSubmit) input[(submitted+i)&mask]={values,controls,time};
+            }
+            if (canSubmit) {
+                submitted+=frames;
+                written.store(submitted,std::memory_order_release);
+                wake();
+            } else complete=false;
+            if (offline) {
+                const auto endSource=end>delay?end-delay:0;
+                auto needed=returned;
+                while (needed<submitted && input[needed&mask].time<endSource) ++needed;
+                while (rendered.load(std::memory_order_acquire)<needed)
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+            }
             const auto available=rendered.load(std::memory_order_acquire);
             for (int i=0;i<frames;++i) {
                 const auto time=position+i;
@@ -74,12 +87,14 @@ public:
                     continue;
                 }
                 const auto source=time-delay;
-                const bool ready=source<available;
-                const auto index=source&mask;
+                discardBefore(source,available);
+                const auto index=returned&mask;
+                const bool ready=returned<available && input[index].time==source;
                 if (ready) meters=output[index].meter;
                 if (!ready && !dry) complete=false;
                 for (int ch=0;ch<channels;++ch)
-                    buffers[ch][offset+i]=(ready && !dry)?output[index].values[ch]:input[index].values[ch];
+                    buffers[ch][offset+i]=(ready && !dry)?output[index].values[ch]:dryInput[source&mask][ch];
+                if (ready) ++returned;
             }
             position=end;
             offset+=frames;
@@ -92,8 +107,11 @@ public:
 private:
     static constexpr std::uint64_t capacity=32768,mask=capacity-1;
     static constexpr auto stopSignal=std::numeric_limits<std::uint64_t>::max();
-    struct Input {std::array<float,2> values{};Controls settings=defaults;};
+    struct Input {std::array<float,2> values{};Controls settings=defaults;std::uint64_t time=0;};
     struct Output {std::array<float,2> values{};MeterReadings meter{};};
+    void discardBefore(std::uint64_t time,std::uint64_t available) {
+        while (returned<available && input[returned&mask].time<time) ++returned;
+    }
     void wake() {
 #ifdef _WIN32
         if (event) SetEvent(event);
@@ -130,6 +148,8 @@ private:
         }
     }
     Solver solver;
+    // The DAW clock advances even when the worker queue cannot accept a block.
+    std::array<std::array<float,2>,capacity> dryInput{};
     std::array<Input,capacity> input{};
     std::array<Output,capacity> output{};
     alignas(64) std::atomic<std::uint64_t> written{0};
@@ -137,6 +157,7 @@ private:
     std::atomic<unsigned> failures{0};
     std::thread worker;
     std::uint64_t position=0,delay=1536;
+    std::uint64_t submitted=0,returned=0;
     MeterReadings meters{};
     bool started=false;
     int channels=2;

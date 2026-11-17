@@ -14,6 +14,30 @@
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
 namespace {
+bool checkDelayedDry(const juce::String& dll) {
+    constexpr int rate=44100,blockSize=512,blocks=192;
+    mkii::native::Client reference;
+    if (!reference.open(dll.toWideCharPointer()) || !reference.prepare(rate,2,blockSize)) return false;
+    const auto latency=reference.latency();
+    const auto sample=[](int frame,int channel) {
+        return frame<0?0.0f:0.0001f*float((frame*(17+channel*4))%1021-510);
+    };
+    juce::AudioBuffer<float> block(2,blockSize);
+    int overruns=0;
+    for (int frame=0;frame<blocks*blockSize;frame+=blockSize) {
+        for (int channel=0;channel<2;++channel)
+            for (int i=0;i<blockSize;++i)
+                block.setSample(channel,i,sample(frame+i,channel));
+        if (!reference.process(block.getArrayOfWritePointers(),blockSize,mkii::native::defaults,false,true))
+            ++overruns;
+        for (int channel=0;channel<2;++channel)
+            for (int i=0;i<blockSize;++i)
+                if (block.getSample(channel,i)!=sample(frame+i-latency,channel)) return false;
+    }
+    std::cout<<"Delayed dry output stayed aligned across "<<overruns<<" overloaded callbacks\n";
+    return true;
+}
+
 bool setControl(juce::AudioProcessor& plugin,const juce::String& name,float value) {
     for (auto* parameter:plugin.getParameters()) {
         if (parameter->getName(100)!=name) continue;
@@ -63,6 +87,10 @@ int main(int argc,char** argv) {
         const auto path=juce::File::getCurrentWorkingDirectory().getChildFile("609-faceplate.png");
         juce::FileOutputStream png(path);
         if (!png.openedOk() || !juce::PNGImageFormat().writeImageToStream(image,png)) return 5;
+    }
+    if (offline && !checkDelayedDry(dll)) {
+        std::cerr<<"The delayed dry signal drifted during queue overload\n";
+        return 12;
     }
     constexpr int rate=44100,n=512,blocks=(6*rate/n);
     bool passed=true;

@@ -13,14 +13,15 @@ struct Parameter {
     const char* id;
     const char* title;
     juce::StringArray values;
+    float sweep=0;
 };
 const std::array<Parameter,9> controls{{
-    {"ct","Compress Threshold",{"-20","-18","-16","-14","-12","-10","-8","-6","-4","-2","0","+2","+4","+6","+8","+10"}},
-    {"cr","Compress Ratio",{"1.5:1","2:1","3:1","4:1","6:1"}},
-    {"cm","Compress Recovery",{"100","400","800","1500","a1","a2"}},
-    {"cg","Compress Gain",{"0","2","4","6","8","10","12","14","16","18","20"}},
-    {"lt","Limit Threshold",{"+4","+4.5","+5","+5.5","+6","+6.5","+7","+7.5","+8","+8.5","+9","+9.5","+10","+10.5","+11","+11.5","+12","+12.5","+13","+13.5","+14","+14.5","+15"}},
-    {"lr","Limit Recovery",{"50","100","200","800","a1","a2"}},
+    {"ct","Compress Threshold",{"-20","-18","-16","-14","-12","-10","-8","-6","-4","-2","0","+2","+4","+6","+8","+10"},4.65f},
+    {"cr","Compress Ratio",{"1.5:1","2:1","3:1","4:1","6:1"},2.2f},
+    {"cm","Compress Recovery",{"100","400","800","1500","a1","a2"},3.3f},
+    {"cg","Compress Gain",{"0","2","4","6","8","10","12","14","16","18","20"},3.6f},
+    {"lt","Limit Threshold",{"+4","+4.5","+5","+5.5","+6","+6.5","+7","+7.5","+8","+8.5","+9","+9.5","+10","+10.5","+11","+11.5","+12","+12.5","+13","+13.5","+14","+14.5","+15"},4.65f},
+    {"lr","Limit Recovery",{"50","100","200","800","a1","a2"},3.3f},
     {"ce","Compress In",{}},{"le","Limit In",{}},{"fast","Fast Attack",{}}
 }};
 const std::array<const char*,6> modes{"in","stereo","power","external","remote_in","remote_stereo"};
@@ -125,6 +126,9 @@ public:
             if (i<6) {
                 auto& knob=knobs[ch][i];
                 knob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+                const float centre=2*std::numbers::pi_v<float>;
+                const float halfSweep=controls[i].sweep*.5f;
+                knob.setRotaryParameters(centre-halfSweep,centre+halfSweep,true);
                 knob.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
                 knob.setPopupDisplayEnabled(true,true,this);
                 knob.setLookAndFeel(&face);
@@ -172,12 +176,12 @@ public:
             g.drawRect(juce::Rectangle<float>(88,float(y),251,98),0.8f);
             g.drawRect(juce::Rectangle<float>(345,float(y),354,98),0.8f);
             const int knobY=65+90*ch;
-            dialScale(g,130,knobY,"threshold dBu",controls[4].values,2);
-            dialScale(g,208,knobY,"recovery ms",controls[5].values,1);
-            dialScale(g,387,knobY,"threshold dBu",controls[0].values,2);
-            dialScale(g,463,knobY,"recovery ms",controls[2].values,1);
-            dialScale(g,536,knobY,"gain",controls[3].values,2);
-            dialScale(g,611,knobY,"ratio",controls[1].values,1);
+            dialScale(g,130,knobY,"threshold dBu",controls[4],2);
+            dialScale(g,208,knobY,"recovery ms",controls[5],1);
+            dialScale(g,387,knobY,"threshold dBu",controls[0],2);
+            dialScale(g,463,knobY,"recovery ms",controls[2],1);
+            dialScale(g,536,knobY,"gain",controls[3],2);
+            dialScale(g,611,knobY,"ratio",controls[1],1);
             label(g,"Limit",254,knobY+19,44,10,9);
             label(g,"In",254,knobY+29,44,10,9);
             label(g,"attack",292,knobY-43,44,10,10);
@@ -206,11 +210,11 @@ private:
         g.setFont(juce::Font(juce::FontOptions(size)));
         g.drawText(text,x,y,w,h,juce::Justification::centred);
     }
-    static void dialScale(juce::Graphics& g,int x,int y,String name,const juce::StringArray& values,int stride) {
+    static void dialScale(juce::Graphics& g,int x,int y,String name,const Parameter& parameter,int stride) {
         label(g,name,x-39,y-44,78,9,8.5f);
-        const float sweep=values.size()>12?4.65f:3.6f;
+        const auto& values=parameter.values;
         for (int i=0;i<values.size();++i) {
-            const float a=(float(i)/float(values.size()-1)-0.5f)*sweep;
+            const float a=(float(i)/float(values.size()-1)-0.5f)*parameter.sweep;
             const float dx=std::sin(a),dy=-std::cos(a);
             g.setColour(juce::Colour(0xffeeeee8));
             g.drawLine(x+24*dx,y+24*dy,x+27*dx,y+27*dy,0.75f);
@@ -262,7 +266,7 @@ private:
         g.drawLine(float(x+53),float(y+78),float(x+57),float(y+88),1);
     }
     class Face final : public juce::LookAndFeel_V4 {
-        void drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float position,float,float,juce::Slider& slider) override {
+        void drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float position,float start,float end,juce::Slider&) override {
             const juce::Point<float> center(x+w*.5f,y+h*.5f);
             const auto dial=juce::Rectangle<float>(42,42).withCentre(center);
             g.setColour(juce::Colour(0xff111821));
@@ -285,8 +289,7 @@ private:
             g.fillEllipse(cap);
             g.setColour(juce::Colour(0xff164573));
             g.drawEllipse(cap,0.65f);
-            const float sweep=(slider.getName().contains("Threshold")?4.65f:3.6f);
-            const float a=(position-.5f)*sweep;
+            const float a=start+position*(end-start);
             g.setColour(juce::Colour(0xfff1f5f7));
             const juce::Point<float> direction(std::sin(a),-std::cos(a));
             g.drawLine({center,center+direction*16.0f},1.55f);
