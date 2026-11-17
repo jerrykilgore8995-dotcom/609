@@ -54,3 +54,20 @@ The bass changes move the modeled output coupling after the time-varying gain an
 Individual bass fixtures can still differ, and some became slightly worse. The largest p95 difference among the six withheld cases was 3.75 dB. The updated 5% check applies to the five reported THD measurements at the stated settings.
 
 A second set of six bass fixtures was generated after the calibration was selected. Mean window-level p95 error against the finer-timestep nodal solver fell from 2.65 dB to 2.40 dB. Mean normalized waveform error fell from 11.01% to 9.74%. The worst case used 6:1, a −20 dBu threshold, 100 ms recovery and stereo link. SPICE confirmed the discrepancy. The calibrated build's window p95 was 10.53 dB for that stimulus, with the largest deviations around −56 dBFS in the decay. The bounded detector's left timing capacitor peaked at 11.01 V against 19.11 V in SPICE during the first burst. The finer-timestep nodal and SPICE waveforms agreed within 0.091 dB at p95 for that test.
+
+## Limiter-only even-harmonic calibration
+
+This build adds a time-dependent complex even-harmonic residual to the limiter-only bass path. The correction covers approximately 34–400 Hz and applies when the signal is coherent. The gain-reduction trajectory, compressor path and original odd-harmonic synthesis are unchanged. Regression renders for through, compressor-only and combined modes matched the previous engine sample for sample. The largest fundamental amplitude change across the limiter tone grid was 0.0035 dB.
+
+The 110 Hz benchmark uses +20 dBu input, a +8 dBu threshold, normal attack, 50 ms recovery and the 400–600 ms measurement window.
+
+| Harmonic | Previous bounded | Full nodal | SPICE | Revised bounded |
+| --- | ---: | ---: | ---: | ---: |
+| K2 | −42.98 dBc | −63.22 dBc | −65.31 dBc | −64.37 dBc |
+| K4 | −54.95 dBc | −64.70 dBc | −65.93 dBc | −65.34 dBc |
+| K6 | −59.55 dBc | −69.02 dBc | −70.51 dBc | −69.77 dBc |
+| K8 | −66.43 dBc | −73.38 dBc | −75.88 dBc | −74.68 dBc |
+
+The [normal-attack sweep](limiter-even-110-normal.csv) and [fast-attack sweep](limiter-even-110-fast.csv) give K2 through K20 for both references and both bounded builds. They cover all 23 limiter thresholds, all six recoveries, both attack positions and two input levels per setting, +8 and +12 dB above threshold. Among 5,389 even bins with either reference above −85 dBc, 42.2% could mathematically fall within 7% amplitude of both references. The revised model met that tolerance on 99.2% of those compatible bins. Across all reported bins, median absolute even-harmonic error dropped from 6.99 to 0.77 dB against the nodal solver and from 6.98 to 0.74 dB against SPICE.
+
+The two 110 Hz K2 references differ by 2.09 dB at the benchmark. The smallest possible maximum relative amplitude error is about 12%, so the calibration balances the two targets. A separate 48-case intermediate-frequency check gave a median even-harmonic error of 4.22 dB against the nodal solver, down from 7.79 dB. The 5–7% target across unmeasured input levels, frequencies and the entire plugin remains unverified. The compressor's documented deep linked 6:1 burst discrepancy is outside this limiter-only change.

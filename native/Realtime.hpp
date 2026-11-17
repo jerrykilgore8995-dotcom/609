@@ -69,7 +69,7 @@ public:
             const int lr=std::clamp(controls[off+5],1,6)-1;
             ch.ct=-20+ct*2;
             ch.lt=4+lt*.5;
-            ch.spectral.configure(static_cast<int>(ch.ct),cr+1,ch.lt,fast);
+            ch.spectral.configure(static_cast<int>(ch.ct),cr+1,ch.lt,lr,fast);
             bassTransient.configure(i,cr+1,ct+1,cm+1);
             ch.makeupDb=ch.compress?measured::makeup[cg]:0;
             const auto& compressor=measured::compressor[cr][ct];
@@ -212,7 +212,8 @@ public:
             ch.harmonicMemory+=ch.harmonicDc*(harmonics-ch.harmonicMemory);
             ch.previous=audio[i];
             const double drive=wet+harmonics-ch.harmonicMemory;
-            const double correction=ch.spectral.step(audio[i],drive,ch.compSmooth,ch.limiterReduction,ch.compress,ch.limit);
+            const double correction=ch.spectral.step(audio[i],drive,ch.compSmooth,ch.limiterReduction,ch.compress,ch.limit,
+                !linked || std::abs(limiter[0]-limiter[1])<.15);
             result[i]=active?(drive+correction)*std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
         }
         return result;

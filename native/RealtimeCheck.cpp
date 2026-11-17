@@ -32,7 +32,7 @@ struct Renderers {
     bool valid() const {return ready && full->failures()==0;}
 };
 
-bool tone(const char* label,Controls controls,double level,double frequency,double& delta, std::array<double,2>* thd=nullptr) {
+bool tone(const char* label,Controls controls,double level,double frequency,double& delta, std::array<double,2>* thd=nullptr,bool logEven=false) {
     Renderers test(controls);
     if (!test.ready) return false;
     using Bin=std::complex<double>;
@@ -61,6 +61,8 @@ bool tone(const char* label,Controls controls,double level,double frequency,doub
     for (int harmonic=1;harmonic<harmonics;++harmonic) {
         const auto full=std::abs(spectrum[0][harmonic]/spectrum[0][0]);
         const auto bounded=std::abs(spectrum[1][harmonic]/spectrum[1][0]);
+        if (logEven && (harmonic+1)%2==0)
+            std::printf("Nodal limiter even %d %.9f\n",harmonic+1,db(full));
         power[0]+=full*full;
         power[1]+=bounded*bounded;
         if (full>=1e-4 || bounded>=1e-4) {
@@ -155,7 +157,7 @@ int main() {
         const bool validHigh=tone("Limiter",controls,20,1000,high);
         passed=validLow && validHigh && std::max(std::abs(low),std::abs(high))<.2 && std::abs(low-high)<.2 && passed;
     }
-    // These held-out bass tones exercise the sidechains between frequency anchors.
+    // These bass tones exercise the compressor and limiter across frequencies.
     for (double hz:{65.,110.,250.}) {
         controls=defaults;
         controls[6]=controls[15]=1;
@@ -164,7 +166,7 @@ int main() {
         passed=tone("Bass compressor",controls,10,hz,gainDelta) && passed;
         controls[6]=controls[15]=0;
         controls[7]=controls[16]=1;
-        passed=tone("Bass limiter",controls,20,hz,gainDelta) && passed;
+        passed=tone("Bass limiter",controls,20,hz,gainDelta,nullptr,hz==110) && passed;
     }
     for (int mode:{1,2,3}) {
         passed=burst(mode,true) && passed;

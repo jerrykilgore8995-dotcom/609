@@ -27,6 +27,7 @@ jobs:
           python tools/measure.py --level 0 --level 9 > build/through.json
           python tools/measure.py --level 0 --level 10 --set CEL=1 --set CRL=4 > build/compress.json
           python tools/measure.py --level 10 --level 20 --set LEL=1 > build/limit.json
+          python tools/measure_limiter_even.py > build/limiter-even-spice.json
           for ratio in 1 2 3 4 5; do
             python tools/measure.py --level 10 --set CEL=1 --set CTL=11 --set CRL="$ratio" > "build/ratio-spice-$ratio.json"
           done
@@ -89,12 +90,14 @@ jobs:
           if ($offline -ne 0 -or $playback -ne 0) { throw "Offline status $offline, playback status $playback" }
           python tools/check_ratio_thd.py build/circuit-comparison.txt build/deck --vst3-log offline-smoke.txt --output build/ratio-thd.tsv
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/check_limiter_even.py build/circuit-comparison.txt build/deck/limiter-even-spice.json offline-smoke.txt --output build/limiter-even.tsv
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $bundle release -Recurse
-          Copy-Item 609-faceplate.png,smoke-out.txt,offline-smoke.txt,build/circuit-comparison.txt,build/ratio-thd.tsv,build/deck/*.json,README.md,docs/bounded-parity.md release
+          Copy-Item 609-faceplate.png,smoke-out.txt,offline-smoke.txt,build/circuit-comparison.txt,build/ratio-thd.tsv,build/limiter-even.tsv,build/deck/*.json,README.md,docs/bounded-parity.md,docs/limiter-even-110-*.csv release
       - uses: actions/upload-artifact@v4
         with:
-          name: 609-Bounded-THD-Calibrated-Windows-x64-VST3
+          name: 609-Real-World-Audio-Test-Windows-x64-VST3
           path: release
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -107,4 +110,5 @@ jobs:
             609-faceplate.png
             build/circuit-comparison.txt
             build/ratio-thd.tsv
+            build/limiter-even.tsv
           if-no-files-found: ignore

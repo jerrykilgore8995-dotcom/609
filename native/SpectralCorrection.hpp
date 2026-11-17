@@ -1,5 +1,6 @@
 #pragma once
 
+#include "LimiterEvenCorrection.hpp"
 #include "RatioToneTables.hpp"
 #include "SpectralTables.hpp"
 
@@ -14,22 +15,25 @@ class SpectralCorrection {
 public:
     void prepare(double sampleRate) {
         rate=sampleRate;
+        limiterEven.prepare(rate);
         powerFollow=-std::expm1(-1/(rate*.034));
         dcFollow=-std::expm1(-2*std::numbers::pi*1.1/rate);
         intensityFollow=-std::expm1(-1/(rate*.003));
     }
 
-    void configure(int threshold,int ratio,double limiterThreshold,bool fast) {
+    void configure(int threshold,int ratio,double limiterThreshold,int recovery,bool fast) {
         compThreshold=threshold;
         compRatio=ratio;
         limitThreshold=limiterThreshold;
         fastLimiter=fast;
+        limiterEven.configure(static_cast<int>((limiterThreshold-4)*2),recovery,fast);
         update=0;
     }
 
     // Track a coherent sine cycle for the measured low-level residual.
     // Gain reduction and the broadband path are processed independently.
-    double step(double input,double wet,double comp,double limit,bool compress,bool limiter) {
+    double step(double input,double wet,double comp,double limit,bool compress,bool limiter,bool linkedMatch) {
+        limiterEven.observe(input,limiter && !compress);
         samples=std::min(samples+1,static_cast<int>(rate));
         outputPower+=powerFollow*(wet*wet-outputPower);
         const double prior=previous;
@@ -69,6 +73,7 @@ public:
             const int mode=limiter && limit>comp+.02 ? 2 : compress ? 1 : 0;
             const double db=24+20*std::log10(amplitude)+roughFilterLoss(frequency);
             load(mode,frequency,db);
+            limiterDrive=db-limitThreshold;
         }
         update=(update+1)%32;
         const double sine=input/amplitude;
@@ -80,9 +85,12 @@ public:
             cosH=cosH*cosine-sinH*sine;
             sinH=next;
         }
-        const auto correction=intensity*std::sqrt(2*std::max(outputPower,0.))*value;
+        const double scale=intensity*std::sqrt(2*std::max(outputPower,0.));
+        const double correction=scale*value;
         dc+=dcFollow*(correction-dc);
-        return correction-dc;
+        const double even=limiter && !compress && linkedMatch && limit>.02
+            ?limiterEven.correction(frequency,limiterDrive,sine,cosine,scale,count):0;
+        return correction-dc+even;
     }
 
 private:
@@ -145,7 +153,8 @@ private:
     double intensity=0,intensityFollow=0,dc=0,dcFollow=0;
     int samples=0,stable=0,count=0,update=0;
     int compThreshold=0,compRatio=4;
-    double limitThreshold=8;
+    double limitThreshold=8,limiterDrive=0;
+    LimiterEvenCorrection limiterEven;
     bool fastLimiter=false;
     std::array<double,40> coefficients{};
 };
