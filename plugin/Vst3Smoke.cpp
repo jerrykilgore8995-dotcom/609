@@ -76,8 +76,8 @@ bool checkSupplyNoise(juce::AudioProcessor& plugin) {
     std::cout<<"PSU noise at 1 kHz "<<pink<<" dBFS, 60 Hz "<<hum60<<" dBFS, 120 Hz "<<hum120<<" dBFS\n";
     return std::abs(pink+96)<3.5 && std::abs(hum60+78)<.6 && std::abs(hum120+86)<.7;
 }
-std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin,double frequency,double dbu) {
-    constexpr int rate=44100,blockSize=512,duration=26460,window=8820;
+std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin,double frequency,double dbu,int duration=26460) {
+    constexpr int rate=44100,blockSize=512,window=8820;
     const double omega=2*std::numbers::pi*frequency/rate;
     const double level=std::pow(10.,(dbu-24.)/20);
     juce::AudioBuffer<float> block(2,blockSize);
@@ -144,6 +144,40 @@ bool checkLimiterEven(juce::AudioProcessor& plugin) {
         }
     }
     return true;
+}
+
+bool checkJdDistortion(juce::AudioProcessor& plugin) {
+    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0)) return false;
+    bool passed=true;
+    for (const bool compressor:{false,true}) {
+        for (int channel=1;channel<=2;++channel) {
+            const auto prefix="Channel "+juce::String(channel)+" ";
+            if (!setControl(plugin,prefix+"Limit In",!compressor) ||
+                !setControl(plugin,prefix+"Compress In",compressor) ||
+                !setControl(plugin,prefix+"Limit Threshold",8.f/22.f) ||
+                !setControl(plugin,prefix+"Limit Recovery",3.f/5.f) ||
+                !setControl(plugin,prefix+"Fast Attack",0) ||
+                !setControl(plugin,prefix+"Compress Threshold",1.f/15.f) ||
+                !setControl(plugin,prefix+"Compress Recovery",2.f/5.f) ||
+                !setControl(plugin,prefix+"Compress Ratio",1) ||
+                !setControl(plugin,prefix+"Compress Gain",1)) return false;
+        }
+        for (const bool calibrated:{false,true}) {
+            if (!setControl(plugin,"Calibrated Distortion",calibrated)) return false;
+            const auto spectrum=measureSpectrum(plugin,1000,compressor?0:22,39690);
+            double distortion=0;
+            for (std::size_t k=1;k<spectrum.size();++k) distortion+=std::norm(spectrum[k]);
+            const auto thd=100*std::sqrt(distortion)/std::abs(spectrum[0]);
+            const auto output=24+20*std::log10(2*std::abs(spectrum[0])/8820);
+            std::cout<<"JD distortion "<<(calibrated?"Calibrated":"Character")<<" "
+                     <<(compressor?"compressor":"limiter")<<" "<<thd<<" percent, output "<<output<<" dBu\n";
+            passed=passed && std::isfinite(thd) && std::isfinite(output);
+            if (calibrated && compressor) passed=passed && thd<=.20;
+            if (calibrated && !compressor) passed=passed && thd>=.36 && thd<=.48 && std::abs(output-8)<=.20;
+            if (!calibrated && !compressor) passed=passed && thd>=1;
+        }
+    }
+    return setControl(plugin,"Calibrated Distortion",0) && passed;
 }
 
 
@@ -215,16 +249,19 @@ int main(int argc,char** argv) {
                 input.setSample(c,i,static_cast<float>(t<2?cymbal:t<4?noisyBass:sustained));
             }
         }
-        const std::array<const char*,4> caseNames{"through","linked compressor","linked limiter","linked compressor and limiter"};
-        const int caseCount=layout.size()==2?4:1;
+        const std::array caseNames{"through","linked compressor","linked limiter",
+                                   "linked compressor and limiter","calibrated compressor and limiter"};
+        const int caseCount=layout.size()==2?static_cast<int>(caseNames.size()):1;
         for (int testCase=0;testCase<caseCount;++testCase) {
             auto settings=mkii::native::defaults;
+            const bool calibrated=testCase==4;
+            if (!setControl(*vst,"Calibrated Distortion",calibrated)) return 11;
             if (layout.size()==2) {
                 if (!setControl(*vst,"Stereo Link",testCase!=0?1.0f:0.0f)) return 11;
                 settings[19]=testCase!=0;
                 for (int ch=0;ch<2;++ch) {
                     const auto prefix=juce::String("Channel ")+juce::String(ch+1)+" ";
-                    const bool combined=testCase==3;
+                    const bool combined=testCase>=3;
                     const bool compress=testCase==1 || combined;
                     const bool limit=testCase==2 || combined;
                     if (!setControl(*vst,prefix+"Compress In",compress?1.0f:0.0f) ||
@@ -242,6 +279,7 @@ int main(int argc,char** argv) {
             mkii::native::Realtime reference;
             reference.prepare(rate);
             reference.control(settings);
+            reference.setCalibrated(calibrated);
             auto expected=input;
             for (int frame=0;frame<input.getNumSamples();++frame) {
                 const auto y=reference.step({input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0});
@@ -297,6 +335,8 @@ int main(int argc,char** argv) {
         std::cerr<<"PSU noise spectrum outside calibration tolerance\n";
         return 13;
     }
+    if (!setControl(*vst,"Calibrated Distortion",0)) return 11;
     if (offline && !(checkRatioThd(*vst) && checkLimiterEven(*vst))) return 12;
+    if (offline && !checkJdDistortion(*vst)) return 14;
     return passed?0:10;
 }

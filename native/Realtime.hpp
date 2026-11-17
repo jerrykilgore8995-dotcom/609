@@ -23,6 +23,9 @@ public:
         biasFollow=-std::expm1(-1/(rate*0.00940118177));
         channels={};
         previousGain={};
+        calibratedMix=0;
+        modeChange=-std::expm1(-1/(rate*.005));
+        envelopeAverage=-std::expm1(-1/(rate*.003));
         constexpr double baseRate=44100;
         const double dc=-std::expm1(-2*std::numbers::pi*1.76037857/rate);
         const double harmonicDc=-std::expm1(-2*std::numbers::pi*9/rate);
@@ -107,7 +110,12 @@ public:
         }
     }
 
+    void setCalibrated(bool enabled) {calibrated=enabled;}
+
     Frame step(Frame input) {
+        if (calibrated || calibratedMix>1e-8)
+            calibratedMix+=modeChange*(double(calibrated)-calibratedMix);
+        else calibratedMix=0;
         Frame audio{},reductions{},compressor{},limiter{};
         std::array<bool,2> compressEnabled{};
         std::array<measured::Point,2> distortion{};
@@ -198,7 +206,7 @@ public:
             const double wet=std::lerp(audio[i]*levelGain,afterTransformer,0.64284315);
             const auto& k=distortion[i];
             const double peak=std::max(ch.peak,1e-5);
-            double harmonics=0;
+            double harmonics=0,evenHarmonics=0;
             if (k.k2Cos!=0 || k.k2Sin!=0 || k.k3Cos!=0 || k.k3Sin!=0) {
                 const double h=std::numbers::pi/std::max(ch.period,2.0);
                 const double u=std::clamp(audio[i]/peak,-1.12,1.12);
@@ -207,14 +215,41 @@ public:
                 const double sin1=radius*u,cos1=radius*v;
                 const double cos2=cos1*cos1-sin1*sin1,sin2=2*sin1*cos1;
                 const double cos3=cos1*cos2-sin1*sin2,sin3=sin1*cos2+cos1*sin2;
+                evenHarmonics=peak*levelGain*(k.k2Cos*cos2-k.k2Sin*sin2);
                 harmonics=peak*levelGain*(k.k2Cos*cos2-k.k2Sin*sin2+k.k3Cos*cos3-k.k3Sin*sin3);
             }
             ch.harmonicMemory+=ch.harmonicDc*(harmonics-ch.harmonicMemory);
+            ch.evenMemory+=ch.harmonicDc*(evenHarmonics-ch.evenMemory);
             ch.previous=audio[i];
             const double drive=wet+harmonics-ch.harmonicMemory;
+            double evenCorrection=0;
             const double correction=ch.spectral.step(audio[i],drive,ch.compSmooth,ch.limiterReduction,ch.compress,ch.limit,
-                !linked || std::abs(limiter[0]-limiter[1])<.15);
-            result[i]=active?(drive+correction)*std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
+                !linked || std::abs(limiter[0]-limiter[1])<.15,evenCorrection);
+            const double bassGain=std::exp(bassCorrection[i]*.11512925464970228);
+            const double corrected=(drive+correction)*bassGain;
+            // Average out the gain-cell's cycle-to-cycle ripple. The measured
+            // character path and its feedback detector run in either mode.
+            ch.cleanGain+=envelopeAverage*(levelGain-ch.cleanGain);
+            const double cleanPreamp=ch.preampSignal*ch.cleanGain;
+            const double cleanTransformer=cleanPreamp-ch.cleanTransformerMemory;
+            ch.cleanTransformerMemory=preampLeak*ch.cleanTransformerMemory+transformerGain*cleanTransformer;
+            result[i]=active?corrected:input[i]*600/640.02;
+            if (active && calibratedMix>0 && (ch.compress || ch.limit)) {
+                // Scale the nonlinear residual against the lower-drive circuit fit.
+                const double gr=reductions[i];
+                const bool limiting=ch.limit && (!ch.compress || limiter[i]>compressor[i]);
+                const double limiterDrive=std::clamp((gr-7)/7,0.,1.);
+                const double deepLimit=std::clamp((gr-14)/3.65,0.,1.);
+                const double residual=limiting
+                    ? std::lerp(std::lerp(.49,.47,limiterDrive),.27,deepLimit)
+                    : std::lerp(.67,.20,std::clamp((gr-7.8)/9.4,0.,1.));
+                const double evenTrim=limiting
+                    ? std::lerp(std::lerp(.08,.03,limiterDrive),.11,deepLimit)-residual
+                    : 0;
+                const double clean=std::lerp(audio[i]*ch.cleanGain,cleanTransformer,.64284315)*bassGain;
+                const double even=(evenHarmonics-ch.evenMemory+evenCorrection)*bassGain;
+                result[i]=std::lerp(corrected,clean,calibratedMix*(1-residual))+calibratedMix*evenTrim*even;
+            }
         }
         return result;
     }
@@ -322,8 +357,9 @@ private:
         bool autoRelease=false;
         std::array<double,4> dcHistory{};
         std::array<std::array<double,2>,2> history{};
-        double dc=0,harmonicDc=0,harmonicMemory=0,previous=0;
+        double dc=0,harmonicDc=0,harmonicMemory=0,evenMemory=0,previous=0;
         double preampSignal=0,preampMemory=0,transformerMemory=0,bassMemory=0;
+        double cleanGain=1,cleanTransformerMemory=0;
         double limPower=0,slowPower=0,lowAudio=0,lowPower=0,transientPower=0,slowTransientPower=0,detectorBias=0;
         double peak=0,period=0,prevAbs=0,prevPrevAbs=0,prevSign=0;
         double ct=0,lt=0,makeupDb=0,makeup=0,reduction=0;
@@ -363,6 +399,8 @@ private:
     double rate=44100,detectorDrop=0,limitAverage=0,slowAverage=0,pulseFollow=0;
     double detectorLow=0,transientQuick=0,transientSlow=0;
     double preampLeak=0,transformerGain=0,biasFollow=0;
+    double calibratedMix=0,modeChange=0,envelopeAverage=0;
+    bool calibrated=false;
     bool initialized=false,active=true,linked=false;
 };
 }

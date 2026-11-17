@@ -23,6 +23,10 @@ jobs:
           git diff --exit-code circuit/switches.inc
           python tools/native_seed.py build/seed.raw
           python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+          python tools/measure_jd_distortion.py --calibrated-deck build/calibrated-circuit > build/jd-spice.json
+          mkdir -p build/calibrated
+          python tools/native_seed.py build/calibrated/seed.raw build/calibrated-circuit
+          python native/compile_deck.py build/calibrated-circuit build/calibrated/seed.raw build/calibrated/Deck.hpp
           python tools/measure.py --ac > build/response.json
           python tools/measure.py --level 0 --level 9 > build/through.json
           python tools/measure.py --level 0 --level 10 --set CEL=1 --set CRL=4 > build/compress.json
@@ -36,6 +40,7 @@ jobs:
           name: compiled-609-circuit
           path: |
             build/Deck.hpp
+            build/calibrated/Deck.hpp
             build/*.json
   windows:
     needs: circuit
@@ -60,6 +65,17 @@ jobs:
           g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck native/GenerateSolve.cpp -o build/generate.exe
           build/generate.exe build/kernel/GeneratedSolve.hpp
           g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck -I build/kernel native/RealtimeCheck.cpp -o build/realtime-check.exe
+      - name: Measure the two JD circuit references
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p build/jd-calibrated
+          g++ -std=c++20 -O3 -fno-math-errno -I build/deck -I build/kernel native/JdDistortion.cpp -o build/jd-character.exe
+          build/jd-character.exe | tee build/jd-character.tsv
+          g++ -std=c++20 -O3 -I build/deck/calibrated native/GenerateSolve.cpp -o build/jd-calibrated/generate.exe
+          build/jd-calibrated/generate.exe build/jd-calibrated/GeneratedSolve.hpp
+          g++ -std=c++20 -O3 -fno-math-errno -I build/deck/calibrated -I build/jd-calibrated native/JdDistortion.cpp -o build/jd-calibrated/measure.exe
+          build/jd-calibrated/measure.exe --calibrated | tee build/jd-calibrated.tsv
       - name: Measure circuit fidelity
         id: fidelity
         continue-on-error: true
@@ -94,7 +110,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $bundle release -Recurse
-          Copy-Item 609-faceplate.png,smoke-out.txt,offline-smoke.txt,build/circuit-comparison.txt,build/ratio-thd.tsv,build/limiter-even.tsv,build/deck/*.json,README.md,docs/bounded-parity.md,docs/limiter-even-110-*.csv release
+          Copy-Item 609-faceplate.png,smoke-out.txt,offline-smoke.txt,build/circuit-comparison.txt,build/ratio-thd.tsv,build/limiter-even.tsv,build/jd-character.tsv,build/jd-calibrated.tsv,build/deck/*.json,README.md,docs/bounded-parity.md,docs/jd-distortion.md,docs/limiter-even-110-*.csv release
       - uses: actions/upload-artifact@v4
         with:
           name: 609-Real-World-Audio-Test-Windows-x64-VST3
@@ -111,4 +127,6 @@ jobs:
             build/circuit-comparison.txt
             build/ratio-thd.tsv
             build/limiter-even.tsv
+            build/jd-character.tsv
+            build/jd-calibrated.tsv
           if-no-files-found: ignore

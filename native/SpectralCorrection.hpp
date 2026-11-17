@@ -32,7 +32,8 @@ public:
 
     // Track a coherent sine cycle for the measured low-level residual.
     // Gain reduction and the broadband path are processed independently.
-    double step(double input,double wet,double comp,double limit,bool compress,bool limiter,bool linkedMatch) {
+    double step(double input,double wet,double comp,double limit,bool compress,bool limiter,bool linkedMatch,double& evenResidual) {
+        evenResidual=0;
         limiterEven.observe(input,limiter && !compress);
         samples=std::min(samples+1,static_cast<int>(rate));
         outputPower+=powerFollow*(wet*wet-outputPower);
@@ -78,9 +79,11 @@ public:
         update=(update+1)%32;
         const double sine=input/amplitude;
         const double cosine=quadrature/amplitude;
-        double sinH=sine,cosH=cosine,value=0;
+        double sinH=sine,cosH=cosine,value=0,evenValue=0;
         for (int harmonic=0;harmonic<count;++harmonic) {
-            value+=coefficients[2*harmonic]*cosH-coefficients[2*harmonic+1]*sinH;
+            const double term=coefficients[2*harmonic]*cosH-coefficients[2*harmonic+1]*sinH;
+            value+=term;
+            if (harmonic%2) evenValue+=term;
             const auto next=sinH*cosine+cosH*sine;
             cosH=cosH*cosine-sinH*sine;
             sinH=next;
@@ -90,6 +93,9 @@ public:
         dc+=dcFollow*(correction-dc);
         const double even=limiter && !compress && linkedMatch && limit>.02
             ?limiterEven.correction(frequency,limiterDrive,sine,cosine,scale,count):0;
+        const double evenSample=scale*evenValue;
+        evenDc+=dcFollow*(evenSample-evenDc);
+        evenResidual=evenSample-evenDc+even;
         return correction-dc+even;
     }
 
@@ -148,6 +154,7 @@ private:
         }
     }
 
+    double evenDc=0;
     double rate=44100,period=0,previous=0,previousFraction=0;
     double cosStep=1,invSinStep=0,powerFollow=0,outputPower=0;
     double intensity=0,intensityFollow=0,dc=0,dcFollow=0;
