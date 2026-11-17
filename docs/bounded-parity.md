@@ -79,3 +79,22 @@ The [normal-attack sweep](limiter-even-110-normal.csv) and [fast-attack sweep](l
 The two 110 Hz K2 references differ by 2.09 dB at the benchmark. The smallest possible maximum relative amplitude error is about 12%, so the calibration balances the two targets. A separate 48-case intermediate-frequency check gave a median even-harmonic error of 3.74 dB against the nodal solver, down from 7.79 dB. The 5–7% target across unmeasured input levels, frequencies and the entire plugin remains unverified. The compressor's documented deep linked 6:1 burst discrepancy is outside this limiter-only change.
 
 The extended test frequencies were 50, 65, 90, 110, 140, 180, 250 and 320 Hz. The dual-reference grid measured 1,632 tone conditions and contained 12,882 even bins with either reference above −85 dBc. The median absolute error fell from 7.26 to 0.56 dB versus nodal and from 7.43 to 0.56 dB versus SPICE. In that grid, 52.8% of bins had overlapping 7% amplitude intervals for the two references. The revision met both references on 99.0% of those compatible bins. The Windows package verifies K2 through K8 against both references at 65, 110 and 250 Hz and prints K2 through K20.
+
+
+## Limiter distortion at the JD bench level
+
+Neve specifies 0.45% maximum limiter distortion at 1 kHz, +22 dBu input, compressor out and 800 ms recovery. The [JD handbook](https://www.thehistoryofrecording.com/Manuals/Neve/Neve%2033609jd.pdf) lists −18 dBu as the threshold, while the limiter control starts at +4 dBu. This test uses the +8 dBu detent from the separate RV4 alignment procedure. With the fixture's 40 Ω source, +22.581 dBu at the generator gives +22 dBu across the original model's input terminals.
+
+The unchanged SPICE circuit produces 1.007% THD at D14–D17 and 1.004% at the output. K3 is −39.98 dBc at the output. Freezing bridge control at its average gives 1.927% THD at a similar output level, indicating that the active limiter loop partially cancels the bridge's K3. Substituting the schematic attack and recovery resistor values gives 1.010% THD. The original realtime implementation also exaggerates K2 at approximately −43 dBc.
+
+The original small-signal T2 secondary and bridge-pad levels are −6.15 dB and −31.15 dB relative to the input terminals, close to the −6 and −31 dB markings on EX11475. A lower-drive transformer fit in SPICE demonstrates about 0.42% at the distortion bench point. The fit alters the shared bridge drive and changes hot compressor behavior. Consequently the plugin keeps the original netlist and applies a limiter-only gain-cell calibration in the bounded audio path. It reduces odd and even residuals separately. The added path uses a short gain average, with the correction faded down during rapid gain changes and bass-dominant passages. The compressor, combined, and through paths use the original render and the gain-reduction detector runs as before.
+
+| 1 kHz, +22 dBu at fixture input | Output | THD | K2 | K3 |
+| --- | ---: | ---: | ---: | ---: |
+| Original SPICE | +7.991 dBu | 1.004% | −78.2 dBc | −40.0 dBc |
+| Previous realtime engine | +8.028 dBu | 1.161% | −43.2 dBc | −41.1 dBc |
+| Calibrated realtime engine | +8.019 dBu | 0.399% | −70.8 dBc | −48.2 dBc |
+
+In local signal-step tests at 110 Hz, 1 kHz and 5 kHz, both attack settings and the 50/800 ms recovery positions kept the previous gain-reduction trajectory. The 110 Hz waveforms were identical. The first 20 ms of recovery differed in level by at most 0.043 dB across the tested cases.
+
+The Windows test also checks the +22 dBu generator convention and retains the original bass harmonic and frequency-response checks. Satisfying the published THD ceiling under this threshold assumption does not establish a hardware match across every setting.

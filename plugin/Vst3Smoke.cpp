@@ -76,9 +76,9 @@ bool checkSupplyNoise(juce::AudioProcessor& plugin) {
     std::cout<<"PSU noise at 1 kHz "<<pink<<" dBFS, 60 Hz "<<hum60<<" dBFS, 120 Hz "<<hum120<<" dBFS\n";
     return std::abs(pink+96)<3.5 && std::abs(hum60+78)<.6 && std::abs(hum120+86)<.7;
 }
-std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin,double frequency,double dbu,int rate=44100) {
+std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin,double frequency,double dbu,int rate=44100,int durationTenths=6) {
     constexpr int blockSize=512;
-    const int duration=rate*3/5,window=rate/5;
+    const int duration=rate*durationTenths/10,window=rate/5;
     const double omega=2*std::numbers::pi*frequency/rate;
     const double level=std::pow(10.,(dbu-24.)/20);
     juce::AudioBuffer<float> block(2,blockSize);
@@ -145,6 +145,36 @@ bool checkRatioThd(juce::AudioProcessor& plugin) {
         valid=std::isfinite(thd) && thd>0 && valid;
     }
     return valid;
+}
+
+bool checkLimiterDistortion(juce::AudioProcessor& plugin) {
+    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0)) return false;
+    for (int channel=1;channel<=2;++channel) {
+        const auto prefix="Channel "+juce::String(channel)+" ";
+        if (!setControl(plugin,prefix+"Compress In",0) ||
+            !setControl(plugin,prefix+"Limit In",1) ||
+            !setControl(plugin,prefix+"Limit Threshold",8.f/22.f) ||
+            !setControl(plugin,prefix+"Limit Recovery",3.f/5.f) ||
+            !setControl(plugin,prefix+"Fast Attack",0)) return false;
+    }
+
+    bool passed=true;
+    // The 40 ohm source needs 0.581 dB more to deliver +22 dBu
+    // at the terminated input of the original circuit reference.
+    for (const double sourceLevel:{22.,22.581}) {
+        const auto spectrum=measureSpectrum(plugin,1000,sourceLevel,44100,9);
+        const auto fundamental=std::abs(spectrum[0]);
+        double power=0;
+        for (std::size_t k=1;k<spectrum.size();++k) power+=std::norm(spectrum[k]);
+        const auto thd=100*std::sqrt(power)/fundamental;
+        const auto output=24+20*std::log10(2*fundamental/8820);
+        const auto k2=20*std::log10(std::abs(spectrum[1])/fundamental);
+        const auto k3=20*std::log10(std::abs(spectrum[2])/fundamental);
+        std::cout<<"Packaged limiter THD, source "<<sourceLevel<<" dBu: "<<thd
+                 <<"%, output "<<output<<" dBu, K2 "<<k2<<" dBc, K3 "<<k3<<" dBc\n";
+        passed=passed && thd>=.36 && thd<=.45 && std::abs(output-8)<=.15 && k2<=-64;
+    }
+    return passed;
 }
 
 bool checkLimiterEven(juce::AudioProcessor& plugin) {
@@ -320,5 +350,6 @@ int main(int argc,char** argv) {
     }
     if (offline && !checkThroughResponse(*vst)) return 14;
     if (offline && !(checkRatioThd(*vst) && checkLimiterEven(*vst))) return 12;
+    if (offline && !checkLimiterDistortion(*vst)) return 15;
     return passed?0:10;
 }

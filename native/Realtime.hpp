@@ -22,6 +22,8 @@ public:
         preampLeak=std::exp(-2*std::numbers::pi*.18/rate);
         transformerGain=-std::expm1(-2*std::numbers::pi*14.9953891/rate);
         biasFollow=-std::expm1(-1/(rate*0.00940118177));
+        limitGainAverage=-std::expm1(-1/(rate*.003));
+        limitTrimRelease=-std::expm1(-1/(rate*.00025));
         channels={};
         previousGain={};
         constexpr double baseRate=44100;
@@ -110,7 +112,7 @@ public:
     }
 
     Frame step(Frame input) {
-        Frame audio{},reductions{},compressor{},limiter{};
+        Frame audio{},reductions{},compressor{},limiter{},limiterBand{};
         std::array<bool,2> compressEnabled{};
         std::array<measured::Point,2> distortion{};
         for (int i=0;i<2;++i) {
@@ -141,7 +143,10 @@ public:
             ch.transientPower+=transientQuick*(squared-ch.transientPower);
             ch.slowTransientPower+=transientSlow*(squared-ch.slowTransientPower);
             const double lowFraction=std::clamp(ch.lowPower/(ch.transientPower+1e-10),0.0,1.0);
-            const double onset=std::clamp(ch.transientPower/(ch.slowTransientPower+1e-10)-1,0.,3.);
+            const double powerChange=ch.transientPower/(ch.slowTransientPower+1e-10)-1;
+            const double settled=std::clamp((.26-std::abs(powerChange))/.17,0.,1.);
+            limiterBand[i]=std::clamp((.20-lowFraction)/.10,0.,1.)*settled;
+            const double onset=std::clamp(powerChange,0.,3.);
             const double transient=lowFraction*onset;
             const double feedback=std::exp(-(previousGain[i]+.25983066*crest)*.11512925464970228);
             ch.detectorBias+=(x-ch.detectorBias)*(x>ch.detectorBias?transientQuick:transientSlow);
@@ -200,7 +205,7 @@ public:
             const double wet=std::lerp(audio[i]*levelGain,afterTransformer,0.64284315);
             const auto& k=distortion[i];
             const double peak=std::max(ch.peak,1e-5);
-            double harmonics=0;
+            double harmonics=0,evenHarmonics=0;
             if (k.k2Cos!=0 || k.k2Sin!=0 || k.k3Cos!=0 || k.k3Sin!=0) {
                 const double h=std::numbers::pi/std::max(ch.period,2.0);
                 const double u=std::clamp(audio[i]/peak,-1.12,1.12);
@@ -209,16 +214,40 @@ public:
                 const double sin1=radius*u,cos1=radius*v;
                 const double cos2=cos1*cos1-sin1*sin1,sin2=2*sin1*cos1;
                 const double cos3=cos1*cos2-sin1*sin2,sin3=sin1*cos2+cos1*sin2;
+                evenHarmonics=peak*levelGain*(k.k2Cos*cos2-k.k2Sin*sin2);
                 harmonics=peak*levelGain*(k.k2Cos*cos2-k.k2Sin*sin2+k.k3Cos*cos3-k.k3Sin*sin3);
             }
             ch.harmonicMemory+=ch.harmonicDc*(harmonics-ch.harmonicMemory);
+            ch.evenMemory+=ch.harmonicDc*(evenHarmonics-ch.evenMemory);
             ch.previous=audio[i];
             const double drive=wet+harmonics-ch.harmonicMemory;
+            double evenCorrection=0;
             const double correction=ch.spectral.step(audio[i],drive,ch.compSmooth,ch.limiterReduction,ch.compress,ch.limit,
-                !linked || std::abs(limiter[0]-limiter[1])<.15);
+                !linked || std::abs(limiter[0]-limiter[1])<.15,evenCorrection);
             const auto correctedWet=highFrequency.apply(wet,ch.highFrequencyHistory);
-            result[i]=active?(drive+correction+(correctedWet-wet))*
-                std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
+            double output=drive+correction+(correctedWet-wet);
+            ch.averagedLimiterGain+=limitGainAverage*(levelGain-ch.averagedLimiterGain);
+            const double referencePreamp=ch.preampSignal*ch.averagedLimiterGain;
+            const double referenceTransformer=referencePreamp-ch.referenceTransformerMemory;
+            ch.referenceTransformerMemory=preampLeak*ch.referenceTransformerMemory+transformerGain*referenceTransformer;
+            if (active && ch.limit && !ch.compress && (!linked || !compressEnabled[1-i])) {
+                // Isolate the nonlinear residual without changing the limiter's
+                // detector, gain trajectory, HF shelf or calibrated bass path.
+                const double gr=reductions[i];
+                const double gainMotion=std::abs(levelGain-ch.averagedLimiterGain)/std::max(levelGain,1e-6);
+                const double stationary=std::clamp((.12-gainMotion)/.07,0.,1.);
+                const double target=limiterBand[i]*stationary*std::clamp((gr-3)/3,0.,1.);
+                const double mixSpeed=target<ch.limiterTrimMix?limitTrimRelease:limitGainAverage;
+                ch.limiterTrimMix+=mixSpeed*(target-ch.limiterTrimMix);
+                const double mid=std::clamp((gr-7)/7,0.,1.);
+                const double deep=std::clamp((gr-14)/3.65,0.,1.);
+                const double odd=std::lerp(std::lerp(.49,.47,mid),.27,deep);
+                const double even=std::lerp(std::lerp(.08,.03,mid),.11,deep);
+                const double reference=std::lerp(audio[i]*ch.averagedLimiterGain,referenceTransformer,.64284315);
+                const double evenResidual=evenHarmonics-ch.evenMemory+evenCorrection;
+                output+=ch.limiterTrimMix*((1-odd)*(reference-drive-correction)+(even-odd)*evenResidual);
+            } else ch.limiterTrimMix=0;
+            result[i]=active?output*std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
         }
         return result;
     }
@@ -364,7 +393,8 @@ private:
         std::array<double,4> dcHistory{};
         std::array<std::array<double,2>,2> history{};
         std::array<double,2> highFrequencyHistory{};
-        double dc=0,harmonicDc=0,harmonicMemory=0,previous=0;
+        double dc=0,harmonicDc=0,harmonicMemory=0,evenMemory=0,previous=0;
+        double averagedLimiterGain=1,referenceTransformerMemory=0,limiterTrimMix=0;
         double preampSignal=0,preampMemory=0,transformerMemory=0,bassMemory=0;
         double limPower=0,slowPower=0,lowAudio=0,lowPower=0,transientPower=0,slowTransientPower=0,detectorBias=0;
         double peak=0,period=0,prevAbs=0,prevPrevAbs=0,prevSign=0;
@@ -405,6 +435,7 @@ private:
     Controls previousControls{};
     double rate=44100,detectorDrop=0,limitAverage=0,slowAverage=0,pulseFollow=0;
     double detectorLow=0,transientQuick=0,transientSlow=0;
+    double limitGainAverage=0,limitTrimRelease=0;
     double preampLeak=0,transformerGain=0,biasFollow=0;
     bool initialized=false,active=true,linked=false;
 };
