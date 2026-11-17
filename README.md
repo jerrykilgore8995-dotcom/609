@@ -25,6 +25,8 @@ For comparison in SPAN at 44.1 kHz, use a 4,096-point Hann FFT with 0 dB/octave
 display slope. The pink-noise target is −96 dBFS per bin near 1 kHz and the
 hum amplitudes are −78 and −86 dBFS.
 
-## Native VST3 status
+## Windows VST3
 
-The `native` and `plugin` directories contain the stereo MNA engine and Windows VST3 editor. The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks the driven solver before publishing an installable bundle. The solver prefers stable pivots, backtracks corrections at rectifier transitions and reuses recent solutions as initial estimates. The Windows workflow verifies driven operating points and paced playback before publishing.
+The VST3 uses a reduced circuit model for both live playback and offline rendering. It adds zero samples of host latency. The audio path follows the native circuit's measured magnitude and phase. A positive-peak feedback detector models the compressor timing capacitor, with the attenuation law and control detents derived from the full nodal circuit. Limiter tables use measured attenuation and low-order harmonics. The model was calibrated at 44.1 kHz using a 1 kHz reference sweep and compared against the same circuit on wideband test transients. The circuit and full nodal solver remain available as reference implementations.
+
+The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks level and transient accuracy against the full nodal circuit. It loads the built VST3 for paced 44.1 kHz / 512-sample playback, checks each callback against the 11.61 ms budget and checks the rendered samples. Download `609-Windows-x64-VST3` from a passing workflow and copy `609.vst3` to `C:\Program Files\Common Files\VST3`. The archive includes the measurements and a faceplate image.

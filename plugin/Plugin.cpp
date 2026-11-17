@@ -1,6 +1,6 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
-#include "../native/Client.hpp"
+#include "../native/Realtime.hpp"
 #include "../native/SupplyNoise.hpp"
 
 #include <algorithm>
@@ -29,25 +29,11 @@ const std::array<const char*,6> modes{"in","stereo","power","external","remote_i
 const std::array<const char*,6> modeTitles{"Bypass In","Stereo Link","Power","External Control","Remote Bypass In","Remote Stereo Link"};
 String parameterId(int channel,const char* name) {return String(channel+1)+"_"+name;}
 
-juce::File runtimePath() {
-    static const int anchor=0;
-    HMODULE module=nullptr;
-    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(&anchor),&module)) return {};
-    std::array<wchar_t,32768> path{};
-    const auto count=GetModuleFileNameW(module,path.data(),static_cast<DWORD>(path.size()));
-    if (!count || count>=path.size()) return {};
-    return juce::File(String(path.data())).getParentDirectory().getParentDirectory()
-        .getChildFile("Resources").getChildFile("609-native.dll");
-}
-
 class Compressor final : public juce::AudioProcessor {
 public:
     Compressor():AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true)
                                                  .withOutput("Output",juce::AudioChannelSet::stereo(),true)),
                  state(*this,nullptr,"Settings",parameters()) {
-        const auto runtime=runtimePath().getFullPathName();
-        engine.open(runtime.toWideCharPointer());
         for (int ch=0;ch<2;++ch) for (int i=0;i<9;++i)
             channelParams[ch][i]=state.getRawParameterValue(parameterId(ch,controls[i].id));
         for (int i=0;i<6;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
@@ -70,12 +56,13 @@ public:
         return input==layout.getMainOutputChannelSet() &&
                (input==juce::AudioChannelSet::mono() || input==juce::AudioChannelSet::stereo());
     }
-    void prepareToPlay(double rate,int block) override {
-        ready=engine.prepare(rate,getTotalNumInputChannels(),block);
+    void prepareToPlay(double rate,int) override {
+        engine.prepare(rate);
+        ready=true;
         supplyNoise.prepare(rate);
-        setLatencySamples(ready?engine.latency():0);
+        setLatencySamples(0);
     }
-    void releaseResources() override {engine.stop();ready=false;}
+    void releaseResources() override {ready=false;}
     void processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {process(audio,false);}
     void processBlockBypassed(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {process(audio,true);}
     void getStateInformation(juce::MemoryBlock& data) override {copyXmlToBinary(*state.copyState().createXml(),data);}
@@ -85,7 +72,6 @@ public:
     }
     juce::AudioProcessorValueTreeState state;
     std::array<std::atomic<float>,2> meters{};
-    std::atomic<bool> readyForPlayback{true};
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout parameters() {
         juce::AudioProcessorValueTreeState::ParameterLayout layout;
@@ -104,6 +90,7 @@ private:
     }
     void process(juce::AudioBuffer<float>& audio,bool dry) {
         if (!ready || !audio.getNumSamples()) return;
+        juce::ScopedNoDenormals noDenormals;
         mkii::native::Controls positions;
         for (int ch=0;ch<2;++ch) for (int i=0;i<9;++i)
             positions[ch*9+i]=static_cast<int>(channelParams[ch][i]->load())+(i<6?1:0);
@@ -111,15 +98,22 @@ private:
         positions[18]=modeParams[remote?4:0]->load()>0.5f;
         positions[19]=modeParams[remote?5:1]->load()>0.5f;
         positions[20]=modeParams[2]->load()>0.5f;
-        const bool complete=engine.process(audio.getArrayOfWritePointers(),audio.getNumSamples(),positions,isNonRealtime(),dry);
+        engine.control(positions);
+        auto* const left=audio.getWritePointer(0);
+        auto* const right=audio.getNumChannels()==2?audio.getWritePointer(1):nullptr;
+        for (int frame=0;frame<audio.getNumSamples();++frame) {
+            const auto wet=engine.step({left[frame],right?right[frame]:0.0});
+            if (dry) continue;
+            left[frame]=static_cast<float>(wet[0]);
+            if (right) right[frame]=static_cast<float>(wet[1]);
+        }
         if (dry || !positions[18] || !positions[20]) supplyNoise.silence();
         else supplyNoise.process(audio.getArrayOfWritePointers(),audio.getNumChannels(),audio.getNumSamples(),
                                  noiseParam->load()>0.5f);
-        readyForPlayback.store(complete && engine.failedSolves()==0);
-        const auto current=engine.readMeters();
-        for (int i=0;i<2;++i) meters[i].store(current[i]);
+        const auto current=engine.gainReduction();
+        for (int i=0;i<2;++i) meters[i].store(dry?0.0f:static_cast<float>(current[i]));
     }
-    mkii::native::Client engine;
+    mkii::native::Realtime engine;
     mkii::native::SupplyNoise supplyNoise;
     const std::atomic<float>* noiseParam=nullptr;
     std::array<std::array<const std::atomic<float>*,9>,2> channelParams{};

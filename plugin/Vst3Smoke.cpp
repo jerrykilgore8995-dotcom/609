@@ -1,9 +1,10 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include "../native/Client.hpp"
+#include "../native/Realtime.hpp"
 #include "../native/PlaybackClock.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <complex>
@@ -15,30 +16,6 @@
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
 namespace {
-bool checkDelayedDry(const juce::String& dll) {
-    constexpr int rate=44100,blockSize=512,blocks=192;
-    mkii::native::Client reference;
-    if (!reference.open(dll.toWideCharPointer()) || !reference.prepare(rate,2,blockSize)) return false;
-    const auto latency=reference.latency();
-    const auto sample=[](int frame,int channel) {
-        return frame<0?0.0f:0.0001f*float((frame*(17+channel*4))%1021-510);
-    };
-    juce::AudioBuffer<float> block(2,blockSize);
-    int overruns=0;
-    for (int frame=0;frame<blocks*blockSize;frame+=blockSize) {
-        for (int channel=0;channel<2;++channel)
-            for (int i=0;i<blockSize;++i)
-                block.setSample(channel,i,sample(frame+i,channel));
-        if (!reference.process(block.getArrayOfWritePointers(),blockSize,mkii::native::defaults,false,true))
-            ++overruns;
-        for (int channel=0;channel<2;++channel)
-            for (int i=0;i<blockSize;++i)
-                if (block.getSample(channel,i)!=sample(frame+i-latency,channel)) return false;
-    }
-    std::cout<<"Delayed dry output stayed aligned across "<<overruns<<" overloaded callbacks\n";
-    return true;
-}
-
 bool setControl(juce::AudioProcessor& plugin,const juce::String& name,float value) {
     for (auto* parameter:plugin.getParameters()) {
         if (parameter->getName(100)!=name) continue;
@@ -54,8 +31,10 @@ bool checkSupplyNoise(juce::AudioProcessor& plugin) {
     constexpr int fft=4096,pinkBin=93;
     constexpr double tau=2*std::numbers::pi;
     if (!setControl(plugin,"Stereo Link",0)) return false;
-    for (int channel=1;channel<=2;++channel)
-        if (!setControl(plugin,"Channel "+juce::String(channel)+" Limit In",0)) return false;
+    for (int channel=1;channel<=2;++channel) {
+        const auto prefix="Channel "+juce::String(channel)+" ";
+        if (!setControl(plugin,prefix+"Limit In",0) || !setControl(plugin,prefix+"Compress In",0)) return false;
+    }
 
     const auto render=[&](bool enabled,std::array<double,rate>& samples) {
         if (!setControl(plugin,"PSU Noise",enabled?1.0f:0.0f)) return false;
@@ -109,8 +88,6 @@ int main(int argc,char** argv) {
     std::cerr<<"Initializing the VST3 host\n";
     juce::ScopedJuceInitialiser_GUI gui;
     const juce::File bundle(juce::String::fromUTF8(argv[1]));
-    const auto dll=bundle.getChildFile("Contents").getChildFile("Resources")
-        .getChildFile("609-native.dll").getFullPathName();
     juce::AudioPluginFormatManager formats;
     auto format=std::make_unique<juce::VST3PluginFormat>();
     juce::OwnedArray<juce::PluginDescription> descriptions;
@@ -138,10 +115,6 @@ int main(int argc,char** argv) {
         juce::FileOutputStream png(path);
         if (!png.openedOk() || !juce::PNGImageFormat().writeImageToStream(image,png)) return 5;
     }
-    if (offline && !checkDelayedDry(dll)) {
-        std::cerr<<"The delayed dry signal drifted during queue overload\n";
-        return 12;
-    }
     constexpr int rate=44100,n=512,blocks=(6*rate/n);
     bool passed=true;
     for (const auto layout : {juce::AudioChannelSet::mono(),juce::AudioChannelSet::stereo()}) {
@@ -164,8 +137,8 @@ int main(int argc,char** argv) {
                     (0.15*std::sin(7479*w+c)+0.08*std::sin(15601*w))));
             }
         }
-        const std::array<const char*,3> caseNames{"through","linked compressor","linked limiter"};
-        const int caseCount=layout.size()==2?3:1;
+        const std::array<const char*,4> caseNames{"through","linked compressor","linked limiter","linked compressor and limiter"};
+        const int caseCount=layout.size()==2?4:1;
         for (int testCase=0;testCase<caseCount;++testCase) {
             auto settings=mkii::native::defaults;
             if (layout.size()==2) {
@@ -173,33 +146,33 @@ int main(int argc,char** argv) {
                 settings[19]=testCase!=0;
                 for (int ch=0;ch<2;++ch) {
                     const auto prefix=juce::String("Channel ")+juce::String(ch+1)+" ";
-                    const bool compress=testCase==1;
-                    const bool limit=testCase==2;
+                    const bool combined=testCase==3;
+                    const bool compress=testCase==1 || combined;
+                    const bool limit=testCase==2 || combined;
                     if (!setControl(*vst,prefix+"Compress In",compress?1.0f:0.0f) ||
                         !setControl(*vst,prefix+"Limit In",limit?1.0f:0.0f) ||
-                        !setControl(*vst,prefix+"Compress Ratio",compress?0.75f:0.0f)) return 11;
+                        !setControl(*vst,prefix+"Compress Ratio",compress?0.75f:0.0f) ||
+                        !setControl(*vst,prefix+"Compress Threshold",combined?10.f/15.f:0.f) ||
+                        !setControl(*vst,prefix+"Compress Gain",combined?.2f:0.f)) return 11;
+                    settings[ch*9]=combined?11:1;
                     settings[ch*9+1]=compress?4:1;
+                    settings[ch*9+3]=combined?3:1;
                     settings[ch*9+6]=compress;
                     settings[ch*9+7]=limit;
                 }
             }
-            mkii::native::Client reference;
-            if (!reference.open(dll.toWideCharPointer()) || !reference.prepare(rate,layout.size(),n)) {
-                std::cerr<<"Could not prepare the native runtime at "<<dll<<'\n';
-                return 7;
-            }
+            mkii::native::Realtime reference;
+            reference.prepare(rate);
+            reference.control(settings);
             auto expected=input;
-            if (!reference.process(expected.getArrayOfWritePointers(),expected.getNumSamples(),settings,true) ||
-                reference.failedSolves()!=0) {
-                std::cerr<<"Unpaced render failed. Solver failures: "<<reference.failedSolves()<<'\n';
-                return 8;
+            for (int frame=0;frame<input.getNumSamples();++frame) {
+                const auto y=reference.step({input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0});
+                for (int c=0;c<layout.size();++c) expected.setSample(c,frame,static_cast<float>(y[c]));
             }
-            reference.stop();
             vst->setNonRealtime(offline);
             vst->prepareToPlay(rate,n);
-            if (vst->getLatencySamples()!=reference.latency()) {
-                std::cerr<<"VST3 latency "<<vst->getLatencySamples()
-                         <<" differs from runtime latency "<<reference.latency()<<'\n';
+            if (vst->getLatencySamples()!=0) {
+                std::cerr<<"The realtime path should report zero added samples of latency\n";
                 return 9;
             }
             juce::AudioBuffer<float> block(layout.size(),n);
@@ -207,15 +180,21 @@ int main(int argc,char** argv) {
             mkii::native::PlaybackClock clock;
             using Clock=mkii::native::PlaybackClock::Clock;
             const auto start=Clock::now();
-            unsigned differingSamples=0;
-            double peakError=0,peakCallback=0;
+            unsigned differingSamples=0,missedDeadlines=0;
+            double peakError=0;
+            std::array<double,blocks> callbackTimes{};
+            const auto timeForFrame=[&](int frame) {
+                return start+std::chrono::duration_cast<Clock::duration>(
+                    std::chrono::duration<double>(double(frame)/rate));
+            };
             for (int frame=0;frame<blocks*n;frame+=n) {
                 for (int c=0;c<layout.size();++c) block.copyFrom(c,0,input,c,frame,n);
-                if (!offline) clock.waitUntil(start+std::chrono::duration_cast<Clock::duration>(
-                    std::chrono::duration<double>(double(frame)/rate)));
+                if (!offline) clock.waitUntil(timeForFrame(frame));
                 const auto before=Clock::now();
                 vst->processBlock(block,midi);
-                peakCallback=std::max(peakCallback,std::chrono::duration<double,std::milli>(Clock::now()-before).count());
+                const auto done=Clock::now();
+                callbackTimes[frame/n]=std::chrono::duration<double,std::milli>(done-before).count();
+                if (!offline && done>timeForFrame(frame+n)) ++missedDeadlines;
                 for (int c=0;c<layout.size();++c) {
                     for (int i=0;i<n;++i) {
                         const double value=block.getSample(c,i);
@@ -226,11 +205,14 @@ int main(int argc,char** argv) {
                 }
             }
             vst->releaseResources();
+            std::sort(callbackTimes.begin(),callbackTimes.end());
+            const auto p99=callbackTimes[(99*blocks+99)/100-1];
+            const auto peakCallback=callbackTimes.back();
             std::cout<<(offline?"Offline render, ":"Realtime playback, ")
                      <<caseNames[testCase]<<", "<<layout.size()<<" channels, 44.1 kHz / 512, peak error "<<peakError
-                     <<", mismatched samples "<<differingSamples<<", longest callback "
-                     <<peakCallback<<" ms\n";
-            passed=!differingSamples && (offline || peakCallback<1000.0*n/rate) && passed;
+                     <<", mismatched samples "<<differingSamples<<", missed deadlines "<<missedDeadlines
+                     <<", callback p99 "<<p99<<" ms, longest callback "<<peakCallback<<" ms\n";
+            passed=!differingSamples && !missedDeadlines && (offline || peakCallback<1000.0*n/rate) && passed;
         }
     }
     if (offline && !checkSupplyNoise(*vst)) {
