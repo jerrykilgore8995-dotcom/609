@@ -1,5 +1,6 @@
 #include "Circuit.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <numbers>
@@ -7,10 +8,12 @@
 #include <string_view>
 
 namespace {
-int transientProbe(int mode) {
+int transientProbe(int mode,int seconds) {
     using namespace mkii::native;
     constexpr double rate=44100;
-    constexpr int samples=44100;
+    constexpr int blockSize=512;
+    if (seconds<1 || seconds>60) return 2;
+    const int samples=static_cast<int>(rate)*seconds;
     auto controls=defaults;
     if (mode&1) {
         controls[1]=controls[10]=4;
@@ -25,29 +28,41 @@ int transientProbe(int mode) {
         const double t=i/rate,w=2*std::numbers::pi*t;
         const double attack=std::exp(-15*std::fmod(t,0.22));
         for (int ch=0;ch<2;++ch)
-            input[i][ch]=0.06*std::sin(78*w+ch)+0.05*std::sin(847*w)+attack*
-                         (0.15*std::sin(7479*w+ch)+0.08*std::sin(15601*w));
+            input[i][ch]=static_cast<float>(0.06*std::sin(78*w+ch)+0.05*std::sin(847*w)+attack*
+                         (0.15*std::sin(7479*w+ch)+0.08*std::sin(15601*w)));
     }
     Solver solver;
     if (!solver.prepare(rate)) return 2;
-    const auto start=std::chrono::steady_clock::now();
+    using Clock=std::chrono::steady_clock;
+    std::vector<double> blockTimes;
+    blockTimes.reserve(samples/blockSize+1);
     double energy=0;
-    for (const auto& frame:input) {
-        const auto output=solver.step(frame,controls);
-        energy+=output[0]*output[0]+output[1]*output[1];
+    double elapsed=0;
+    for (int frame=0;frame<samples;) {
+        const int count=std::min(samples-frame,blockSize);
+        const auto start=Clock::now();
+        for (int end=frame+count;frame<end;++frame) {
+            const auto output=solver.step(input[frame],controls);
+            energy+=output[0]*output[0]+output[1]*output[1];
+        }
+        const double ms=std::chrono::duration<double,std::milli>(Clock::now()-start).count();
+        elapsed+=ms;
+        if (count==blockSize) blockTimes.push_back(ms);
     }
-    const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()
-                    *512/samples;
-    std::printf("Stereo transient mode %d: %.3f ms per 512 samples, %u solve failures, energy %.6f\n",
-                mode,ms,solver.failures(),energy);
+    std::sort(blockTimes.begin(),blockTimes.end());
+    const auto p99=(99*blockTimes.size()+99)/100-1;
+    const double ms=elapsed*blockSize/samples;
+    std::printf("Stereo transient mode %d, %d s: %.3f ms mean, %.3f ms p99, %.3f ms max per 512 samples, "
+                "%u solve failures, %u refinements, energy %.6f\n",
+                mode,seconds,ms,blockTimes[p99],blockTimes.back(),solver.failures(),solver.refinedSamples(),energy);
     if (solver.failures() || !std::isfinite(energy) || energy<=0) return 3;
-    return ms<512000/rate?0:4;
+    return ms<1000*blockSize/rate?0:4;
 }
 }
 
 int main(int argc,char** argv) {
-    if (argc==3 && std::string_view(argv[1])=="--transient")
-        return transientProbe(std::atoi(argv[2]));
+    if ((argc==3 || argc==4) && std::string_view(argv[1])=="--transient")
+        return transientProbe(std::atoi(argv[2]),argc==4?std::atoi(argv[3]):1);
     constexpr double rate=44100;
     mkii::native::Solver solver;
     if (!solver.prepare(rate)) return 2;

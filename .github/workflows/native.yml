@@ -84,7 +84,7 @@ jobs:
           build/probe.exe 1 0 4 10 | tee build/compress-native.txt || failed=1
           build/probe.exe 0 1 1 20 | tee build/limit-native.txt || failed=1
           for mode in 0 5 6; do
-            build/probe.exe --transient "$mode" | tee "build/stereo-$mode-native.txt" || failed=1
+            build/probe.exe --transient "$mode" 6 | tee "build/stereo-$mode-native.txt" || failed=1
           done
           python tools/verify_native.py build || failed=1
           exit "$failed"
@@ -102,7 +102,8 @@ jobs:
           Copy-Item $bundle offline-preview -Recurse
           Copy-Item 609-faceplate.png,offline-smoke.txt offline-preview
           @"
-          This preview passed mono and stereo offline rendering in the Windows VST3 test host.
+          This preview passed mono and stereo offline rendering in the Windows VST3 test host,
+          including stereo linked compression and limiting.
           For REAPER, select Full-speed Offline or 1x Offline when rendering.
           Live playback can miss processing deadlines at 44.1 kHz / 512 samples.
           "@ | Set-Content offline-preview/Offline-preview.txt

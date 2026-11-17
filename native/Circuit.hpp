@@ -221,14 +221,13 @@ public:
         }
         slope=difference;
         fastConvergence=closest[0]&&closest[1];
-        if (newton(20) || continueSource(input)) {
-            accept(false);
+        const bool fullStep=newton(20) || continueSource(input);
+        const bool subdivided=!fullStep && retry(input);
+        if (fullStep || subdivided || recoverAtSampleRate(input)) {
+            if (subdivided) ++subdivisions;
+            else accept(false);
             saveGuess(input,difference);
             lastInput=input;
-        } else if (retry(input)) {
-            saveGuess(input,difference);
-            lastInput=input;
-            ++subdivisions;
         } else {
             std::copy(previous.begin(),previous.end(),x.begin());
             ++misses;
@@ -289,6 +288,17 @@ private:
             if (d.b>=0) sampleRhs[d.b]+=charge;
         }
         for (const auto& d : deck.inductance) sampleRhs[d.row]+=history1*d.q1+history2*d.q2;
+    }
+
+    bool recoverAtSampleRate(Frame input) {
+        // Retry on the original audio-sample grid after subdivision stalls.
+        // Near rectifier transitions the residual can briefly rise while the
+        // iterate crosses a conduction transition.
+        x=previous;
+        supply(input);
+        prepareHistory();
+        fastConvergence=false;
+        return newton<true>(96);
     }
 
     bool continueSource(Frame input) {
@@ -678,8 +688,10 @@ private:
         return total;
     }
 
+    template<bool recovery=false>
     bool newton(int iterations) {
         stampStep();
+        double previousMerit=0,olderMerit=0;
         for (int iter=0;iter<iterations;++iter) {
             const auto initial=merit();
             if (initial<(fastConvergence?5e-11:4e-13)) return true;
@@ -705,7 +717,7 @@ private:
             const bool close=fastConvergence
                 ? (maxNode<0.055 && maxBranch<0.00011) || (maxNode<1.5 && peakJunction(0.22,0.07)<0.021)
                 : maxNode<0.22 && peakJunction(0.22,0.07)<0.008;
-            if (close) {
+            if (!recovery && close) {
                 const auto delta=[&](int n){return n<0?0:matrix.x[n];};
                 for (int i=0;i<deck.size;++i) x[i]+=matrix.x[i];
                 for (const int at : diodeStorage) {
@@ -724,12 +736,18 @@ private:
             // Backtrack at cutoff and retain the accepted trial stamp
             // for the next factorization.
             oldIter=x;
+            double meritLimit=initial;
+            if constexpr (recovery) {
+                meritLimit=std::max({initial,previousMerit,olderMerit});
+                olderMerit=previousMerit;
+                previousMerit=initial;
+            }
             double scale=1;
             bool acceptable=false;
             for (;scale>=0.0001220703125;scale*=.5) {
                 for (int i=0;i<deck.size;++i) x[i]=oldIter[i]+scale*matrix.x[i];
                 stampStep();
-                if (merit()<(1-1e-5*scale)*initial) {acceptable=true;break;}
+                if (merit()<(1-1e-5*scale)*meritLimit) {acceptable=true;break;}
             }
             if (!acceptable) return false;
         }

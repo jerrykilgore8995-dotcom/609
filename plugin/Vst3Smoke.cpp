@@ -4,6 +4,7 @@
 #include "../native/Client.hpp"
 #include "../native/PlaybackClock.hpp"
 
+#include <array>
 #include <chrono>
 #include <iostream>
 #include <cmath>
@@ -11,6 +12,18 @@
 #include <string_view>
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
+
+namespace {
+bool setControl(juce::AudioProcessor& plugin,const juce::String& name,float value) {
+    for (auto* parameter:plugin.getParameters()) {
+        if (parameter->getName(100)!=name) continue;
+        parameter->setValueNotifyingHost(value);
+        return true;
+    }
+    std::cerr<<"VST3 parameter not found: "<<name<<'\n';
+    return false;
+}
+}
 
 int main(int argc,char** argv) {
     std::cerr<<std::unitbuf;
@@ -62,11 +75,6 @@ int main(int argc,char** argv) {
             std::cerr<<"VST3 rejected the bus layout\n";
             return 6;
         }
-        mkii::native::Client reference;
-        if (!reference.open(dll.toWideCharPointer()) || !reference.prepare(rate,layout.size(),n)) {
-            std::cerr<<"Could not prepare the native runtime at "<<dll<<'\n';
-            return 7;
-        }
         juce::AudioBuffer<float> input(layout.size(),blocks*n);
         for (int c=0;c<layout.size();++c) {
             for (int i=0;i<blocks*n;++i) {
@@ -78,48 +86,74 @@ int main(int argc,char** argv) {
                     (0.15*std::sin(7479*w+c)+0.08*std::sin(15601*w))));
             }
         }
-        auto expected=input;
-        if (!reference.process(expected.getArrayOfWritePointers(),expected.getNumSamples(),mkii::native::defaults,true) ||
-            reference.failedSolves()!=0) {
-            std::cerr<<"Unpaced render failed. Solver failures: "<<reference.failedSolves()<<'\n';
-            return 8;
-        }
-        reference.stop();
-        vst->setNonRealtime(offline);
-        vst->prepareToPlay(rate,n);
-        if (vst->getLatencySamples()!=reference.latency()) {
-            std::cerr<<"VST3 latency "<<vst->getLatencySamples()
-                     <<" differs from runtime latency "<<reference.latency()<<'\n';
-            return 9;
-        }
-        juce::AudioBuffer<float> block(layout.size(),n);
-        juce::MidiBuffer midi;
-        mkii::native::PlaybackClock clock;
-        using Clock=mkii::native::PlaybackClock::Clock;
-        const auto start=Clock::now();
-        unsigned differingSamples=0;
-        double peakError=0,peakCallback=0;
-        for (int frame=0;frame<blocks*n;frame+=n) {
-            for (int c=0;c<layout.size();++c) block.copyFrom(c,0,input,c,frame,n);
-            if (!offline) clock.waitUntil(start+std::chrono::duration_cast<Clock::duration>(
-                std::chrono::duration<double>(double(frame)/rate)));
-            const auto before=Clock::now();
-            vst->processBlock(block,midi);
-            peakCallback=std::max(peakCallback,std::chrono::duration<double,std::milli>(Clock::now()-before).count());
-            for (int c=0;c<layout.size();++c) {
-                for (int i=0;i<n;++i) {
-                    const double value=block.getSample(c,i);
-                    const double difference=std::abs(value-expected.getSample(c,frame+i));
-                    if (!std::isfinite(value) || difference>2e-5) ++differingSamples;
-                    peakError=std::max(peakError,difference);
+        const std::array<const char*,3> caseNames{"through","linked compressor","linked limiter"};
+        const int caseCount=layout.size()==2?3:1;
+        for (int testCase=0;testCase<caseCount;++testCase) {
+            auto settings=mkii::native::defaults;
+            if (layout.size()==2) {
+                if (!setControl(*vst,"Stereo Link",testCase!=0?1.0f:0.0f)) return 11;
+                settings[19]=testCase!=0;
+                for (int ch=0;ch<2;++ch) {
+                    const auto prefix=juce::String("Channel ")+juce::String(ch+1)+" ";
+                    const bool compress=testCase==1;
+                    const bool limit=testCase==2;
+                    if (!setControl(*vst,prefix+"Compress In",compress?1.0f:0.0f) ||
+                        !setControl(*vst,prefix+"Limit In",limit?1.0f:0.0f) ||
+                        !setControl(*vst,prefix+"Compress Ratio",compress?0.75f:0.0f)) return 11;
+                    settings[ch*9+1]=compress?4:1;
+                    settings[ch*9+6]=compress;
+                    settings[ch*9+7]=limit;
                 }
             }
+            mkii::native::Client reference;
+            if (!reference.open(dll.toWideCharPointer()) || !reference.prepare(rate,layout.size(),n)) {
+                std::cerr<<"Could not prepare the native runtime at "<<dll<<'\n';
+                return 7;
+            }
+            auto expected=input;
+            if (!reference.process(expected.getArrayOfWritePointers(),expected.getNumSamples(),settings,true) ||
+                reference.failedSolves()!=0) {
+                std::cerr<<"Unpaced render failed. Solver failures: "<<reference.failedSolves()<<'\n';
+                return 8;
+            }
+            reference.stop();
+            vst->setNonRealtime(offline);
+            vst->prepareToPlay(rate,n);
+            if (vst->getLatencySamples()!=reference.latency()) {
+                std::cerr<<"VST3 latency "<<vst->getLatencySamples()
+                         <<" differs from runtime latency "<<reference.latency()<<'\n';
+                return 9;
+            }
+            juce::AudioBuffer<float> block(layout.size(),n);
+            juce::MidiBuffer midi;
+            mkii::native::PlaybackClock clock;
+            using Clock=mkii::native::PlaybackClock::Clock;
+            const auto start=Clock::now();
+            unsigned differingSamples=0;
+            double peakError=0,peakCallback=0;
+            for (int frame=0;frame<blocks*n;frame+=n) {
+                for (int c=0;c<layout.size();++c) block.copyFrom(c,0,input,c,frame,n);
+                if (!offline) clock.waitUntil(start+std::chrono::duration_cast<Clock::duration>(
+                    std::chrono::duration<double>(double(frame)/rate)));
+                const auto before=Clock::now();
+                vst->processBlock(block,midi);
+                peakCallback=std::max(peakCallback,std::chrono::duration<double,std::milli>(Clock::now()-before).count());
+                for (int c=0;c<layout.size();++c) {
+                    for (int i=0;i<n;++i) {
+                        const double value=block.getSample(c,i);
+                        const double difference=std::abs(value-expected.getSample(c,frame+i));
+                        if (!std::isfinite(value) || difference>2e-5) ++differingSamples;
+                        peakError=std::max(peakError,difference);
+                    }
+                }
+            }
+            vst->releaseResources();
+            std::cout<<(offline?"Offline render, ":"Realtime playback, ")
+                     <<caseNames[testCase]<<", "<<layout.size()<<" channels, 44.1 kHz / 512, peak error "<<peakError
+                     <<", mismatched samples "<<differingSamples<<", longest callback "
+                     <<peakCallback<<" ms\n";
+            passed=!differingSamples && (offline || peakCallback<1000.0*n/rate) && passed;
         }
-        vst->releaseResources();
-        std::cout<<(offline?"Offline render, ":"Realtime playback, ")<<layout.size()<<" channels, 44.1 kHz / 512, peak error "<<peakError
-                 <<", mismatched samples "<<differingSamples<<", longest callback "
-                 <<peakCallback<<" ms\n";
-        passed=!differingSamples && (offline || peakCallback<1000.0*n/rate) && passed;
     }
     return passed?0:10;
 }
