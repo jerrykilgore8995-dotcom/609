@@ -32,7 +32,7 @@ struct Renderers {
     bool valid() const {return ready && full->failures()==0;}
 };
 
-bool tone(const char* label,Controls controls,double level,double frequency,double& delta, std::array<double,2>* thd=nullptr,bool logEven=false) {
+bool tone(const char* label,Controls controls,double level,double frequency,double& delta, std::array<double,2>* thd=nullptr,bool logEven=false,double* boundedLevel=nullptr) {
     Renderers test(controls);
     if (!test.ready) return false;
     using Bin=std::complex<double>;
@@ -54,6 +54,7 @@ bool tone(const char* label,Controls controls,double level,double frequency,doub
     const auto reference=db(2*std::abs(spectrum[0][0])/window)+24;
     const auto realtime=db(2*std::abs(spectrum[1][0])/window)+24;
     delta=realtime-reference;
+    if (boundedLevel) *boundedLevel=realtime;
     const double phase=std::arg(spectrum[1][0]/spectrum[0][0])*360/radians;
     std::printf("%s, %.0f Hz, %+.0f dBu: full %+.3f dBu, bounded %+.3f dBu, error %+.3f dB, phase %+0.3f deg\n",
                 label,frequency,level,reference,realtime,delta,phase);
@@ -132,9 +133,13 @@ bool burst(int mode,bool cymbals) {
 int main() {
     auto controls=defaults;
     bool passed=true;
-    for (const auto frequency:{20.,40.,100.,1000.,8000.,12000.,20000.}) {
-        double delta=0;
-        passed=tone("Through",controls,0,frequency,delta) && std::abs(delta)<.05 && passed;
+    double oneKhz=0,delta=0;
+    passed=tone("Through",controls,0,1000,delta,nullptr,false,&oneKhz) && std::abs(delta)<.05 && passed;
+    for (const auto frequency:{20.,40.,100.,5000.,8000.,10000.,12000.,15000.,16000.,18000.,20000.}) {
+        double level=0;
+        passed=tone("Through",controls,0,frequency,delta,nullptr,false,&level) && passed;
+        // The host-rate nodal timestep is too coarse to serve as a treble reference.
+        passed=std::abs(level-oneKhz)<=.5 && (frequency>1000 || std::abs(delta)<.05) && passed;
     }
     for (int ratio=1;ratio<=5;++ratio) {
         controls=defaults;

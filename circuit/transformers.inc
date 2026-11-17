@@ -1,12 +1,12 @@
 * Drawing winding connections with estimated electrical constants.
 * K and winding capacitances represent leakage and high-frequency loading.
-.subckt TF10016 P N S T params: BRIDGE_DRIVE=1
+.subckt TF10016 P N S T
 RP P IP 58
 LP IP N 26
 RSH S ISH 9
-LSH ISH ST {1.625*BRIDGE_DRIVE*BRIDGE_DRIVE}
+LSH ISH ST 1.625
 RSL ST ISL 9
-LSL ISL T {1.625*BRIDGE_DRIVE*BRIDGE_DRIVE}
+LSL ISL T 1.625
 KPH LP LSH .99998
 KPL LP LSL .99998
 KHL LSH LSL .99998
@@ -15,13 +15,13 @@ CS S T 180p
 .ends TF10016
 
 * Secondary windings are strapped in parallel by the EX11475 PCB.
-.subckt TF10015 P N S T params: BRIDGE_DRIVE=1 T1_PRIMARY_R=61
-RP P IP {T1_PRIMARY_R}
+.subckt TF10015 P N S T
+RP P IP 61
 LP IP N 47
 RS1 S IS1 140
 RS2 S IS2 140
-LS1 IS1 T {188/(BRIDGE_DRIVE*BRIDGE_DRIVE)}
-LS2 IS2 T {188/(BRIDGE_DRIVE*BRIDGE_DRIVE)}
+LS1 IS1 T 188
+LS2 IS2 T 188
 KPS1 LP LS1 .9999991
 KPS2 LP LS2 .9999991
 KSS LS1 LS2 .9999991

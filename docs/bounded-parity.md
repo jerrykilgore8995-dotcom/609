@@ -2,7 +2,13 @@
 
 The Windows evaluation uses the bounded audio engine for playback and offline rendering. The component-level nodal solver and SPICE deck remain the two comparison references. The evaluation keeps the original parameter IDs, faceplate and PSU Noise switch.
 
-## Results at 44.1 kHz
+## High-frequency response correction
+
+At 44.1 kHz the previous bounded build inherited the coarse nodal solver's high-frequency loss. A zero-latency shelf in the modeled audio path uses the original SPICE transfer at 10 and 20 kHz as amplitude anchors. The shelf is recalculated for the host sample rate. The netlist, detector, timing, and nonlinear calibration are unchanged. The shelf changes the audio path's high-frequency phase.
+
+At 0 dBu with the processor engaged, compressor and limiter off, and output referenced to 1 kHz, the 44.1 kHz engine measured −2.59 dB before the correction and −0.45 dB after it. The original SPICE model measured −0.44 dB. The 33609/JD handbook specifies ±0.5 dB from 20 Hz to 20 kHz. The packaged Windows test checks that tolerance at 44.1, 48 and 96 kHz.
+
+## Earlier results at 44.1 kHz
 
 | Test | Reference difference or residual |
 | --- | --- |

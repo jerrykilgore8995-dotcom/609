@@ -13,18 +13,13 @@ import numpy as np
 CIRCUIT = Path(__file__).resolve().parents[1] / 'circuit'
 
 
-def fixture_source(settings):
+def simulate(settings, command, ngspice):
     source = (CIRCUIT / '609.cir').read_text().rsplit('.end', 1)[0]
     for parameter, value in settings.items():
         source, changes = re.subn(r'(?m)(?<=\s)' + parameter + r'=[^\s{}]+(?=[\s])',
                                   lambda _: f'{parameter}={value}', source, count=1)
         if changes != 1:
             raise ValueError(f'Unknown fixture parameter {parameter}')
-    return source
-
-
-def simulate(settings, command, ngspice):
-    source = fixture_source(settings)
     source = re.sub(r'(?m)^\.include (\S+)', lambda m: f'.include "{CIRCUIT / m[1]}"', source)
     with tempfile.TemporaryDirectory() as temporary:
         work = Path(temporary)

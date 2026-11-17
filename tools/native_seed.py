@@ -10,10 +10,9 @@ import tempfile
 from measure import CIRCUIT
 
 output = Path(sys.argv[1]).resolve()
-circuit = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else CIRCUIT
 output.parent.mkdir(parents=True, exist_ok=True)
-source = (circuit / '609.cir').read_text().rsplit('.end', 1)[0]
-source = re.sub(r'(?m)^\.include (\S+)', lambda m: f'.include "{circuit / m[1]}"', source)
+source = (CIRCUIT / '609.cir').read_text().rsplit('.end', 1)[0]
+source = re.sub(r'(?m)^\.include (\S+)', lambda m: f'.include "{CIRCUIT / m[1]}"', source)
 if output.exists():
     output.unlink()
 with tempfile.TemporaryDirectory() as temporary:

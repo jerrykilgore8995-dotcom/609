@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <complex>
 #include <numbers>
 
 namespace mkii::native {
@@ -23,9 +24,6 @@ public:
         biasFollow=-std::expm1(-1/(rate*0.00940118177));
         channels={};
         previousGain={};
-        calibratedMix=0;
-        modeChange=-std::expm1(-1/(rate*.005));
-        envelopeAverage=-std::expm1(-1/(rate*.003));
         constexpr double baseRate=44100;
         const double dc=-std::expm1(-2*std::numbers::pi*1.76037857/rate);
         const double harmonicDc=-std::expm1(-2*std::numbers::pi*9/rate);
@@ -33,6 +31,7 @@ public:
         // for the current host clock. At 44.1 kHz this is an identity.
         sections[0]=retune({.87855588,-.20367940,-.04843757,-.12000398,.04963765},rate/baseRate);
         sections[1]=retune({1.,-.22176785,.05458820,-.48687517,.04769670},rate/baseRate);
+        highFrequency=fitAudioShelf();
         const double initPeriod=rate/(2*1000);
         for (auto& ch:channels) {
             ch.spectral.prepare(rate);
@@ -110,12 +109,7 @@ public:
         }
     }
 
-    void setCalibrated(bool enabled) {calibrated=enabled;}
-
     Frame step(Frame input) {
-        if (calibrated || calibratedMix>1e-8)
-            calibratedMix+=modeChange*(double(calibrated)-calibratedMix);
-        else calibratedMix=0;
         Frame audio{},reductions{},compressor{},limiter{};
         std::array<bool,2> compressEnabled{};
         std::array<measured::Point,2> distortion{};
@@ -206,7 +200,7 @@ public:
             const double wet=std::lerp(audio[i]*levelGain,afterTransformer,0.64284315);
             const auto& k=distortion[i];
             const double peak=std::max(ch.peak,1e-5);
-            double harmonics=0,evenHarmonics=0;
+            double harmonics=0;
             if (k.k2Cos!=0 || k.k2Sin!=0 || k.k3Cos!=0 || k.k3Sin!=0) {
                 const double h=std::numbers::pi/std::max(ch.period,2.0);
                 const double u=std::clamp(audio[i]/peak,-1.12,1.12);
@@ -215,41 +209,16 @@ public:
                 const double sin1=radius*u,cos1=radius*v;
                 const double cos2=cos1*cos1-sin1*sin1,sin2=2*sin1*cos1;
                 const double cos3=cos1*cos2-sin1*sin2,sin3=sin1*cos2+cos1*sin2;
-                evenHarmonics=peak*levelGain*(k.k2Cos*cos2-k.k2Sin*sin2);
                 harmonics=peak*levelGain*(k.k2Cos*cos2-k.k2Sin*sin2+k.k3Cos*cos3-k.k3Sin*sin3);
             }
             ch.harmonicMemory+=ch.harmonicDc*(harmonics-ch.harmonicMemory);
-            ch.evenMemory+=ch.harmonicDc*(evenHarmonics-ch.evenMemory);
             ch.previous=audio[i];
             const double drive=wet+harmonics-ch.harmonicMemory;
-            double evenCorrection=0;
             const double correction=ch.spectral.step(audio[i],drive,ch.compSmooth,ch.limiterReduction,ch.compress,ch.limit,
-                !linked || std::abs(limiter[0]-limiter[1])<.15,evenCorrection);
-            const double bassGain=std::exp(bassCorrection[i]*.11512925464970228);
-            const double corrected=(drive+correction)*bassGain;
-            // Average out the gain-cell's cycle-to-cycle ripple. The measured
-            // character path and its feedback detector run in either mode.
-            ch.cleanGain+=envelopeAverage*(levelGain-ch.cleanGain);
-            const double cleanPreamp=ch.preampSignal*ch.cleanGain;
-            const double cleanTransformer=cleanPreamp-ch.cleanTransformerMemory;
-            ch.cleanTransformerMemory=preampLeak*ch.cleanTransformerMemory+transformerGain*cleanTransformer;
-            result[i]=active?corrected:input[i]*600/640.02;
-            if (active && calibratedMix>0 && (ch.compress || ch.limit)) {
-                // Scale the nonlinear residual against the lower-drive circuit fit.
-                const double gr=reductions[i];
-                const bool limiting=ch.limit && (!ch.compress || limiter[i]>compressor[i]);
-                const double limiterDrive=std::clamp((gr-7)/7,0.,1.);
-                const double deepLimit=std::clamp((gr-14)/3.65,0.,1.);
-                const double residual=limiting
-                    ? std::lerp(std::lerp(.49,.47,limiterDrive),.27,deepLimit)
-                    : std::lerp(.67,.20,std::clamp((gr-7.8)/9.4,0.,1.));
-                const double evenTrim=limiting
-                    ? std::lerp(std::lerp(.08,.03,limiterDrive),.11,deepLimit)-residual
-                    : 0;
-                const double clean=std::lerp(audio[i]*ch.cleanGain,cleanTransformer,.64284315)*bassGain;
-                const double even=(evenHarmonics-ch.evenMemory+evenCorrection)*bassGain;
-                result[i]=std::lerp(corrected,clean,calibratedMix*(1-residual))+calibratedMix*evenTrim*even;
-            }
+                !linked || std::abs(limiter[0]-limiter[1])<.15);
+            const auto correctedWet=highFrequency.apply(wet,ch.highFrequencyHistory);
+            result[i]=active?(drive+correction+(correctedWet-wet))*
+                std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
         }
         return result;
     }
@@ -302,6 +271,43 @@ private:
             return y;
         }
     };
+    Biquad fitAudioShelf() const {
+        // The legacy filter fits the nodal solver at audio rate, where the
+        // integration step rolls off too early. Match the original circuit's
+        // SPICE transfer at 10 and 20 kHz in the audio path.
+        const auto amplitude=[this](double frequency) {
+            const auto z=std::polar(1.,-2*std::numbers::pi*frequency/rate);
+            const auto z2=z*z;
+            auto transfer=std::complex<double>(1);
+            for (const auto& section:sections)
+                transfer*=(section.b0+section.b1*z+section.b2*z2)/(1.+section.a1*z+section.a2*z2);
+            return std::abs(transfer);
+        };
+        const double high=std::min(20000.,.46*rate);
+        const double low=high*.5;
+        const double reference=amplitude(1000);
+        const auto desiredPower=[&](double frequency,double spiceDb) {
+            const double gain=reference/amplitude(frequency)*std::pow(10.,spiceDb/20);
+            return gain*gain;
+        };
+        const double lowPower=desiredPower(low,-.24*high/20000);
+        const double highPower=desiredPower(high,-.44*high/20000);
+        const double lowTan=std::tan(std::numbers::pi*low/rate);
+        const double highTan=std::tan(std::numbers::pi*high/rate);
+        const double lowTan4=std::pow(lowTan,4),highTan4=std::pow(highTan,4);
+        const double denominator=(lowPower-1)/lowTan4-(highPower-1)/highTan4;
+        if (denominator<=0 || highPower<=lowPower) return {};
+        // Second-order Butterworth shelf with unity DC magnitude.
+        const double corner4=(highPower-lowPower)/denominator;
+        const double corner=std::sqrt(std::sqrt(corner4));
+        const double shelf=std::sqrt(lowPower+(lowPower-1)*corner4/lowTan4);
+        const double a0=1+std::sqrt(2.)*corner+corner*corner;
+        const double tilt=std::sqrt(2*shelf)*corner;
+        return {(shelf+tilt+corner*corner)/a0,2*(corner*corner-shelf)/a0,
+                (shelf-tilt+corner*corner)/a0,2*(corner*corner-1)/a0,
+                (1-std::sqrt(2.)*corner+corner*corner)/a0};
+    }
+
     static Biquad retune(Biquad section,double ratio) {
         const double w=(1-ratio)/(1+ratio),w2=w*w;
         const double a=1+section.a1*w+section.a2*w2;
@@ -357,9 +363,9 @@ private:
         bool autoRelease=false;
         std::array<double,4> dcHistory{};
         std::array<std::array<double,2>,2> history{};
-        double dc=0,harmonicDc=0,harmonicMemory=0,evenMemory=0,previous=0;
+        std::array<double,2> highFrequencyHistory{};
+        double dc=0,harmonicDc=0,harmonicMemory=0,previous=0;
         double preampSignal=0,preampMemory=0,transformerMemory=0,bassMemory=0;
-        double cleanGain=1,cleanTransformerMemory=0;
         double limPower=0,slowPower=0,lowAudio=0,lowPower=0,transientPower=0,slowTransientPower=0,detectorBias=0;
         double peak=0,period=0,prevAbs=0,prevPrevAbs=0,prevSign=0;
         double ct=0,lt=0,makeupDb=0,makeup=0,reduction=0;
@@ -392,6 +398,7 @@ private:
     };
 
     std::array<Biquad,2> sections{};
+    Biquad highFrequency;
     std::array<Channel,2> channels{};
     BassTransient bassTransient;
     Frame previousGain{};
@@ -399,8 +406,6 @@ private:
     double rate=44100,detectorDrop=0,limitAverage=0,slowAverage=0,pulseFollow=0;
     double detectorLow=0,transientQuick=0,transientSlow=0;
     double preampLeak=0,transformerGain=0,biasFollow=0;
-    double calibratedMix=0,modeChange=0,envelopeAverage=0;
-    bool calibrated=false;
     bool initialized=false,active=true,linked=false;
 };
 }

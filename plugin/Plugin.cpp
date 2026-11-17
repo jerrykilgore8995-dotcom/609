@@ -38,7 +38,6 @@ public:
             channelParams[ch][i]=state.getRawParameterValue(parameterId(ch,controls[i].id));
         for (int i=0;i<6;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
         noiseParam=state.getRawParameterValue("noise");
-        calibratedParam=state.getRawParameterValue("calibrated");
     }
     const String getName() const override {return "609";}
     bool acceptsMidi() const override {return false;}
@@ -87,7 +86,6 @@ private:
         for (int i=0;i<6;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{modes[i],1},modeTitles[i],i==0 || i==2 || i==4));
         layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"noise",1},"PSU Noise",false));
-        layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"calibrated",1},"Calibrated Distortion",false));
         return layout;
     }
     void process(juce::AudioBuffer<float>& audio,bool dry) {
@@ -101,7 +99,6 @@ private:
         positions[19]=modeParams[remote?5:1]->load()>0.5f;
         positions[20]=modeParams[2]->load()>0.5f;
         engine.control(positions);
-        engine.setCalibrated(calibratedParam->load()>0.5f);
         auto* const left=audio.getWritePointer(0);
         auto* const right=audio.getNumChannels()==2?audio.getWritePointer(1):nullptr;
         for (int frame=0;frame<audio.getNumSamples();++frame) {
@@ -119,7 +116,6 @@ private:
     mkii::native::Realtime engine;
     mkii::native::SupplyNoise supplyNoise;
     const std::atomic<float>* noiseParam=nullptr;
-    const std::atomic<float>* calibratedParam=nullptr;
     std::array<std::array<const std::atomic<float>*,9>,2> channelParams{};
     std::array<const std::atomic<float>*,6> modeParams{};
     bool ready=false;
@@ -148,10 +144,6 @@ public:
         noise.setButtonText("PSU NOISE");
         addAndMakeVisible(noise);
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,"noise",noise));
-        calibrated.setButtonText("CALIBRATED DISTORTION");
-        calibrated.setTooltip("Off: original Character. On: calibrated diode-bridge distortion.");
-        addAndMakeVisible(calibrated);
-        toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,"calibrated",calibrated));
         setSize(1200,247);
         startTimerHz(30);
     }
@@ -168,7 +160,6 @@ public:
             for (int i=0;i<6;++i) knobs[ch][i].setBounds(x[i]-24,y-24,48,48);
             for (int i=0;i<3;++i) switches[ch][i].setBounds(sx[i]-10,y-17,20,34);
         }
-        calibrated.setBounds(829,221,206,24);
         noise.setBounds(1045,221,112,24);
         for (int i=0;i<4;++i) chassis[i].setBounds(i<2?707:1049,35+91*(i<2?i%2:1-i%2),60,61);
     }
@@ -386,7 +377,7 @@ private:
     std::array<std::array<juce::Slider,6>,2> knobs;
     std::array<std::array<juce::ToggleButton,3>,2> switches;
     std::array<juce::ToggleButton,4> chassis;
-    juce::ToggleButton noise,calibrated;
+    juce::ToggleButton noise;
     std::vector<std::unique_ptr<DialBinding>> dialBindings;
     std::vector<std::unique_ptr<ToggleBinding>> toggleBindings;
 };
