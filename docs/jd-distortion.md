@@ -8,7 +8,7 @@ Both models use a 40 Ω balanced source and 600 Ω load. Plugin measurements use
 
 At the +8 dBu limiter detent, Character SPICE measured 1.0541% at the diode bridge, 1.0504% at the amplifier input and 1.0505% at the output. At full scale in the 3:1 compressor measurement, SPICE measured 5.75% at the amplifier input and the output. The amplifier has the 15 kΩ feedback connection, C18, R40 and the switched makeup feedback network. The distortion observed at these levels originates predominantly in the bridge.
 
-The alternative fit lowers T2 secondary drive and compensates with the T1 secondary while retaining the complete diode bridge, pads, buffer and amplifier. The through gain at 1 kHz remains within 0.06 dB of unity in the fit. The fitted secondary voltage ratios relative to the Character model are 0.645 for T2 and 1.115 / 0.645 for T1. These effective ratios constrain the estimated transformer model against the bench data. Actual JD winding constants and distortion at other conditions require hardware measurements.
+The alternative fit lowers T2 secondary drive and compensates with the T1 secondary while retaining the complete diode bridge, pads, buffer and amplifier. The through gain at 1 kHz remains within 0.06 dB of unity in the fit. The fitted secondary voltage ratios relative to Character are 0.638 for T2 and 1 / 0.638 for T1. The T1 primary resistance estimate is 24.4 Ω in this fit. The winding resistance brings the through response within the handbook’s ±0.5 dB tolerance from 20 Hz to 20 kHz. Actual JD winding constants and distortion at other conditions require hardware measurements.
 
 ## Plugin switch
 
@@ -24,4 +24,4 @@ python tools/native_seed.py build/calibrated/seed.raw build/calibrated-circuit
 python native/compile_deck.py build/calibrated-circuit build/calibrated/seed.raw build/calibrated/Deck.hpp
 ```
 
-The Windows build measures both compiled circuit references and the packaged VST3. The artifact includes the six SPICE cases with per-node K2–K20 levels, the nodal and bounded comparisons, and the VST3 output and callback reports.
+The Windows build measures both compiled circuit references and the packaged VST3. The artifact includes the six SPICE cases with per-node K2–K20 levels, through response, the nodal and bounded K2–K20 comparisons, and the VST3 output and callback reports.

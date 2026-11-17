@@ -10,7 +10,7 @@ import numpy as np
 
 from measure import CIRCUIT, fixture_source, simulate
 
-CALIBRATED = {'BRIDGE_DRIVE': .645, 'BRIDGE_COMP': 1.115}
+CALIBRATED = {'BRIDGE_DRIVE': .638, 'T1_PRIMARY_R': 24.4}
 CASES = (
     ('through', 9, {}),
     ('compressor', 0, {'CEL': 1, 'CTL': 2, 'CRL': 5, 'CGL': 11, 'CML': 3}),
@@ -55,8 +55,15 @@ def main():
                    for case in CASES}
         for (key, name), future in futures.items():
             results.setdefault(key, {})[name] = future.result()
+    for key, profile in (('character', {}), ('calibrated', CALIBRATED)):
+        sweep = simulate(profile, 'ac dec 100 20 21k\nwrdata trace.dat db(v(olh,oll))', args.ngspice)
+        level_at_one_k = np.interp(np.log(1000), np.log(sweep[:, 0]), sweep[:, 1])
+        frequency = np.array([20, 30, 100, 1000, 5000, 10000, 20000])
+        response = np.interp(np.log(frequency), np.log(sweep[:, 0]), sweep[:, 1]) - level_at_one_k
+        results[key]['through_response_dB'] = dict(zip(frequency.tolist(), response.tolist()))
     bench = results['calibrated']
-    if not (.36 <= bench['limiter_8']['output']['THD_pct'] <= .45
+    if not (max(map(abs, bench['through_response_dB'].values())) <= .5
+            and .36 <= bench['limiter_8']['output']['THD_pct'] <= .45
             and bench['compressor']['output']['THD_pct'] <= .20
             and bench['through']['output']['THD_pct'] <= .075
             and abs(bench['through']['output']['level_dBu'] - 9) <= .16

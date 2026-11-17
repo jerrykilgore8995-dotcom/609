@@ -26,7 +26,9 @@ int main(int argc,char** argv) {
         Case{"hot_compressor",24,{16,3,1,1,9,1,1,0}}
     };
 
-    std::cout<<"Case\tSource\tOutput dBu\tTHD percent\n";
+    std::cout<<"Case\tSource\tOutput dBu\tTHD percent";
+    for (int k=2;k<=20;++k) std::cout<<"\tK"<<k<<" dBc";
+    std::cout<<'\n';
     bool passed=true;
     for (const auto& test:cases) {
         auto settings=defaults;
@@ -62,7 +64,10 @@ int main(int argc,char** argv) {
             for (unsigned k=1;k<bins.size();++k) sum+=std::norm(bins[k]);
             const auto output=24+20*std::log10(2*magnitude/window);
             const auto thd=100*std::sqrt(sum)/magnitude;
-            std::cout<<test.name<<'\t'<<(path?"bounded":"nodal")<<'\t'<<output<<'\t'<<thd<<'\n';
+            std::cout<<test.name<<'\t'<<(path?"bounded":"nodal")<<'\t'<<output<<'\t'<<thd;
+            for (unsigned k=1;k<bins.size();++k)
+                std::cout<<'\t'<<20*std::log10(std::max(std::abs(bins[k])/magnitude,1e-20));
+            std::cout<<'\n';
             passed=passed && std::isfinite(thd) && std::isfinite(output);
             if (!calibrated) continue;
             const std::string_view name=test.name;
