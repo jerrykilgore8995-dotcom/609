@@ -337,7 +337,7 @@ private:
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,id,button));
     }
     void timerCallback() override {
-        static constexpr std::array<juce::Rectangle<int>,2> meterBounds{{
+        static const std::array<juce::Rectangle<int>,2> meterBounds{{
             {792,26,113,101}, {914,88,113,101}
         }};
         for (int channel=0;channel<2;++channel) {
