@@ -145,6 +145,9 @@ public:
         x = deck.bias;
         previous = x;
         older = x;
+        for (auto& guess : guesses) guess.nodes=x;
+        guessCount=nextGuess=0;
+        oldIter=x;
         slope = {};
         fixed.resize(deck.constants.size());
         hostRate=rate;
@@ -190,6 +193,7 @@ public:
         if (changed) {
             for (auto& contact : deck.contact) selectContact(contact,controls);
             lastControls=controls;
+            guessCount=nextGuess=0;
         }
         supply(input);
         prepareHistory();
@@ -202,10 +206,25 @@ public:
             older[i]=previous[i];
         }
         slope=difference;
-        if (newton(12,0.16) || continueSource(input)) {
+        // A recent solution at similar input and slope can seed the
+        // junctions across rectifier transitions. The charge history and
+        // source voltages are always those of the current physical step.
+        double best=0.025;
+        const Guess* closest=nullptr;
+        for (unsigned i=0;i<guessCount;++i) {
+            const auto& g=guesses[i];
+            const double score=std::abs(g.input[0]-input[0])+std::abs(g.input[1]-input[1])
+                             +std::abs(g.delta[0]-difference[0])+std::abs(g.delta[1]-difference[1]);
+            if (score<best) {best=score;closest=&g;}
+        }
+        if (closest) std::copy(closest->nodes.begin(),closest->nodes.end(),x.begin());
+        fastConvergence=closest || !(controls[6] || controls[7] || controls[15] || controls[16]);
+        if (newton(20) || continueSource(input)) {
             accept(false);
+            saveGuess(input,difference);
             lastInput=input;
         } else if (retry(input)) {
+            saveGuess(input,difference);
             lastInput=input;
             ++subdivisions;
         } else {
@@ -235,6 +254,15 @@ public:
     double rawOutput() const { return v(deck.output[0])-v(deck.output[1]); }
 
 private:
+    struct Guess {Frame input,delta;std::vector<double> nodes;};
+    void saveGuess(Frame input,Frame delta) {
+        auto& g=guesses[nextGuess];
+        nextGuess=(nextGuess+1)%guesses.size();
+        if (guessCount<guesses.size()) ++guessCount;
+        g.input=input;
+        g.delta=delta;
+        std::copy(x.begin(),x.end(),g.nodes.begin());
+    }
     struct History { double previous, older; };
 
     template<class Operation>
@@ -272,7 +300,7 @@ private:
                 // Moving the source also changes the known-voltage
                 // contributions to the linear residual.
                 prepareHistory();
-                if (!newton(16,0.16)) break;
+                if (!newton(24)) break;
             }
             if (i>count) return true;
         }
@@ -301,7 +329,7 @@ private:
                 supply({std::lerp(lastInput[0],input[0],double(i)/count),
                         std::lerp(lastInput[1],input[1],double(i)/count)});
                 prepareHistory();
-                if (!newton(14,0.16)) {solved=false;break;}
+                if (!newton(30)) {solved=false;break;}
                 accept(false);
             }
             if (solved) break;
@@ -433,7 +461,7 @@ private:
             derivatives(d.a,d.b,d.a,d.b,inverse*d.value);
         }
         for (const auto& d : deck.inductance) {
-            current(d.row,-1,-d.value*inverse*v(d.column));
+            current(d.row,-1,-d.value*inverse*v(d.column)-history1*d.q1-history2*d.q2);
             derivatives(d.row,-1,d.column,-1,-d.value*inverse);
         }
         stampBehavior();
@@ -638,9 +666,21 @@ private:
         });
     }
 
-    bool newton(int iterations,double limit) {
+    // Scale the inductor voltage equations alongside the node currents.
+    double merit() const {
+        double total=0;
+        for (int i=0;i<deck.size;++i) {
+            const auto y=matrix.rhs[i]*(i<deck.nodes?1:0.005);
+            total+=y*y;
+        }
+        return total;
+    }
+
+    bool newton(int iterations) {
+        stampStep();
         for (int iter=0;iter<iterations;++iter) {
-            stampStep();
+            const auto initial=merit();
+            if (initial<(fastConvergence?5e-11:4e-13)) return true;
             if (!matrix.solve()) return false;
             double maxNode=0, maxBranch=0;
             for (int i=0;i<deck.nodes;++i) maxNode=std::max(maxNode,std::abs(matrix.x[i]));
@@ -660,7 +700,10 @@ private:
                 for (const auto& j:deck.jfets) {compare(j.g,j.s,1,0);compare(j.g,j.d,1,0);}
                 return maximum;
             };
-            if ((maxNode<0.055 && maxBranch<0.00011) || (maxNode<1.5 && peakJunction(0.22,0.07)<0.021)) {
+            const bool close=fastConvergence
+                ? (maxNode<0.055 && maxBranch<0.00011) || (maxNode<1.5 && peakJunction(0.22,0.07)<0.021)
+                : maxNode<0.22 && peakJunction(0.22,0.07)<0.008;
+            if (close) {
                 const auto delta=[&](int n){return n<0?0:matrix.x[n];};
                 for (int i=0;i<deck.size;++i) x[i]+=matrix.x[i];
                 for (const int at : diodeStorage) {
@@ -676,11 +719,19 @@ private:
                 }
                 return true;
             }
-            const double junctionDelta=peakJunction(0.14,0.10);
-            const double scale=junctionDelta>limit?limit/junctionDelta:1.0;
-            for (int i=0;i<deck.size;++i) x[i]+=scale*matrix.x[i];
+            // Backtrack at cutoff and retain the accepted trial stamp
+            // for the next factorization.
+            oldIter=x;
+            double scale=1;
+            bool acceptable=false;
+            for (;scale>=0.0001220703125;scale*=.5) {
+                for (int i=0;i<deck.size;++i) x[i]=oldIter[i]+scale*matrix.x[i];
+                stampStep();
+                if (merit()<(1-1e-5*scale)*initial) {acceptable=true;break;}
+            }
+            if (!acceptable) return false;
         }
-        return false;
+        return merit()<(fastConvergence?1e-10:1e-12);
     }
 
     void accept(bool dc) {
@@ -726,6 +777,10 @@ private:
     std::vector<History> savedHistory;
     double inverse=0,history1=0,history2=0;
     double hostRate=0;
+    std::array<Guess,64> guesses;
+    unsigned guessCount=0,nextGuess=0;
+    bool fastConvergence=false;
+    std::vector<double> oldIter;
     Frame lastInput{},slope{};
     std::vector<double> older;
     Controls lastControls=defaults;

@@ -16,4 +16,4 @@ The circuit is undergoing bench validation. See the reference notes for the rema
 
 ## Native VST3 status
 
-The `native` and `plugin` directories contain the stereo MNA engine and Windows VST3 editor. The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks the driven solver before publishing an installable bundle. The current solver has a throughput and convergence failure under program-dependent limiting. The repository contains measurements and source while those tests are being resolved.
+The `native` and `plugin` directories contain the stereo MNA engine and Windows VST3 editor. The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks the driven solver before publishing an installable bundle. The solver prefers stable pivots, backtracks corrections at rectifier transitions and reuses recent solutions as initial estimates. The Windows workflow verifies driven operating points and paced playback before publishing.

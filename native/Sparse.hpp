@@ -54,13 +54,15 @@ public:
                     rowMax[row] = std::max(rowMax[row], std::abs(v(row,col)));
                 }
             }
-            int pr = -1, pc = -1, best = size * size;
+            int pr = -1, pc = -1, best = 2*size*size;
             double tie = -1.0;
             for (int row = 0; row < size; ++row) if (liveRows[row]) {
                 for (int col = 0; col < size; ++col) if (liveColumns[col] && has(row,col)) {
                     const double pivot = std::abs(v(row,col));
                     if (pivot < 1e-17 || pivot < 0.01 * colMax[col]) continue;
-                    const int cost = (rowCount[row]-1) * (colCount[col]-1);
+                    // Prefer self-admittances to off-diagonal transistor
+                    // gains which can disappear as the device cuts off.
+                    const int cost = (rowCount[row]-1) * (colCount[col]-1) + (row!=col?size*size:0);
                     const double scaled = pivot / (rowMax[row] + 1e-30);
                     if (cost < best || (cost == best && scaled > tie)) {
                         best = cost;
