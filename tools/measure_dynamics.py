@@ -8,9 +8,9 @@ settings={'CEL':int(mode=='comp'),'LEL':int(mode=='limit'),'CRL':pos if mode=='c
 def run(settings, stepped=False):
     s=(CIRCUIT/'609.cir').read_text().rsplit('.end',1)[0]
     for k,v in settings.items():
-        s,n=re.subn(r'(?<=\\s)'+k+r'=[^\\s{}]+(?=\\s)',f'{k}={v}',s,count=1)
+        s,n=re.subn(r'(?<=\s)'+k+r'=[^\s{}]+(?=\s)',f'{k}={v}',s,count=1)
         assert n==1,k
-    s=re.sub(r'(?m)^\\.include (\\S+)',lambda m:f'.include "{CIRCUIT/m[1]}"',s)
+    s=re.sub(r'(?m)^\.include (\S+)',lambda m:f'.include "{CIRCUIT/m[1]}"',s)
     if stepped:
         s=re.sub(r'(?m)^VINL .*$', 'BINPUT SL 0 V=sin(2*pi*1000*time)*(0.1095873+ (3.465-0.1095873)*(u(time-0.3)-u(time-1.3)))',s)
     with tempfile.TemporaryDirectory() as d:
@@ -55,3 +55,5 @@ if len(out['tones'])==5:
     out['ratio_10_to_20']=10/delta if abs(delta)>1e-9 else None
 Path('result.json').write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2))
+
+if out['errors']: sys.exit(1)
