@@ -1,0 +1,46 @@
+name: Neve factory DLL bench
+on:
+  push:
+    branches: [neve-factory-dll-bench]
+    paths: ['.github/workflows/neve-factory-bench.yml','plugin/NeveFactoryBench.cpp']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  bench:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-Real-World-Audio-Test-Windows-x64-VST3
+          run-id: 44042052400
+          github-token: ${{ github.token }}
+          path: existing-binary
+      - name: Build independent VST3 host only
+        shell: pwsh
+        run: |
+          $cm = Get-Content plugin/CMakeLists.txt -Raw
+          $cm = $cm.Replace('Vst3Smoke.cpp Plugin.cpp','NeveFactoryBench.cpp')
+          Set-Content plugin/CMakeLists.txt $cm
+          cmake -S plugin -B bench-build -A x64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build bench-build --config Release --target Vst3Smoke --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Measure downloaded VST3 binary
+        shell: pwsh
+        run: |
+          $bundle = (Resolve-Path "existing-binary/609.vst3").Path
+          $dll = Get-ChildItem $bundle -Recurse -File | Where-Object { $_.Name -eq '609.vst3' } | Select-Object -First 1
+          Get-FileHash $dll.FullName -Algorithm SHA256 | Format-List
+          $test = (Resolve-Path "bench-build/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
+          & $test $bundle 2>&1 | Tee-Object -FilePath neve-factory-results.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Neve-factory-DLL-results
+          path: neve-factory-results.txt
+          if-no-files-found: warn
