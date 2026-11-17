@@ -135,6 +135,7 @@ struct Circuit {
     std::vector<Q> bjts;
     std::vector<J> jfets;
     std::vector<double> bias;
+    std::vector<unsigned char> channel;
 };
 #include "Deck.hpp"
 
@@ -198,27 +199,28 @@ public:
         supply(input);
         prepareHistory();
         const Frame difference{input[0]-lastInput[0],input[1]-lastInput[1]};
-        const double denominator=slope[0]*slope[0]+slope[1]*slope[1];
-        const double prediction=changed||denominator<1e-12?0.0:std::clamp(
-            (difference[0]*slope[0]+difference[1]*slope[1])/denominator,-1.5,1.5);
+        // The two audio signals can have different slopes. Seed each
+        // channel from its own history, then solve the coupled network.
+        Frame prediction{},best{.013,.013};
+        std::array<const Guess*,2> closest{};
+        for (int ch=0;ch<2;++ch)
+            prediction[ch]=changed || std::abs(slope[ch])<1e-6?0.0:
+                std::clamp(difference[ch]/slope[ch],-1.5,1.5);
+        for (unsigned i=0;i<guessCount;++i) {
+            const auto& g=guesses[i];
+            for (int ch=0;ch<2;++ch) {
+                const double score=std::abs(g.input[ch]-input[ch])+std::abs(g.delta[ch]-difference[ch]);
+                if (score<best[ch]) {best[ch]=score;closest[ch]=&g;}
+            }
+        }
         for (int i=0;i<deck.size;++i) {
-            x[i]=previous[i]+prediction*(previous[i]-older[i]);
+            const int ch=deck.channel[i];
+            x[i]=closest[ch]?closest[ch]->nodes[i]:
+                previous[i]+prediction[ch]*(previous[i]-older[i]);
             older[i]=previous[i];
         }
         slope=difference;
-        // A recent solution at similar input and slope can seed the
-        // junctions across rectifier transitions. The charge history and
-        // source voltages are always those of the current physical step.
-        double best=0.025;
-        const Guess* closest=nullptr;
-        for (unsigned i=0;i<guessCount;++i) {
-            const auto& g=guesses[i];
-            const double score=std::abs(g.input[0]-input[0])+std::abs(g.input[1]-input[1])
-                             +std::abs(g.delta[0]-difference[0])+std::abs(g.delta[1]-difference[1]);
-            if (score<best) {best=score;closest=&g;}
-        }
-        if (closest) std::copy(closest->nodes.begin(),closest->nodes.end(),x.begin());
-        fastConvergence=closest || !(controls[6] || controls[7] || controls[15] || controls[16]);
+        fastConvergence=closest[0]&&closest[1];
         if (newton(20) || continueSource(input)) {
             accept(false);
             saveGuess(input,difference);

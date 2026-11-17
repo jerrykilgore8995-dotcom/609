@@ -83,6 +83,9 @@ jobs:
           build/probe.exe | tee build/through-native.txt || failed=1
           build/probe.exe 1 0 4 10 | tee build/compress-native.txt || failed=1
           build/probe.exe 0 1 1 20 | tee build/limit-native.txt || failed=1
+          for mode in 0 5 6; do
+            build/probe.exe --transient "$mode" | tee "build/stereo-$mode-native.txt" || failed=1
+          done
           python tools/verify_native.py build || failed=1
           exit "$failed"
       - name: Test the packaged VST3 in a Windows host

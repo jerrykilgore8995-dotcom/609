@@ -244,11 +244,22 @@ def bias(name):
 def fmt(x):
     return format(x,".17g")
 
+def channel_owner(name):
+    left_ports = {"ilh", "ill", "olh", "oll", "lctl", "meterl"}
+    right_ports = {"irh", "irl", "orh", "orl", "rctl", "meterr"}
+    if name.startswith("xleft.") or name in left_ports:
+        return 0
+    if name.startswith("xright.") or name in right_ports:
+        return 1
+    raise ValueError(f"Unknown channel for {name}")
+
+
 cpp = ["// Generated from 609.cir and the schematic transcriptions.",
        "inline void loadDeck(Circuit& c) {", f"    c.nodes = {len(nodes)};",
        f"    c.size = {len(variables)};",
        f"    c.output = {{{ix('olh')},{ix('oll')},{ix('orh')},{ix('orl')}}};",
        f"    c.meter = {{{ix('meterl')},{ix('meterr')}}};",
+       "    c.channel = {" + ", ".join(str(channel_owner(k)) for k in variables) + "};",
        "    c.bias = {" + ", ".join(fmt(bias(k)) for k in variables) + "};"]
 for kind,value in known.values():
     cpp.append(f"    c.constants.push_back({{{kind}, {fmt(value)}}});")
