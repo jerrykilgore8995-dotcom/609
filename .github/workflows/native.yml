@@ -57,22 +57,12 @@ jobs:
           build/generate.exe build/kernel/GeneratedSolve.hpp
           g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -pthread -I build/deck -I build/kernel -shared -static native/Runtime.cpp -o build/609-native.dll
           g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck -I build/kernel native/Probe.cpp -o build/probe.exe
-      - uses: actions/cache/restore@v4
-        with:
-          path: build-plugin
-          key: 609-vst3-v1-${{ github.sha }}
-          restore-keys: 609-vst3-v1-
       - name: Build the VST3 and test host
         shell: pwsh
         run: |
           cmake -S plugin -B build-plugin -A x64
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
-      - uses: actions/cache/save@v4
-        continue-on-error: true
-        with:
-          path: build-plugin
-          key: 609-vst3-v1-${{ github.sha }}
       - name: Record convergence and processing time under drive
         id: cases
         continue-on-error: true
@@ -98,6 +88,15 @@ jobs:
           $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
           & $test $bundle --offline 2>&1 | Tee-Object -FilePath offline-smoke.txt
           if ($LASTEXITCODE -ne 0) { throw "Offline VST3 test exited with code $LASTEXITCODE" }
+          $report = Get-Content offline-smoke.txt -Raw
+          foreach ($mode in "linked compressor", "linked limiter") {
+            if ($report -notmatch "Offline render, $mode, 2 channels") {
+              throw "Missing offline validation for $mode"
+            }
+          }
+          if ($report -notmatch "Delayed dry output stayed aligned") {
+            throw "Missing overload validation"
+          }
           New-Item -ItemType Directory -Force offline-preview | Out-Null
           Copy-Item $bundle offline-preview -Recurse
           Copy-Item 609-faceplate.png,offline-smoke.txt offline-preview
