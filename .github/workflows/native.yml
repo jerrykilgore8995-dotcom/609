@@ -88,13 +88,33 @@ jobs:
           done
           python tools/verify_native.py build || failed=1
           exit "$failed"
-      - name: Test the packaged VST3 in a Windows host
+      - name: Verify the VST3 can render offline
         shell: pwsh
         run: |
           $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
           $resources = Join-Path $bundle "Contents/Resources"
           New-Item -ItemType Directory -Force $resources | Out-Null
           Copy-Item build/609-native.dll $resources
+          $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
+          & $test $bundle --offline 2>&1 | Tee-Object -FilePath offline-smoke.txt
+          if ($LASTEXITCODE -ne 0) { throw "Offline VST3 test exited with code $LASTEXITCODE" }
+          New-Item -ItemType Directory -Force offline-preview | Out-Null
+          Copy-Item $bundle offline-preview -Recurse
+          Copy-Item 609-faceplate.png,offline-smoke.txt offline-preview
+          @"
+          This preview passed mono and stereo offline rendering in the Windows VST3 test host.
+          For REAPER, select Full-speed Offline or 1x Offline when rendering.
+          Live playback can miss processing deadlines at 44.1 kHz / 512 samples.
+          "@ | Set-Content offline-preview/Offline-preview.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-Windows-x64-VST3-Offline-Preview
+          path: offline-preview
+          if-no-files-found: error
+      - name: Test the packaged VST3 during playback
+        shell: pwsh
+        run: |
+          $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
           $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
           & $test $bundle 2>&1 | Tee-Object -FilePath smoke-out.txt
           if ($LASTEXITCODE -ne 0) { throw "VST3 smoke test exited with code $LASTEXITCODE" }
@@ -113,6 +133,7 @@ jobs:
           name: 609-Windows-diagnostics
           path: |
             smoke-out.txt
+            offline-smoke.txt
             609-faceplate.png
             build/*-native.txt
           if-no-files-found: ignore

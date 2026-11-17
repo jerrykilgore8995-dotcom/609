@@ -15,7 +15,7 @@ struct Parameter {
     juce::StringArray values;
 };
 const std::array<Parameter,9> controls{{
-    {"ct","Compress Threshold",{"−20","−18","−16","−14","−12","−10","−8","−6","−4","−2","0","+2","+4","+6","+8","+10"}},
+    {"ct","Compress Threshold",{"-20","-18","-16","-14","-12","-10","-8","-6","-4","-2","0","+2","+4","+6","+8","+10"}},
     {"cr","Compress Ratio",{"1.5:1","2:1","3:1","4:1","6:1"}},
     {"cm","Compress Recovery",{"100","400","800","1500","a1","a2"}},
     {"cg","Compress Gain",{"0","2","4","6","8","10","12","14","16","18","20"}},
@@ -188,8 +188,8 @@ public:
             label(g,"LIMIT "+String(ch+1),148,y+83,130,15,11);
             label(g,"COMPRESS "+String(ch+1),445,y+83,154,15,11);
         }
-        meter(g,792,26,processor.meters[0].load(),1);
-        meter(g,914,88,processor.meters[1].load(),2);
+        meter(g,792,26,displayedReduction[0],1);
+        meter(g,914,88,displayedReduction[1],2);
         g.setColour(juce::Colour(0xfff1f3f5));
         g.setFont(juce::Font(juce::FontOptions(10.0f,juce::Font::bold)));
         g.drawText("33609/J",793,166,48,13,juce::Justification::centredLeft);
@@ -207,15 +207,15 @@ private:
         g.drawText(text,x,y,w,h,juce::Justification::centred);
     }
     static void dialScale(juce::Graphics& g,int x,int y,String name,const juce::StringArray& values,int stride) {
-        label(g,name,x-39,y-43,78,15,11);
-        const float sweep=values.size()>12?4.65f:2.69f;
+        label(g,name,x-39,y-44,78,9,8.5f);
+        const float sweep=values.size()>12?4.65f:3.6f;
         for (int i=0;i<values.size();++i) {
             const float a=(float(i)/float(values.size()-1)-0.5f)*sweep;
             const float dx=std::sin(a),dy=-std::cos(a);
             g.setColour(juce::Colour(0xffeeeee8));
             g.drawLine(x+24*dx,y+24*dy,x+27*dx,y+27*dy,0.75f);
             if (i%stride==0 || i==values.size()-1)
-                label(g,values[i],int(x+34*dx)-13,int(y+34*dy)-5,26,11,8.5f);
+                label(g,values[i],int(x+34*dx)-11,int(y+32*dy)-4,22,8,7.4f);
         }
     }
     static void meter(juce::Graphics& g,int x,int y,float reduction,int ch) {
@@ -285,7 +285,7 @@ private:
             g.fillEllipse(cap);
             g.setColour(juce::Colour(0xff164573));
             g.drawEllipse(cap,0.65f);
-            const float sweep=(slider.getName().contains("Threshold")?4.65f:2.69f);
+            const float sweep=(slider.getName().contains("Threshold")?4.65f:3.6f);
             const float a=(position-.5f)*sweep;
             g.setColour(juce::Colour(0xfff1f5f7));
             const juce::Point<float> direction(std::sin(a),-std::cos(a));
@@ -336,7 +336,18 @@ private:
         addAndMakeVisible(button);
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,id,button));
     }
-    void timerCallback() override {repaint();}
+    void timerCallback() override {
+        static constexpr std::array<juce::Rectangle<int>,2> meterBounds{{
+            {792,26,113,101}, {914,88,113,101}
+        }};
+        for (int channel=0;channel<2;++channel) {
+            const auto reduction=processor.meters[channel].load();
+            if (std::abs(reduction-displayedReduction[channel])<0.01f) continue;
+            displayedReduction[channel]=reduction;
+            repaint(meterBounds[channel]);
+        }
+    }
+    std::array<float,2> displayedReduction{};
     Compressor& processor;
     Face face;
     std::array<std::array<juce::Slider,6>,2> knobs;
