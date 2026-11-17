@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../native/Client.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <numbers>
@@ -142,37 +143,41 @@ public:
         for (auto& sw:chassis) sw.setLookAndFeel(nullptr);
     }
     void resized() override {
-        constexpr std::array x{388,608,463,536,131,206};
-        constexpr std::array sx{675,276,314};
+        constexpr std::array x{387,611,463,536,130,208};
+        constexpr std::array sx{679,279,317};
         for (int ch=0;ch<2;++ch) {
-            const int y=66+95*ch;
+            const int y=65+90*ch;
             for (int i=0;i<6;++i) knobs[ch][i].setBounds(x[i]-24,y-24,48,48);
             for (int i=0;i<3;++i) switches[ch][i].setBounds(sx[i]-10,y-17,20,34);
         }
-        for (int i=0;i<4;++i) chassis[i].setBounds(i<2?704:1046,34+92*((i<2?i%2:1-i%2)),59,61);
+        for (int i=0;i<4;++i) chassis[i].setBounds(i<2?707:1049,35+91*(i<2?i%2:1-i%2),60,61);
     }
     void paint(juce::Graphics& g) override {
-        const auto dark=juce::Colour(0xff22272c), light=juce::Colour(0xff363e45);
+        const auto dark=juce::Colour(0xff202d42), light=juce::Colour(0xff33445f);
         g.setGradientFill({light,0,0,dark,0,220,false});
         g.fillAll();
         g.setColour(juce::Colour(0xff14171a));
-        for (int x:{20,1152}) for (int y:{9,195}) g.fillRoundedRectangle(float(x),float(y),28,16,8);
-        for (int x:{81,1116}) for (int y:{68,154}) {
+        for (int x:{9,1163}) for (int y:{6,195}) g.fillRoundedRectangle(float(x),float(y),28,18,9);
+        for (int x:{62,1125}) for (int y:{59,149}) {
             g.setColour(juce::Colour(0xff42464a));g.fillEllipse(float(x),float(y),13,13);
             g.setColour(dark);g.drawLine(float(x+2),float(y+8),float(x+11),float(y+5),1.2f);
         }
+        g.setColour(juce::Colour(0xffd5dce4));
+        for (const juce::Rectangle<float> border : {
+                 juce::Rectangle<float>{704,8,66,202}, {774,8,265,202}, {1044,8,72,202}})
+            g.drawRect(border,0.9f);
         for (int ch=0;ch<2;++ch) {
-            const int y=7+95*ch;
-            g.setColour(juce::Colour(0xff92979a));
-            g.drawRect(juce::Rectangle<float>(97,float(y),243,98),0.7f);
-            g.drawRect(juce::Rectangle<float>(344,float(y),348,98),0.7f);
-            const int knobY=66+95*ch;
-            dialScale(g,131,knobY,"threshold dBu",controls[4].values,2);
-            dialScale(g,206,knobY,"recovery ms",controls[5].values,1);
-            dialScale(g,388,knobY,"threshold dBu",controls[0].values,2);
+            const int y=8+102*ch;
+            g.setColour(juce::Colour(0xffe1e5e9));
+            g.drawRect(juce::Rectangle<float>(88,float(y),251,98),0.8f);
+            g.drawRect(juce::Rectangle<float>(345,float(y),354,98),0.8f);
+            const int knobY=65+90*ch;
+            dialScale(g,130,knobY,"threshold dBu",controls[4].values,2);
+            dialScale(g,208,knobY,"recovery ms",controls[5].values,1);
+            dialScale(g,387,knobY,"threshold dBu",controls[0].values,2);
             dialScale(g,463,knobY,"recovery ms",controls[2].values,1);
             dialScale(g,536,knobY,"gain",controls[3].values,2);
-            dialScale(g,608,knobY,"ratio",controls[1].values,1);
+            dialScale(g,611,knobY,"ratio",controls[1].values,1);
             label(g,"Limit",254,knobY+19,44,10,9);
             label(g,"In",254,knobY+29,44,10,9);
             label(g,"attack",292,knobY-43,44,10,10);
@@ -180,14 +185,19 @@ public:
             label(g,"slow",292,knobY+20,44,10,9);
             label(g,"compress",649,knobY+20,52,10,9);
             label(g,"in",649,knobY+30,52,10,9);
-            label(g,"LIMIT "+String(ch+1),163,y+83,92,15,13);
-            label(g,"COMPRESS "+String(ch+1),439,y+83,128,15,13);
+            label(g,"LIMIT "+String(ch+1),148,y+83,130,15,11);
+            label(g,"COMPRESS "+String(ch+1),445,y+83,154,15,11);
         }
-        meter(g,780,25,processor.meters[0].load(),1);
-        meter(g,905,84,processor.meters[1].load(),2);
-        label(g,"33609/JD",769,176,106,13,12);
-        label(g,"PRECISION STEREO",769,190,106,13,11);
-        label(g,"LIMITER/COMPRESSOR",769,203,118,13,11);
+        meter(g,792,26,processor.meters[0].load(),1);
+        meter(g,914,88,processor.meters[1].load(),2);
+        g.setColour(juce::Colour(0xfff1f3f5));
+        g.setFont(juce::Font(juce::FontOptions(10.0f,juce::Font::bold)));
+        g.drawText("33609/J",793,166,48,13,juce::Justification::centredLeft);
+        g.setColour(juce::Colour(0xffe04a49));
+        g.drawText("DISCRETE",839,166,68,13,juce::Justification::centredLeft);
+        g.setColour(juce::Colour(0xfff1f3f5));
+        g.drawText("PRECISION STEREO",793,180,117,13,juce::Justification::centredLeft);
+        g.drawText("LIMITER/COMPRESSOR",793,193,119,14,juce::Justification::centredLeft);
     }
 private:
     static void label(juce::Graphics& g,String text,int x,int y,int w,int h,float size,
@@ -197,7 +207,7 @@ private:
         g.drawText(text,x,y,w,h,juce::Justification::centred);
     }
     static void dialScale(juce::Graphics& g,int x,int y,String name,const juce::StringArray& values,int stride) {
-        label(g,name,x-39,y-51,78,15,11);
+        label(g,name,x-39,y-43,78,15,11);
         const float sweep=values.size()>12?4.65f:2.69f;
         for (int i=0;i<values.size();++i) {
             const float a=(float(i)/float(values.size()-1)-0.5f)*sweep;
@@ -209,38 +219,77 @@ private:
         }
     }
     static void meter(juce::Graphics& g,int x,int y,float reduction,int ch) {
-        label(g,"gain reduction "+String(ch),x,y-18,118,16,11);
-        g.setColour(juce::Colour(0xff151918));g.fillRoundedRectangle(float(x),float(y),118,101,2);
-        g.setColour(juce::Colour(0xff6b6e65));g.drawRect(x+2,y+2,114,97,1);
-        g.setGradientFill({juce::Colour(0xfff9db94),0,float(y+6),juce::Colour(0xffcab784),0,float(y+69),false});
-        g.fillRect(x+8,y+9,102,57);
-        const auto ink=juce::Colour(0xff363322);
-        const juce::Point<float> p(x+59.0f,y+67.0f);
-        for (int mark=0;mark<=20;mark+=4) {
-            const float a=-1.02f+2.04f*mark/20;
+        label(g,"gain reduction "+String(ch),x,y-16,110,13,9);
+        const juce::Rectangle<float> bezel(float(x),float(y),110,98);
+        g.setColour(juce::Colour(0x9905080c));
+        g.fillRect(bezel.translated(2,3));
+        g.setGradientFill({juce::Colour(0xff353638),0,bezel.getY(),
+                           juce::Colour(0xff18191b),0,bezel.getBottom(),false});
+        g.fillRect(bezel);
+        g.setColour(juce::Colour(0xff4c4e50));
+        g.drawHorizontalLine(y,x+1.0f,x+109.0f);
+        const auto window=juce::Rectangle<int>(x+9,y+10,92,50);
+        g.setColour(juce::Colour(0xff4a4b4d));
+        g.fillRect(window.expanded(3,3));
+        g.setGradientFill({juce::Colour(0xff08090b),0,float(y+10),
+                           juce::Colour(0xff202123),0,float(y+58),false});
+        g.fillRect(window);
+        const auto ink=juce::Colour(0xffeeefed);
+        const juce::Point<float> pivot(x+55.0f,y+72.0f);
+        constexpr std::array<float,6> angles{-0.86f,-0.51f,-0.15f,0.17f,0.51f,0.86f};
+        for (int i=0;i<6;++i) {
+            const auto a=angles[i];
             const juce::Point<float> u(std::sin(a),-std::cos(a));
-            g.setColour(ink);g.drawLine({p+u*35.0f,p+u*44.0f},0.8f);
-            label(g,String(mark),int(p.x+52*u.x)-8,int(p.y+52*u.y)-5,16,9,8,ink);
+            g.setColour(ink);
+            g.drawLine({pivot+u*42.0f,pivot+u*48.0f},0.9f);
+            label(g,String(i*4),int(pivot.x+55*u.x)-8,int(pivot.y+55*u.y)-4,16,9,7.5f,ink);
         }
-        label(g,"dB",x+46,y+52,26,11,8,ink);
-        const float a=-1.02f+2.04f*std::clamp(reduction/20.0f,0.0f,1.0f);
-        g.setColour(juce::Colour(0xff2c211a));
-        g.drawLine({p,p+juce::Point<float>{std::sin(a),-std::cos(a)}*43.0f},1.1f);
-        g.setColour(juce::Colour(0xffb1aca0));g.drawEllipse(float(x+53),float(y+78),12,12,1);
-        g.drawLine(float(x+55),float(y+88),float(x+63),float(y+80),1);
+        label(g,"dB",x+44,y+43,22,9,8,ink);
+        const float scaled=std::clamp(reduction/4.0f,0.0f,5.0f);
+        const int index=std::min(int(scaled),4);
+        const float a=std::lerp(angles[index],angles[index+1],scaled-index);
+        {
+            const juce::Graphics::ScopedSaveState clip(g);
+            g.reduceClipRegion(window);
+            g.setColour(ink);
+            g.drawLine({pivot,pivot+juce::Point<float>{std::sin(a),-std::cos(a)}*53.0f},1.35f);
+        }
+        g.setColour(juce::Colour(0xff121315));
+        g.fillEllipse(float(x+49),float(y+77),12,12);
+        g.setColour(juce::Colour(0xff494a4a));
+        g.fillEllipse(float(x+50),float(y+78),10,10);
+        g.setColour(juce::Colour(0xff171719));
+        g.drawLine(float(x+53),float(y+78),float(x+57),float(y+88),1);
     }
     class Face final : public juce::LookAndFeel_V4 {
         void drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float position,float,float,juce::Slider& slider) override {
             const juce::Point<float> center(x+w*.5f,y+h*.5f);
-            const auto dial=juce::Rectangle<float>(43,43).withCentre(center);
-            g.setGradientFill({juce::Colour(0xff515254),0,dial.getY(),juce::Colour(0xff121416),0,dial.getBottom(),false});
+            const auto dial=juce::Rectangle<float>(42,42).withCentre(center);
+            g.setColour(juce::Colour(0xff111821));
+            g.fillEllipse(dial.translated(1,2));
+            g.setGradientFill({juce::Colour(0xfff5f7fa),0,dial.getY(),
+                               juce::Colour(0xff777f88),0,dial.getBottom(),false});
             g.fillEllipse(dial);
-            g.setColour(juce::Colour(0xff8d8d8b));g.drawEllipse(dial.reduced(1.5f),.55f);
+            const auto flutes=dial.reduced(2.0f);
+            g.setColour(juce::Colour(0xff9ba4ae));
+            g.drawEllipse(flutes,1.3f);
+            for (int i=0;i<48;++i) {
+                const float theta=2.0f*std::numbers::pi_v<float>*i/48.0f;
+                const juce::Point<float> u(std::sin(theta),std::cos(theta));
+                g.setColour(i<25?juce::Colour(0xff6c7680):juce::Colour(0xffedf0f2));
+                g.drawLine({center+u*18.1f,center+u*20.0f},0.55f);
+            }
+            const auto cap=dial.reduced(4.1f);
+            g.setGradientFill({juce::Colour(0xff3590cb),cap.getX(),cap.getY(),
+                              juce::Colour(0xff0b62ab),cap.getRight(),cap.getBottom(),false});
+            g.fillEllipse(cap);
+            g.setColour(juce::Colour(0xff164573));
+            g.drawEllipse(cap,0.65f);
             const float sweep=(slider.getName().contains("Threshold")?4.65f:2.69f);
             const float a=(position-.5f)*sweep;
-            g.setColour(juce::Colour(0xffe8e6d5));
+            g.setColour(juce::Colour(0xfff1f5f7));
             const juce::Point<float> direction(std::sin(a),-std::cos(a));
-            g.drawLine({center+direction*12.0f,center+direction*19.0f},1.8f);
+            g.drawLine({center,center+direction*16.0f},1.55f);
         }
         void drawToggleButton(juce::Graphics& g,juce::ToggleButton& button,bool,bool pressed) override {
             const auto b=button.getLocalBounds().toFloat();
@@ -251,21 +300,29 @@ private:
                 g.fillRoundedRectangle(b.reduced(4,7).translated(0,active?-4.0f:4.0f),3);
                 return;
             }
-            const auto interior=b.reduced(4);
-            g.setColour(pressed?juce::Colour(0xff867e64):juce::Colour(0xffbdb395));g.fillRect(interior);
+            g.setGradientFill({juce::Colour(0xffeef0e9),0,0,juce::Colour(0xff9b9e99),0,b.getBottom(),false});
+            g.fillRect(b.reduced(1));
+            const auto interior=b.reduced(6);
+            g.setColour(pressed?juce::Colour(0xffa5a7ab):juce::Colour(0xffe0e1dd));g.fillRect(interior);
             const auto name=button.getName();
             if (name=="Power") {
-                if (active) {g.setColour(juce::Colour(0xffe9c47c));g.fillRect(interior.reduced(1));}
+                if (active) {g.setColour(juce::Colour(0xffffc1ad));g.fillRect(interior.reduced(1));}
                 label(g,"POWER",0,20,button.getWidth(),21,10,juce::Colour(0xff25251c));
                 return;
             }
-            const String top=name=="Bypass In"?"BY PASS":name=="Stereo Link"?"MONO":"EXT";
+            const String top=name=="Bypass In"?"BYPASS":name=="Stereo Link"?"MONO":"EXT";
             const String bottom=name=="Bypass In"?"IN":name=="Stereo Link"?"STEREO":"INT";
             const bool topActive=name=="External Control"?active:!active;
             const bool bottomActive=!topActive;
-            g.setColour(juce::Colour(0xffefd199));
-            if (topActive) g.fillRect(interior.withTrimmedBottom(interior.getHeight()/2));
-            if (bottomActive) g.fillRect(interior.withTrimmedTop(interior.getHeight()/2));
+            const auto topFace=interior.withTrimmedBottom(interior.getHeight()/2);
+            const auto bottomFace=interior.withTrimmedTop(interior.getHeight()/2);
+            if (name=="External Control") {
+                g.setColour(active?juce::Colour(0xff8aff59):juce::Colour(0xff4c9137));g.fillRect(topFace);
+                g.setColour(active?juce::Colour(0xff953532):juce::Colour(0xffff6960));g.fillRect(bottomFace);
+            } else {
+                g.setColour(topActive?juce::Colour(0xfff7f5dd):juce::Colour(0xffedffcb));
+                g.fillRect(topActive?topFace:bottomFace);
+            }
             g.setColour(juce::Colour(0xff514e41));g.drawHorizontalLine(30,5,b.getWidth()-5);
             const auto ink=juce::Colour(0xff25251c);
             label(g,top,0,10,button.getWidth(),18,10,ink);label(g,bottom,0,33,button.getWidth(),18,10,ink);
