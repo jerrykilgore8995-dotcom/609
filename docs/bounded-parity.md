@@ -52,3 +52,5 @@ The bass changes move the modeled output coupling after the time-varying gain an
 | Six bursts withheld from fitting, mean vs finer-timestep nodal | 1.30 dB | 1.22 dB | 8.19% → 7.46% |
 
 Individual bass fixtures can still differ, and some became slightly worse. The largest p95 difference among the six withheld cases was 3.75 dB. The updated 5% check applies to the five reported THD measurements at the stated settings.
+
+A second set of six bass fixtures was generated after the calibration was selected. Mean window-level p95 error against the finer-timestep nodal solver fell from 2.65 dB to 2.40 dB. Mean normalized waveform error fell from 11.01% to 9.74%. The worst case used 6:1, a −20 dBu threshold, 100 ms recovery and stereo link. SPICE confirmed the discrepancy. The calibrated build's window p95 was 10.53 dB for that stimulus, with the largest deviations around −56 dBFS in the decay. The bounded detector's left timing capacitor peaked at 11.01 V against 19.11 V in SPICE during the first burst. The finer-timestep nodal and SPICE waveforms agreed within 0.091 dB at p95 for that test.
