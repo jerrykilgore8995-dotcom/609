@@ -20,3 +20,11 @@ The noisy bass burst contains a decaying 83 Hz fundamental, a quieter 1.83 kHz c
 The 5% target is a relative amplitude criterion. It corresponds to approximately −0.45 dB to +0.42 dB. The two reference models already exceed that separation at 20 kHz and on parts of the bass burst, and the current evaluation fails the overall parity target.
 
 The GitHub build packages `circuit-comparison.txt` with harmonic measurements and held-out bass tones, the SPICE output, and the Windows host's paced playback and offline checks. The SPICE AC response can be checked independently with `python tools/measure.py --ac`.
+
+## Finer-timestep reference check
+
+The full nodal circuit measured −0.459 dB and −12.83° at 20 kHz with a 352.8 kHz internal timestep. SPICE measured −0.433 dB and −12.44°. The 44.1 kHz legacy nodal result was −2.574 dB and −3.33°. The comparison uses the same component models and source/load settings across nodal timestep tests.
+
+For the linked compressor bass burst, the full nodal circuit at 176.4 kHz tracked the SPICE render within 0.052 dB at the 95th percentile of 256-sample RMS windows. Its normalized waveform residual was 4.88%. This test used linear interpolation between the original 44.1 kHz input samples, with outputs sampled on the original grid. The finer-grid reference significantly reduces the disagreement between the two full-circuit solvers.
+
+At 1 kHz, the six SPICE and bounded transfer points tested were through at 0 and +9 dBu, compressor 4:1 at 0 and +10 dBu, and limiter at +10 and +20 dBu. The largest bounded fundamental amplitude difference from SPICE among those six points was 0.38%.
