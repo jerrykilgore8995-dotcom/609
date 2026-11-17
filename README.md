@@ -25,6 +25,8 @@ For comparison in SPAN at 44.1 kHz, use a 4,096-point Hann FFT with 0 dB/octave
 display slope. The pink-noise target is −96 dBFS per bin near 1 kHz and the
 hum amplitudes are −78 and −86 dBFS.
 
-## Native VST3 status
+## Windows evaluation
 
-The `native` and `plugin` directories contain the stereo MNA engine and Windows VST3 editor. The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks the driven solver before publishing an installable bundle. The solver prefers stable pivots, backtracks corrections at rectifier transitions and reuses recent solutions as initial estimates. The Windows workflow verifies driven operating points and paced playback before publishing.
+This branch evaluates a bounded model at 44.1 kHz and 512 samples. It adds zero samples of host latency. The compressor models the charging and recovery of the timing capacitor. The limiter uses a peak and smoothed detector, and the audio path uses measured harmonic residuals for coherent cycles.
+
+Download `609-Bounded-Parity-Evaluation-Windows-x64-VST3` from a passing [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) on this branch. The workflow checks the installed VST3 in a paced Windows test host against an 11.61 ms callback budget and includes circuit and SPICE results. See [bounded parity results](docs/bounded-parity.md) for the remaining differences and the conflicting reference measurements.

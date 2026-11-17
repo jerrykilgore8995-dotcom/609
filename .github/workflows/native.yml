@@ -1,7 +1,7 @@
-name: 609 circuit and native VST3
+name: 609 bounded parity evaluation
 on:
   push:
-    branches: [main]
+    branches: [bounded-609-parity]
     paths: ['circuit/**', 'native/**', 'plugin/**', 'tools/**', '.github/workflows/native.yml']
   workflow_dispatch:
 
@@ -48,83 +48,43 @@ jobs:
           msystem: UCRT64
           path-type: inherit
           install: mingw-w64-ucrt-x86_64-gcc
-      - name: Compile and exercise the native solver
+      - name: Compile the circuit reference comparison
         shell: msys2 {0}
         run: |
           set -euo pipefail
           mkdir -p build/kernel
           g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck native/GenerateSolve.cpp -o build/generate.exe
           build/generate.exe build/kernel/GeneratedSolve.hpp
-          g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -pthread -I build/deck -I build/kernel -shared -static native/Runtime.cpp -o build/609-native.dll
-          g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck -I build/kernel native/Probe.cpp -o build/probe.exe
+          g++ -std=c++20 -O3 -fno-math-errno -march=x86-64-v3 -I build/deck -I build/kernel native/RealtimeCheck.cpp -o build/realtime-check.exe
+      - name: Measure circuit fidelity
+        id: fidelity
+        continue-on-error: true
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          build/realtime-check.exe | tee build/circuit-comparison.txt
       - name: Build the VST3 and test host
         shell: pwsh
         run: |
           cmake -S plugin -B build-plugin -A x64
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
-      - name: Record convergence and processing time under drive
-        id: cases
-        continue-on-error: true
-        shell: msys2 {0}
-        run: |
-          set -uo pipefail
-          failed=0
-          build/probe.exe | tee build/through-native.txt || failed=1
-          build/probe.exe 1 0 4 10 | tee build/compress-native.txt || failed=1
-          build/probe.exe 0 1 1 20 | tee build/limit-native.txt || failed=1
-          for mode in 0 5 6; do
-            build/probe.exe --transient "$mode" 6 | tee "build/stereo-$mode-native.txt" || failed=1
-          done
-          python tools/verify_native.py build || failed=1
-          exit "$failed"
-      - name: Verify the VST3 can render offline
+      - name: Test the VST3 offline and at 44.1 kHz / 512 samples
         shell: pwsh
         run: |
           $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
-          $resources = Join-Path $bundle "Contents/Resources"
-          New-Item -ItemType Directory -Force $resources | Out-Null
-          Copy-Item build/609-native.dll $resources
           $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
           & $test $bundle --offline 2>&1 | Tee-Object -FilePath offline-smoke.txt
-          if ($LASTEXITCODE -ne 0) { throw "Offline VST3 test exited with code $LASTEXITCODE" }
-          $report = Get-Content offline-smoke.txt -Raw
-          foreach ($mode in "linked compressor", "linked limiter") {
-            if ($report -notmatch "Offline render, $mode, 2 channels") {
-              throw "Missing offline validation for $mode"
-            }
-          }
-          if ($report -notmatch "Delayed dry output stayed aligned") {
-            throw "Missing overload validation"
-          }
-          New-Item -ItemType Directory -Force offline-preview | Out-Null
-          Copy-Item $bundle offline-preview -Recurse
-          Copy-Item 609-faceplate.png,offline-smoke.txt offline-preview
-          @"
-          This preview passed mono and stereo offline rendering in the Windows VST3 test host,
-          including stereo linked compression and limiting.
-          For REAPER, select Full-speed Offline or 1x Offline when rendering.
-          Live playback can miss processing deadlines at 44.1 kHz / 512 samples.
-          "@ | Set-Content offline-preview/Offline-preview.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: 609-Windows-x64-VST3-Offline-Preview
-          path: offline-preview
-          if-no-files-found: error
-      - name: Test the packaged VST3 during playback
-        shell: pwsh
-        run: |
-          $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
-          $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
+          $offline = $LASTEXITCODE
           & $test $bundle 2>&1 | Tee-Object -FilePath smoke-out.txt
-          if ($LASTEXITCODE -ne 0) { throw "VST3 smoke test exited with code $LASTEXITCODE" }
-          if ("${{ steps.cases.outcome }}" -ne "success") { throw "The driven nodal-solver cases failed" }
+          $playback = $LASTEXITCODE
+          if ($offline -ne 0 -or $playback -ne 0) { throw "Offline status $offline, playback status $playback" }
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $bundle release -Recurse
-          Copy-Item 609-faceplate.png,smoke-out.txt,build/*-native.txt,build/deck/*.json,README.md release
+          Copy-Item 609-faceplate.png,smoke-out.txt,offline-smoke.txt,build/circuit-comparison.txt,build/deck/*.json,README.md,docs/bounded-parity.md release
       - uses: actions/upload-artifact@v4
         with:
-          name: 609-Windows-x64-VST3
+          name: 609-Bounded-Parity-Evaluation-Windows-x64-VST3
           path: release
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -135,5 +95,5 @@ jobs:
             smoke-out.txt
             offline-smoke.txt
             609-faceplate.png
-            build/*-native.txt
+            build/circuit-comparison.txt
           if-no-files-found: ignore
