@@ -28,3 +28,27 @@ The full nodal circuit measured −0.459 dB and −12.83° at 20 kHz with a 352.
 For the linked compressor bass burst, the full nodal circuit at 176.4 kHz tracked the SPICE render within 0.052 dB at the 95th percentile of 256-sample RMS windows. Its normalized waveform residual was 4.88%. This test used linear interpolation between the original 44.1 kHz input samples, with outputs sampled on the original grid. The finer-grid reference significantly reduces the disagreement between the two full-circuit solvers.
 
 At 1 kHz, the six SPICE and bounded transfer points tested were through at 0 and +9 dBu, compressor 4:1 at 0 and +10 dBu, and limiter at +10 and +20 dBu. The largest bounded fundamental amplitude difference from SPICE among those six points was 0.38%.
+
+## Ratio-specific THD and bass recalibration
+
+The 1 kHz compressor residuals now use the measured ratio and threshold detents. In the previous evaluation, the 0 dBu threshold shared the 4:1 residual across all ratios.
+
+| Ratio | Full nodal THD | SPICE THD | Calibrated bounded THD |
+| --- | ---: | ---: | ---: |
+| 1.5:1 | 0.54130% | 0.54376% | 0.54162% |
+| 2:1 | 0.52712% | 0.52999% | 0.52736% |
+| 3:1 | 0.46988% | 0.47323% | 0.46979% |
+| 4:1 | 0.40482% | 0.40831% | 0.40440% |
+| 6:1 | 0.35262% | 0.35778% | 0.35182% |
+
+These local tests used 1 kHz, +10 dBu input, a 0 dBu threshold, 100 ms recovery, zero makeup and the limiter off. THD includes K2 through K20. The Windows pipeline repeats the measurement through the packaged VST3 and checks a 5% relative error limit against both references. See `ratio-thd.tsv` in the archive for the build-specific measurements.
+
+The bass changes move the modeled output coupling after the time-varying gain and add a bounded correction for low-frequency envelope shape. The correction uses causal envelope, polarity and stereo features calibrated against a mix of finer-timestep nodal and SPICE renders.
+
+| Bass test | Prior window-level p95 error | Calibrated window-level p95 error | Normalized waveform error |
+| --- | ---: | ---: | ---: |
+| Noisy 83 Hz burst, linked compressor vs SPICE | 2.45 dB | 1.79 dB | 14.92% → 11.50% |
+| Noisy 83 Hz burst, both sections vs SPICE | 2.44 dB | 1.79 dB | 14.92% → 11.42% |
+| Six bursts withheld from fitting, mean vs finer-timestep nodal | 1.30 dB | 1.22 dB | 8.19% → 7.46% |
+
+Individual bass fixtures can still differ, and some became slightly worse. The largest p95 difference among the six withheld cases was 3.75 dB. The updated 5% check applies to the five reported THD measurements at the stated settings.

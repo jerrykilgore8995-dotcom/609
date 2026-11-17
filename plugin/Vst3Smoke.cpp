@@ -76,6 +76,51 @@ bool checkSupplyNoise(juce::AudioProcessor& plugin) {
     std::cout<<"PSU noise at 1 kHz "<<pink<<" dBFS, 60 Hz "<<hum60<<" dBFS, 120 Hz "<<hum120<<" dBFS\n";
     return std::abs(pink+96)<3.5 && std::abs(hum60+78)<.6 && std::abs(hum120+86)<.7;
 }
+bool checkRatioThd(juce::AudioProcessor& plugin) {
+    constexpr int rate=44100,blockSize=512,duration=26460,window=8820;
+    constexpr double omega=2*std::numbers::pi*1000/rate;
+    const double level=std::pow(10.,(10.-24.)/20);
+    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0)) return false;
+    juce::AudioBuffer<float> block(2,blockSize);
+    juce::MidiBuffer midi;
+    bool valid=true;
+    for (int detent=0;detent<5;++detent) {
+        for (int channel=1;channel<=2;++channel) {
+            const auto prefix="Channel "+juce::String(channel)+" ";
+            if (!setControl(plugin,prefix+"Compress In",1) ||
+                !setControl(plugin,prefix+"Limit In",0) ||
+                !setControl(plugin,prefix+"Compress Threshold",10.f/15.f) ||
+                !setControl(plugin,prefix+"Compress Ratio",detent/4.f) ||
+                !setControl(plugin,prefix+"Compress Gain",0) ||
+                !setControl(plugin,prefix+"Compress Recovery",0)) return false;
+        }
+        plugin.prepareToPlay(rate,blockSize);
+        std::array<std::complex<double>,20> spectrum{};
+        for (int frame=0;frame<duration;frame+=blockSize) {
+            for (int i=0;i<blockSize;++i) {
+                const auto x=static_cast<float>(level*std::sin(omega*(frame+i)));
+                block.setSample(0,i,x);
+                block.setSample(1,i,x);
+            }
+            plugin.processBlock(block,midi);
+            for (int i=0;i<blockSize && frame+i<duration;++i) {
+                if (frame+i<duration-window) continue;
+                const auto y=static_cast<double>(block.getSample(0,i));
+                const auto root=std::polar(1.,-omega*(frame+i));
+                auto oscillator=root;
+                for (auto& bin:spectrum) {bin+=y*oscillator;oscillator*=root;}
+            }
+        }
+        plugin.releaseResources();
+        double distortion=0;
+        for (std::size_t k=1;k<spectrum.size();++k) distortion+=std::norm(spectrum[k]);
+        const auto thd=100*std::sqrt(distortion)/std::abs(spectrum[0]);
+        std::cout<<"Packaged ratio THD "<<detent+1<<" "<<thd<<'\n';
+        valid=std::isfinite(thd) && thd>0 && valid;
+    }
+    return valid;
+}
+
 }
 
 int main(int argc,char** argv) {
@@ -225,5 +270,6 @@ int main(int argc,char** argv) {
         std::cerr<<"PSU noise spectrum outside calibration tolerance\n";
         return 13;
     }
+    if (offline && !checkRatioThd(*vst)) return 12;
     return passed?0:10;
 }

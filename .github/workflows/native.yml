@@ -27,6 +27,9 @@ jobs:
           python tools/measure.py --level 0 --level 9 > build/through.json
           python tools/measure.py --level 0 --level 10 --set CEL=1 --set CRL=4 > build/compress.json
           python tools/measure.py --level 10 --level 20 --set LEL=1 > build/limit.json
+          for ratio in 1 2 3 4 5; do
+            python tools/measure.py --level 10 --set CEL=1 --set CTL=11 --set CRL="$ratio" > "build/ratio-spice-$ratio.json"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: compiled-609-circuit
@@ -63,6 +66,11 @@ jobs:
         run: |
           set -euo pipefail
           build/realtime-check.exe | tee build/circuit-comparison.txt
+      - name: Check compressor THD against both reference solvers
+        shell: pwsh
+        run: |
+          python tools/check_ratio_thd.py build/circuit-comparison.txt build/deck --output build/ratio-thd.tsv
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build the VST3 and test host
         shell: pwsh
         run: |
@@ -79,12 +87,14 @@ jobs:
           & $test $bundle 2>&1 | Tee-Object -FilePath smoke-out.txt
           $playback = $LASTEXITCODE
           if ($offline -ne 0 -or $playback -ne 0) { throw "Offline status $offline, playback status $playback" }
+          python tools/check_ratio_thd.py build/circuit-comparison.txt build/deck --vst3-log offline-smoke.txt --output build/ratio-thd.tsv
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $bundle release -Recurse
-          Copy-Item 609-faceplate.png,smoke-out.txt,offline-smoke.txt,build/circuit-comparison.txt,build/deck/*.json,README.md,docs/bounded-parity.md release
+          Copy-Item 609-faceplate.png,smoke-out.txt,offline-smoke.txt,build/circuit-comparison.txt,build/ratio-thd.tsv,build/deck/*.json,README.md,docs/bounded-parity.md release
       - uses: actions/upload-artifact@v4
         with:
-          name: 609-Bounded-Parity-Evaluation-Windows-x64-VST3
+          name: 609-Bounded-THD-Calibrated-Windows-x64-VST3
           path: release
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -96,4 +106,5 @@ jobs:
             offline-smoke.txt
             609-faceplate.png
             build/circuit-comparison.txt
+            build/ratio-thd.tsv
           if-no-files-found: ignore

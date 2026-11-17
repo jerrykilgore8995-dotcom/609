@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Controls.hpp"
+#include "BassTransient.hpp"
 #include "RealtimeTables.hpp"
 #include "SpectralCorrection.hpp"
 #include <algorithm>
@@ -16,6 +17,10 @@ public:
 
     void prepare(double sampleRate) {
         rate=sampleRate;
+        bassTransient.prepare(rate);
+        preampLeak=std::exp(-2*std::numbers::pi*.18/rate);
+        transformerGain=-std::expm1(-2*std::numbers::pi*14.9953891/rate);
+        biasFollow=-std::expm1(-1/(rate*0.00940118177));
         channels={};
         previousGain={};
         constexpr double baseRate=44100;
@@ -65,6 +70,7 @@ public:
             ch.ct=-20+ct*2;
             ch.lt=4+lt*.5;
             ch.spectral.configure(static_cast<int>(ch.ct),cr+1,ch.lt,fast);
+            bassTransient.configure(i,cr+1,ct+1,cm+1);
             ch.makeupDb=ch.compress?measured::makeup[cg]:0;
             const auto& compressor=measured::compressor[cr][ct];
             ch.limiter=measured::limiter[fast][lt];
@@ -102,7 +108,8 @@ public:
     }
 
     Frame step(Frame input) {
-        Frame audio{},reductions{};
+        Frame audio{},reductions{},compressor{},limiter{};
+        std::array<bool,2> compressEnabled{};
         std::array<measured::Point,2> distortion{};
         for (int i=0;i<2;++i) {
             auto& ch=channels[i];
@@ -113,6 +120,10 @@ public:
             }
             for (int section=0;section<2;++section) x=sections[section].apply(x,ch.history[section]);
             audio[i]=x;
+            // Recover a pre-transformer signal, then reapply the low-frequency
+            // coupling after the time-varying gain in the output stage.
+            ch.preampSignal=x+ch.preampMemory;
+            ch.preampMemory=preampLeak*ch.preampMemory+transformerGain*x;
             const double amplitude=ch.detect(x,rate,detectorDrop);
             const double level=24+20*std::log10(std::max(amplitude,1e-6));
             const auto squared=x*x;
@@ -135,7 +146,12 @@ public:
             const double bassEnvelope=std::sqrt(ch.lowPower);
             const double detectorShift=onset*(-.01552013*ch.lowAudio+
                 .19172223*std::max(-ch.lowAudio,0.)+.06584739*bassEnvelope);
-            const double detectorInput=x+detectorShift+.04709259*ch.detectorBias*lowFraction;
+            const double weight=std::clamp((lowFraction-.25)*3,0.,1.);
+            const auto relativeBass=std::sqrt(ch.lowPower/(ch.bassMemory+1e-8));
+            ch.bassMemory+=biasFollow*(ch.lowPower-ch.bassMemory);
+            const auto bias=std::clamp(relativeBass-1.,-1.,2.);
+            const double detectorInput=x+detectorShift+.04709259*ch.detectorBias*lowFraction+
+                (-0.642391231)*weight*(ch.preampSignal-x)+(-0.201981523)*weight*std::sqrt(ch.lowPower)*bias;
             const double detector=std::max(0.0,detectorInput)*feedback;
             double pulse=0;
             if (ch.compress) {
@@ -143,7 +159,7 @@ public:
                 pulse=std::clamp((detector-threshold)/std::max(width,1e-7),0.,1.);
             }
             const double baseline=ch.autoRelease?std::max(.582,ch.tailCharge):.582;
-            ch.charge+=pulse*(24-ch.charge)*ch.attack*pulseScale*std::max(.2,1-.15925579*transient)-(ch.charge-baseline)*ch.voltRelease;
+            ch.charge+=pulse*(24-ch.charge)*ch.attack*pulseScale*std::max(.2,1-.15925579*transient+0.0523322195*weight*bias)-(ch.charge-baseline)*ch.voltRelease;
             ch.charge=std::clamp(ch.charge,.582,18.);
             if (ch.autoRelease) {
                 const double target=.582+.61*(ch.charge-.582);
@@ -160,19 +176,26 @@ public:
             }
             const double limit=ch.lim.update(ch.limit?std::max(0.f,l.reduction):0);
             ch.limiterReduction=limit;
+            compressor[i]=comp;
+            limiter[i]=limit;
+            compressEnabled[i]=ch.compress;
             reductions[i]=std::max(comp,limit);
             if (ch.limit) distortion[i]=limit>comp?l:measured::Point{};
         }
         if (linked) reductions[0]=reductions[1]=std::max(reductions[0],reductions[1]);
         previousGain=reductions;
+        const auto bassCorrection=bassTransient.step(input,reductions,compressor,limiter,compressEnabled,linked);
 
         Frame result{};
         for (int i=0;i<2;++i) {
             auto& ch=channels[i];
-            ch.reduction=active?reductions[i]:0;
+            ch.reduction=active?std::max(0.,reductions[i]-bassCorrection[i]):0;
             ch.makeup+=std::min(1.0,240.0/rate)*(ch.makeupDb-ch.makeup);
-            const double levelGain=std::exp((ch.makeup-ch.reduction)*.11512925464970228);
-            const double wet=audio[i]*levelGain;
+            const double levelGain=std::exp((ch.makeup-(active?reductions[i]:0.))*.11512925464970228);
+            const double preamp=ch.preampSignal*levelGain;
+            const double afterTransformer=preamp-ch.transformerMemory;
+            ch.transformerMemory=preampLeak*ch.transformerMemory+transformerGain*afterTransformer;
+            const double wet=std::lerp(audio[i]*levelGain,afterTransformer,0.64284315);
             const auto& k=distortion[i];
             const double peak=std::max(ch.peak,1e-5);
             double harmonics=0;
@@ -190,7 +213,7 @@ public:
             ch.previous=audio[i];
             const double drive=wet+harmonics-ch.harmonicMemory;
             const double correction=ch.spectral.step(audio[i],drive,ch.compSmooth,ch.limiterReduction,ch.compress,ch.limit);
-            result[i]=active?drive+correction:input[i]*600/640.02;
+            result[i]=active?(drive+correction)*std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
         }
         return result;
     }
@@ -299,6 +322,7 @@ private:
         std::array<double,4> dcHistory{};
         std::array<std::array<double,2>,2> history{};
         double dc=0,harmonicDc=0,harmonicMemory=0,previous=0;
+        double preampSignal=0,preampMemory=0,transformerMemory=0,bassMemory=0;
         double limPower=0,slowPower=0,lowAudio=0,lowPower=0,transientPower=0,slowTransientPower=0,detectorBias=0;
         double peak=0,period=0,prevAbs=0,prevPrevAbs=0,prevSign=0;
         double ct=0,lt=0,makeupDb=0,makeup=0,reduction=0;
@@ -332,10 +356,12 @@ private:
 
     std::array<Biquad,2> sections{};
     std::array<Channel,2> channels{};
+    BassTransient bassTransient;
     Frame previousGain{};
     Controls previousControls{};
     double rate=44100,detectorDrop=0,limitAverage=0,slowAverage=0,pulseFollow=0;
     double detectorLow=0,transientQuick=0,transientSlow=0;
+    double preampLeak=0,transformerGain=0,biasFollow=0;
     bool initialized=false,active=true,linked=false;
 };
 }

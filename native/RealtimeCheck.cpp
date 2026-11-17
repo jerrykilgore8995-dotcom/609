@@ -32,7 +32,7 @@ struct Renderers {
     bool valid() const {return ready && full->failures()==0;}
 };
 
-bool tone(const char* label,Controls controls,double level,double frequency,double& delta) {
+bool tone(const char* label,Controls controls,double level,double frequency,double& delta, std::array<double,2>* thd=nullptr) {
     Renderers test(controls);
     if (!test.ready) return false;
     using Bin=std::complex<double>;
@@ -67,8 +67,10 @@ bool tone(const char* label,Controls controls,double level,double frequency,doub
             std::printf("  K%d: full %.4f dBc, bounded %.4f dBc\n",harmonic+1,db(full),db(bounded));
         }
     }
+    const std::array distortion{100*std::sqrt(power[0]),100*std::sqrt(power[1])};
     std::printf("  THD (K2 through K%d): full %.5f%%, bounded %.5f%%\n",
-                harmonics,100*std::sqrt(power[0]),100*std::sqrt(power[1]));
+                harmonics,distortion[0],distortion[1]);
+    if (thd) *thd=distortion;
     return test.valid() && std::isfinite(delta);
 }
 
@@ -139,7 +141,9 @@ int main() {
         controls[6]=controls[15]=1;
         double low=0,high=0;
         const bool validLow=tone("Compressor",controls,0,1000,low);
-        const bool validHigh=tone("Compressor",controls,10,1000,high);
+        std::array<double,2> ratioThd{};
+        const bool validHigh=tone("Compressor",controls,10,1000,high,&ratioThd);
+        std::printf("Ratio THD %d %.9f %.9f\n",ratio,ratioThd[0],ratioThd[1]);
         passed=validLow && validHigh && std::max(std::abs(low),std::abs(high))<.3 && std::abs(low-high)<.3 && passed;
     }
     for (int fast:{0,1}) {

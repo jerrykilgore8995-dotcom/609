@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RatioToneTables.hpp"
 #include "SpectralTables.hpp"
 
 #include <algorithm>
@@ -94,8 +95,9 @@ private:
         int lower;
         double fraction;
     };
-    static Axis locate(const double (&points)[6],double x) {
-        const auto upper=std::clamp<int>(std::upper_bound(points,points+6,x)-points,1,5);
+    template<std::size_t size>
+    static Axis locate(const double (&points)[size],double x) {
+        const auto upper=std::clamp<int>(std::upper_bound(points,points+size,x)-points,1,size-1);
         return {upper-1,std::clamp((x-points[upper-1])/(points[upper]-points[upper-1]),0.,1.)};
     }
 
@@ -105,6 +107,19 @@ private:
         const auto drive=locate(spectralLevels[mode],mode==2?db-limitThreshold+8:db);
         const auto lowComp=locate(spectralLevels[1],db-compThreshold-20);
         const auto highComp=locate(spectralLevels[1],db-compThreshold);
+        const auto ratioLevel=locate(ratioDrive,db);
+        const auto ratioThreshold=locate(ratioThresholds,compThreshold);
+        const auto ratioWeight=std::clamp(1-std::abs(std::log2(frequency/1000.))/.48,0.,1.)*
+            std::clamp((db+12)/12.,0.,1.);
+        const auto ratioResidual=[&](int harmonic) {
+            const auto& table=ratioToneResiduals[compRatio-1];
+            const auto interpolate=[&](int threshold) {
+                return std::lerp(table[threshold][ratioLevel.lower][harmonic],
+                                 table[threshold][ratioLevel.lower+1][harmonic],ratioLevel.fraction);
+            };
+            return std::lerp(interpolate(ratioThreshold.lower),
+                             interpolate(ratioThreshold.lower+1),ratioThreshold.fraction);
+        };
         const auto fetch=[&](int group,Axis level,int at) {
             const auto& low=spectralResiduals[group][fr.lower];
             const auto& high=spectralResiduals[group][fr.lower+1];
@@ -119,7 +134,8 @@ private:
                 double lo=fetch(1,lowComp,at);
                 if (compRatio<4) lo=std::lerp(fetch(3,lowComp,at),lo,(compRatio-1)/3.);
                 else if (compRatio>4) lo=fetch(4,lowComp,at);
-                coefficients[at]=fade*std::lerp(lo,fetch(2,highComp,at),threshold);
+                const auto wideband=std::lerp(lo,fetch(2,highComp,at),threshold);
+                coefficients[at]=fade*std::lerp(wideband,ratioResidual(at),ratioWeight);
             } else coefficients[at]=fade*fetch(mode==0?0:fastLimiter?6:5,drive,at);
         }
     }
