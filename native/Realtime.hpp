@@ -86,6 +86,9 @@ public:
             ch.chargeDeco=1/(rate*(cm==4?1.28:2.55));
             ch.attack=1/(rate*pulseAttack);
             ch.attackSpeed=attackMode==0?2.5:attackMode==2?.5:1.;
+            ch.autoFast=-std::expm1(-1/(rate*(cm==4?.100:.050)));
+            ch.autoSlow=-std::expm1(-1/(rate*(cm==4?2.0:5.0)));
+            ch.memoryRise=-std::expm1(-1/(rate*.19));
             for (std::size_t k=0;k<ch.chargeCurve.size();++k) {
                 const double reduction=std::max(0.0f,compressor[k]);
                 const auto voltage=voltsForGain(reduction);
@@ -175,7 +178,30 @@ public:
                 ch.tailCharge+=(target-ch.tailCharge)*(target>ch.tailCharge?1/(rate*.19):ch.chargeDeco);
             } else ch.tailCharge=.582;
             const auto desired=ch.compress?gainForVolts(ch.charge):0.0;
-            ch.compSmooth+=pulseFollow*(desired-ch.compSmooth);
+            if (ch.autoRelease) {
+                // Detect the end of the driven burst separately from the old
+                // capacitor tail; recover in dB with two independent poles.
+                const double target=ch.compress?desired:0.;
+                const bool driven=pulse>0.0001;
+                ch.recoveryHold=driven?int(rate*.003):std::max(0,ch.recoveryHold-1);
+                if (ch.recoveryHold>0 && target>=ch.compSmooth) {
+                    ch.compSmooth+=pulseFollow*(target-ch.compSmooth);
+                    ch.fastEnvelope=ch.slowEnvelope=ch.compSmooth;
+                    ch.programMemory+=(1-ch.programMemory)*ch.memoryRise;
+                    ch.releaseWeight=std::clamp(.10+.65*ch.programMemory,.10,.75);
+                } else if (ch.recoveryHold>0) {
+                    ch.compSmooth+=pulseFollow*(target-ch.compSmooth);
+                    ch.fastEnvelope=ch.slowEnvelope=ch.compSmooth;
+                } else {
+                    ch.fastEnvelope*=1-ch.autoFast;
+                    ch.slowEnvelope*=1-ch.autoSlow;
+                    ch.compSmooth=std::lerp(ch.fastEnvelope,ch.slowEnvelope,ch.releaseWeight);
+                    ch.programMemory*=1-ch.autoSlow;
+                }
+            } else {
+                ch.compSmooth+=pulseFollow*(desired-ch.compSmooth);
+                ch.fastEnvelope=ch.slowEnvelope=ch.compSmooth;
+            }
             const auto comp=ch.compSmooth;
             if (ch.limit) {
                 // Blend the peak and smoothed detector depending on bass content.
@@ -390,7 +416,8 @@ private:
         SpectralCorrection spectral;
         double limiterReduction=0;
         std::array<std::array<double,3>,14> chargeCurve{};
-        double attackSpeed=1.;
+        double attackSpeed=1.,autoFast=0,autoSlow=0,memoryRise=0,fastEnvelope=0,slowEnvelope=0,programMemory=0,releaseWeight=.1;
+        int recoveryHold=0;
         double charge=.582,tailCharge=.582,voltRelease=0,attack=0,compSmooth=0,chargeDeco=0;
         bool autoRelease=false;
         std::array<double,4> dcHistory{};
