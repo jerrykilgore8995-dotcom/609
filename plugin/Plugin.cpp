@@ -38,6 +38,7 @@ public:
             channelParams[ch][i]=state.getRawParameterValue(parameterId(ch,controls[i].id));
         for (int i=0;i<6;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
         noiseParam=state.getRawParameterValue("noise");
+        attackParam=state.getRawParameterValue("comp_attack");
     }
     const String getName() const override {return "609";}
     bool acceptsMidi() const override {return false;}
@@ -86,6 +87,7 @@ private:
         for (int i=0;i<6;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{modes[i],1},modeTitles[i],i==0 || i==2 || i==4));
         layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"noise",1},"PSU Noise",false));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"comp_attack",1},"Compressor Attack",juce::StringArray{"FAST","MED","SLOW"},1));
         return layout;
     }
     void process(juce::AudioBuffer<float>& audio,bool dry) {
@@ -98,7 +100,7 @@ private:
         positions[18]=modeParams[remote?4:0]->load()>0.5f;
         positions[19]=modeParams[remote?5:1]->load()>0.5f;
         positions[20]=modeParams[2]->load()>0.5f;
-        engine.control(positions);
+        engine.control(positions,static_cast<int>(attackParam->load()));
         auto* const left=audio.getWritePointer(0);
         auto* const right=audio.getNumChannels()==2?audio.getWritePointer(1):nullptr;
         for (int frame=0;frame<audio.getNumSamples();++frame) {
@@ -115,6 +117,7 @@ private:
     }
     mkii::native::Realtime engine;
     mkii::native::SupplyNoise supplyNoise;
+    const std::atomic<float>* attackParam=nullptr;
     const std::atomic<float>* noiseParam=nullptr;
     std::array<std::array<const std::atomic<float>*,9>,2> channelParams{};
     std::array<const std::atomic<float>*,6> modeParams{};
@@ -144,10 +147,18 @@ public:
         noise.setButtonText("PSU NOISE");
         addAndMakeVisible(noise);
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,"noise",noise));
-        setSize(1200,247);
+        attackSwitch.setSliderStyle(juce::Slider::LinearVertical);
+        attackSwitch.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
+        attackSwitch.setRange(0,2,1);
+        attackSwitch.setLookAndFeel(&face);
+        attackSwitch.setName("Compressor Attack");
+        addAndMakeVisible(attackSwitch);
+        dialBindings.push_back(std::make_unique<DialBinding>(processor.state,"comp_attack",attackSwitch));
+        setSize(1200,275);
         startTimerHz(30);
     }
     ~Panel() override {
+        attackSwitch.setLookAndFeel(nullptr);
         for (auto& row:knobs) for (auto& knob:row) knob.setLookAndFeel(nullptr);
         for (auto& row:switches) for (auto& sw:row) sw.setLookAndFeel(nullptr);
         for (auto& sw:chassis) sw.setLookAndFeel(nullptr);
@@ -161,6 +172,7 @@ public:
             for (int i=0;i<3;++i) switches[ch][i].setBounds(sx[i]-10,y-17,20,34);
         }
         noise.setBounds(1045,221,112,24);
+        attackSwitch.setBounds(710,230,20,38);
         for (int i=0;i<4;++i) chassis[i].setBounds(i<2?707:1049,35+91*(i<2?i%2:1-i%2),60,61);
     }
     void paint(juce::Graphics& g) override {
@@ -201,6 +213,10 @@ public:
             label(g,"LIMIT "+String(ch+1),148,y+83,130,15,11);
             label(g,"COMPRESS "+String(ch+1),445,y+83,154,15,11);
         }
+        label(g,"COMP ATTACK L/R",580,238,120,20,10);
+        label(g,"SLOW",732,230,42,10,9);
+        label(g,"MED",732,244,42,10,9);
+        label(g,"FAST",732,258,42,10,9);
         meter(g,792,26,displayedReduction[0],1);
         meter(g,914,88,displayedReduction[1],2);
         g.setColour(juce::Colour(0xfff1f3f5));
@@ -275,6 +291,12 @@ private:
         g.drawLine(float(x+53),float(y+78),float(x+57),float(y+88),1);
     }
     class Face final : public juce::LookAndFeel_V4 {
+        void drawLinearSlider(juce::Graphics& g,int x,int y,int w,int h,float pos,float,float,juce::Slider::SliderStyle,juce::Slider& slider) override {
+            auto b=juce::Rectangle<float>(float(x),float(y),float(w),float(h));
+            g.setColour(juce::Colour(0xff171915));g.fillRoundedRectangle(b,2);
+            const float cy=b.getY()+9+(2-slider.getValue())*(b.getHeight()-18)/2;
+            g.setColour(juce::Colour(0xffbfb7a0));g.fillRoundedRectangle(juce::Rectangle<float>(b.getX()+4,cy-6,b.getWidth()-8,12),3);
+        }
         void drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float position,float start,float end,juce::Slider&) override {
             const juce::Point<float> center(x+w*.5f,y+h*.5f);
             const auto dial=juce::Rectangle<float>(42,42).withCentre(center);
@@ -378,6 +400,7 @@ private:
     std::array<std::array<juce::ToggleButton,3>,2> switches;
     std::array<juce::ToggleButton,4> chassis;
     juce::ToggleButton noise;
+    juce::Slider attackSwitch;
     std::vector<std::unique_ptr<DialBinding>> dialBindings;
     std::vector<std::unique_ptr<ToggleBinding>> toggleBindings;
 };
