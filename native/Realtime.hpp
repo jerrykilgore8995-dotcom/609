@@ -53,10 +53,11 @@ public:
         control(defaults);
     }
 
-    void control(const Controls& controls) {
-        if (initialized && controls==previousControls) return;
+    void control(const Controls& controls, int attackMode=1) {
+        if (initialized && controls==previousControls && attackMode==previousAttackMode) return;
         initialized=true;
         previousControls=controls;
+        previousAttackMode=attackMode;
         linked=controls[19]!=0;
         active=controls[18] && controls[20];
         for (int i=0;i<2;++i) {
@@ -84,6 +85,7 @@ public:
             ch.autoRelease=cm>=4;
             ch.chargeDeco=1/(rate*(cm==4?1.28:2.55));
             ch.attack=1/(rate*pulseAttack);
+            ch.attackSpeed=attackMode==0?2.5:attackMode==2?.5:1.;
             for (std::size_t k=0;k<ch.chargeCurve.size();++k) {
                 const double reduction=std::max(0.0f,compressor[k]);
                 const auto voltage=voltsForGain(reduction);
@@ -166,7 +168,7 @@ public:
                 pulse=std::clamp((detector-threshold)/std::max(width,1e-7),0.,1.);
             }
             const double baseline=ch.autoRelease?std::max(.582,ch.tailCharge):.582;
-            ch.charge+=pulse*(24-ch.charge)*ch.attack*pulseScale*std::max(.2,1-.15925579*transient+0.0523322195*weight*bias)-(ch.charge-baseline)*ch.voltRelease;
+            ch.charge+= (pulse>0 && (pulse*(24-ch.charge)*ch.attack*pulseScale*std::max(.2,1-.15925579*transient+0.0523322195*weight*bias)>(ch.charge-baseline)*ch.voltRelease) ? ch.attackSpeed : 1.) * (pulse*(24-ch.charge)*ch.attack*pulseScale*std::max(.2,1-.15925579*transient+0.0523322195*weight*bias)-(ch.charge-baseline)*ch.voltRelease);
             ch.charge=std::clamp(ch.charge,.582,18.);
             if (ch.autoRelease) {
                 const double target=.582+.61*(ch.charge-.582);
@@ -388,6 +390,7 @@ private:
         SpectralCorrection spectral;
         double limiterReduction=0;
         std::array<std::array<double,3>,14> chargeCurve{};
+        double attackSpeed=1.;
         double charge=.582,tailCharge=.582,voltRelease=0,attack=0,compSmooth=0,chargeDeco=0;
         bool autoRelease=false;
         std::array<double,4> dcHistory{};
@@ -432,6 +435,7 @@ private:
     std::array<Channel,2> channels{};
     BassTransient bassTransient;
     Frame previousGain{};
+    int previousAttackMode=1;
     Controls previousControls{};
     double rate=44100,detectorDrop=0,limitAverage=0,slowAverage=0,pulseFollow=0;
     double detectorLow=0,transientQuick=0,transientSlow=0;
