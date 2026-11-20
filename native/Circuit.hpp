@@ -35,10 +35,10 @@ inline Jet squareRoot(Jet x) {
 }
 
 inline double junctionExp(double x) {
-    // The forward-junction load bounds x to [-3, 70]. Range reduction
+    // The junction and detector loads bound x to [-35, 70]. Range reduction
     // keeps r within half a log(2), where this degree-eight series is
     // accurate to better than one part in a billion.
-    const int exponent=static_cast<int>(x*1.4426950408889634+4.5)-4;
+    const int exponent=static_cast<int>(x*1.4426950408889634+64.5)-64;
     const double r=x-exponent*0.6931471805599453;
     const double square=r*r, fourth=square*square;
     const double low=1+r+square*(0.5+r/6);
@@ -166,14 +166,18 @@ public:
         bjtStorage.clear();
         stampLinear();
         stampNonlinear<true>();
-        if (!matrix.prepare()) return false;
+        PivotOrder order;
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
+        order=findGeneratedOrder(rate);
+#endif
+        if (!matrix.prepare(order)) return false;
         cacheNonlinearSlots();
         retryMatrix=matrix;
-        prepareLinear(false);
+        if (!prepareLinear(false)) return false;
         std::swap(matrix,retryMatrix);
-        prepareLinear(true);
+        if (!prepareLinear(true)) return false;
         std::swap(matrix,retryMatrix);
-#if __has_include("GeneratedSolve.hpp")
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
         generatedResidual=findGeneratedResidual(rate);
 #endif
         accept(true);
@@ -193,6 +197,13 @@ public:
         const bool changed=controls!=lastControls;
         if (changed) {
             for (auto& contact : deck.contact) selectContact(contact,controls);
+            const bool currentReady=refactorContacts(matrix);
+            const bool retryReady=refactorContacts(retryMatrix);
+            if (!currentReady || !retryReady) {
+                ++misses;
+                return {(v(deck.output[0])-v(deck.output[1]))/fullScalePeakVolts,
+                        (v(deck.output[2])-v(deck.output[3]))/fullScalePeakVolts};
+            }
             lastControls=controls;
             guessCount=nextGuess=0;
         }
@@ -238,6 +249,14 @@ public:
 
     Frame meterVolts() const {return {v(deck.meter[0]),v(deck.meter[1])};}
     int operations() const { return matrix.operationCount(); }
+    bool usesGeneratedSolve() const { return matrix.usesGeneratedSolve(); }
+    bool usesGeneratedResidual() const {
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
+        return generatedResidual!=nullptr;
+#else
+        return false;
+#endif
+    }
     void emitSolver(std::ostream& code,std::string_view name) const {
         matrix.emit(code,name);
         code<<"inline void rhs_"<<name<<"(double* __restrict y,const double* __restrict v) {\n";
@@ -429,7 +448,7 @@ private:
                 case Behavior::detector: {
                     const double input=a+(b-c)/10000;
                     const double argument=(p[2]-e+c)/p[3];
-                    const double factor=p[0]/(p[1]*p[1])*std::exp(std::clamp(argument,-35.,35.));
+                    const double factor=p[0]/(p[1]*p[1])*junctionExp(std::clamp(argument,-35.,35.));
                     value=factor*(input*input+1e-18);
                     if (value<0.002) {
                         const double exponentSlope=std::abs(argument)<35?value/p[3]:0;
@@ -440,9 +459,13 @@ private:
                 }
                 case Behavior::comparator: {
                     const double argument=(c-e)/0.003;
-                    const double t=std::abs(argument)<19?std::tanh(argument):std::copysign(1.,argument);
+                    const double bounded=std::clamp(argument,-3.,3.);
+                    const double square=bounded*bounded;
+                    const double reciprocal=1/(27+9*square);
+                    const double t=bounded*(27+square)*reciprocal;
                     const double g=1e-9+0.025*(1+t);
-                    const double derivative=(a-b)*(0.025/0.003)*(1-t*t);
+                    const double derivative=(a-b)*(0.025/0.003)*9
+                        *(square-9)*(square-9)*reciprocal*reciprocal;
                     value=(a-b)*g;
                     slope={g,-g,derivative,-derivative};
                     break;
@@ -490,7 +513,20 @@ private:
         }
     }
 
-    void prepareLinear(bool variableStep) {
+    bool refactorContacts(Sparse& target) {
+        target.resetLinearEntries();
+        for (const auto& d : deck.contact) {
+            target.add(d.a,d.a,d.conductance);
+            target.add(d.a,d.b,-d.conductance);
+            target.add(d.b,d.a,-d.conductance);
+            target.add(d.b,d.b,d.conductance);
+        }
+        if (target.cacheStaticContacts()) return true;
+        target.resetLinearEntries();
+        return target.cacheDynamicContacts();
+    }
+
+    bool prepareLinear(bool variableStep) {
         const int n = deck.size;
         const int columns = n+static_cast<int>(fixed.size());
         std::vector<double> dense(n*columns,0.0);
@@ -530,19 +566,20 @@ private:
         for (const auto& d : deck.diodes) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
         for (const auto& d : deck.bjts) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
         for (const auto& d : deck.jfets) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
-        const auto twoTerminal=[&](int a,int b) {
-            for (int r : {a,b}) for (int c : {a,b}) mutableSlots.push_back(matrix.slot(r,c));
+        std::vector<int> contactSlots;
+        const auto twoTerminal=[&](std::vector<int>& slots,int a,int b) {
+            for (int r : {a,b}) for (int c : {a,b}) slots.push_back(matrix.slot(r,c));
         };
-        for (const auto& d : deck.contact) twoTerminal(d.a,d.b);
+        for (const auto& d : deck.contact) twoTerminal(contactSlots,d.a,d.b);
         if (variableStep) {
-            for (const auto& d : deck.capacitors) twoTerminal(d.a,d.b);
+            for (const auto& d : deck.capacitors) twoTerminal(mutableSlots,d.a,d.b);
             for (const auto& d : deck.inductance) mutableSlots.push_back(matrix.slot(d.row,d.column));
         }
         for (const auto& d : deck.cubic)
             for (int row : {d.a,d.b}) mutableSlots.push_back(matrix.slot(row,d.control));
         for (const auto& d : deck.behavioral)
             for (int row : {d.a,d.b}) for (int n : d.input) mutableSlots.push_back(matrix.slot(row,n));
-        matrix.cacheLinearPart(mutableSlots);
+        matrix.configureLinear(mutableSlots,contactSlots);
         for (int row=0;row<n;++row) {
             const auto begin=static_cast<int>(terms.size());
             for (int col=0;col<columns;++col) {
@@ -555,11 +592,12 @@ private:
             const auto end=static_cast<int>(terms.size());
             if (begin!=end) linearRows.push_back({row,begin,end});
         }
+        return refactorContacts(matrix);
     }
 
     void stampStep() {
         matrix.startIteration(sampleRhs);
-#if __has_include("GeneratedSolve.hpp")
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
         if (generatedResidual) generatedResidual(matrix.rhs.data(),x.data());
         else
 #endif
@@ -576,7 +614,11 @@ private:
             current(d.row,-1,-d.value*delta*v(d.column));
             derivatives(d.row,-1,d.column,-1,-d.value*delta);
         }
-        for (const auto& d : deck.contact) conduct(d.a,d.b,d.conductance);
+        if (matrix.contactsAreDynamic()) {
+            for (const auto& d : deck.contact) conduct(d.a,d.b,d.conductance);
+        } else {
+            for (const auto& d : deck.contact) current(d.a,d.b,(v(d.a)-v(d.b))*d.conductance);
+        }
         stampBehavior();
         stampNonlinear<false>();
     }
@@ -789,7 +831,7 @@ private:
     struct LinearRow {int row,begin,end;};
     std::vector<KnownTerm> knownTerms;
     std::vector<LinearRow> linearRows;
-#if __has_include("GeneratedSolve.hpp")
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
     GeneratedResidual generatedResidual=nullptr;
 #endif
     std::vector<int> diodeStorage,bjtStorage;

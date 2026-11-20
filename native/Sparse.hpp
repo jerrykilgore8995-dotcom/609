@@ -1,15 +1,17 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
-#include <bit>
 #include <ostream>
+#include <span>
 #include <string_view>
 #include <vector>
 
 namespace mkii::native {
-#if __has_include("GeneratedSolve.hpp")
+using PivotOrder=std::span<const std::array<int,2>>;
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
 #include "GeneratedSolve.hpp"
 #endif
 
@@ -38,60 +40,50 @@ public:
         }
     }
 
-    bool prepare() {
+    bool prepare(PivotOrder generatedOrder={}) {
+        if (!generatedOrder.empty() && generatedOrder.size()!=static_cast<std::size_t>(size)) return false;
         rows.clear();
         updates.clear();
         activePivots.clear();
         std::vector<bool> liveRows(size, true), liveColumns(size, true);
-        // Reverse Cuthill–McKee breaks equal-cost, equally stable pivot
-        // ties. Markowitz and the pivot guards still control fill and stability.
-        std::vector<std::vector<int>> neighbors(size);
-        for (int row=0;row<size;++row) for (int col=0;col<size;++col)
-            if (row!=col && (has(row,col) || has(col,row))) neighbors[row].push_back(col);
-        const auto degree=[&](int a,int b){return neighbors[a].size()<neighbors[b].size();};
-        for (auto& node : neighbors) std::stable_sort(node.begin(),node.end(),degree);
-        std::vector<int> order;
-        std::vector<bool> visited(size);
-        while (order.size()<static_cast<std::size_t>(size)) {
-            int root=-1;
-            for (int i=0;i<size;++i)
-                if (!visited[i] && (root<0 || degree(i,root))) root=i;
-            auto next=order.size();
-            order.push_back(root);
-            visited[root]=true;
-            for (;next<order.size();++next)
-                for (int n : neighbors[order[next]]) if (!visited[n]) {
-                    order.push_back(n);
-                    visited[n]=true;
-                }
-        }
-        std::reverse(order.begin(),order.end());
+        const auto order=generatedOrder.empty()?reverseCuthillMcKee():std::vector<int>{};
         for (int step = 0; step < size; ++step) {
-            std::vector<int> rowCount(size, 0), colCount(size, 0);
-            std::vector<double> colMax(size, 0), rowMax(size, 0);
-            for (int row = 0; row < size; ++row) if (liveRows[row]) {
-                for (int col = 0; col < size; ++col) if (liveColumns[col] && has(row,col)) {
-                    ++rowCount[row];
-                    ++colCount[col];
-                    colMax[col] = std::max(colMax[col], std::abs(v(row,col)));
-                    rowMax[row] = std::max(rowMax[row], std::abs(v(row,col)));
+            int pr=-1, pc=-1;
+            if (!generatedOrder.empty()) {
+                pr=generatedOrder[step][0];
+                pc=generatedOrder[step][1];
+                if (pr<0 || pr>=size || pc<0 || pc>=size || !liveRows[pr] ||
+                    !liveColumns[pc] || !has(pr,pc))
+                    return false;
+                const double pivot=v(pr,pc);
+                if (std::abs(pivot)<1e-17 || !std::isfinite(pivot)) return false;
+            } else {
+                std::vector<int> rowCount(size, 0), colCount(size, 0);
+                std::vector<double> colMax(size, 0), rowMax(size, 0);
+                for (int row = 0; row < size; ++row) if (liveRows[row]) {
+                    for (int col = 0; col < size; ++col) if (liveColumns[col] && has(row,col)) {
+                        ++rowCount[row];
+                        ++colCount[col];
+                        colMax[col] = std::max(colMax[col], std::abs(v(row,col)));
+                        rowMax[row] = std::max(rowMax[row], std::abs(v(row,col)));
+                    }
                 }
-            }
-            int pr = -1, pc = -1, best = 2*size*size;
-            double tie = -1.0;
-            for (int row : order) if (liveRows[row]) {
-                for (int col : order) if (liveColumns[col] && has(row,col)) {
-                    const double pivot = std::abs(v(row,col));
-                    if (pivot < 1e-17 || pivot < 0.01 * colMax[col]) continue;
-                    // Prefer self-admittances to off-diagonal transistor
-                    // gains which can disappear as the device cuts off.
-                    const int cost = (rowCount[row]-1) * (colCount[col]-1) + (row!=col?size*size:0);
-                    const double scaled = pivot / (rowMax[row] + 1e-30);
-                    if (cost < best || (cost == best && scaled > tie)) {
-                        best = cost;
-                        tie = scaled;
-                        pr = row;
-                        pc = col;
+                int best = 2*size*size;
+                double tie = -1.0;
+                for (int row : order) if (liveRows[row]) {
+                    for (int col : order) if (liveColumns[col] && has(row,col)) {
+                        const double pivot = std::abs(v(row,col));
+                        if (pivot < 1e-17 || pivot < 0.01 * colMax[col]) continue;
+                        // Prefer self-admittances to off-diagonal transistor
+                        // gains which can disappear as the device cuts off.
+                        const int cost = (rowCount[row]-1) * (colCount[col]-1) + (row!=col?size*size:0);
+                        const double scaled = pivot / (rowMax[row] + 1e-30);
+                        if (cost < best || (cost == best && scaled > tie)) {
+                            best = cost;
+                            tie = scaled;
+                            pr = row;
+                            pc = col;
+                        }
                     }
                 }
             }
@@ -141,15 +133,38 @@ public:
         return true;
     }
 
-    void cacheLinearPart(const std::vector<int>& mutableSlots) {
+    void configureLinear(const std::vector<int>& mutableSlots,const std::vector<int>& contacts) {
+        linearEntries=entries;
+        circuitSlots=mutableSlots;
+        allMutableSlots=mutableSlots;
+        allMutableSlots.insert(allMutableSlots.end(),contacts.begin(),contacts.end());
+    }
+
+    void resetLinearEntries() { entries=linearEntries; }
+    bool cacheStaticContacts() {
+        dynamicContacts=!cacheLinearPart(circuitSlots);
+        return !dynamicContacts;
+    }
+    bool cacheDynamicContacts() {
+        dynamicContacts=true;
+        return cacheLinearPart(allMutableSlots);
+    }
+    bool contactsAreDynamic() const { return dynamicContacts; }
+
+    bool cacheLinearPart(const std::vector<int>& mutableSlots) {
         std::vector<bool> dynamic(entries.size(),false);
         for (const int slot : mutableSlots) dynamic[slot]=true;
         runtime.clear();
+        activePivots.clear();
         activeUpdates.clear();
+        factors.assign(plan.size()+lowers.size(),0);
         int nextUpdate=0;
         for (const auto& s : plan) {
             const bool pivotChanges=dynamic[s.pivot];
+            const double pivot=entries[s.pivot];
+            if (!pivotChanges && (std::abs(pivot)<1e-17 || !std::isfinite(pivot))) return false;
             const double reciprocal=pivotChanges?0:1/entries[s.pivot];
+            factors[activePivots.size()]=reciprocal;
             const int begin=static_cast<int>(runtime.size());
             for (int j=s.lowerBegin;j<s.lowerEnd;++j) {
                 const auto& row=lowers[j];
@@ -165,6 +180,7 @@ public:
                         activeUpdates.push_back({target,source});
                     }
                 }
+                factors[plan.size()+runtime.size()]=factor;
                 runtime.push_back({row.index,row.slot,first,static_cast<int>(activeUpdates.size()),
                                    factor,factorChanges});
             }
@@ -172,29 +188,31 @@ public:
                                     reciprocal,pivotChanges});
         }
         fixed=entries;
+        // The generated code reads numeric factors from this instance. Only
+        // the shape of the elimination schedule belongs in its signature.
         signature=0xcbf29ce484222325ULL;
         const auto add=[&](std::uint64_t value) {
             signature^=value;
             signature*=0x100000001b3ULL;
         };
+        add(size);
         for (const auto& row : activePivots) {
             for (int v : {row.row,row.pivot,row.begin,row.end}) add(v);
             add(row.changes);
-            add(std::bit_cast<std::uint64_t>(row.reciprocal));
         }
         for (const auto& row : runtime) {
             for (int v : {row.index,row.slot,row.first,row.last}) add(v);
             add(row.changes);
-            add(std::bit_cast<std::uint64_t>(row.factor));
         }
         for (const auto& e : activeUpdates) {add(e.index);add(e.slot);}
         for (const auto& s : plan) {
             for (int v : {s.row,s.column,s.pivot,s.upperBegin,s.upperEnd}) add(v);
         }
         for (const auto& e : uppers) {add(e.index);add(e.slot);}
-#if __has_include("GeneratedSolve.hpp")
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
         generated=findGeneratedSolve(signature);
 #endif
+        return true;
     }
 
     void startIteration(const std::vector<double>& initial) {
@@ -208,24 +226,27 @@ public:
     }
 
     void emit(std::ostream& code,std::string_view name) const {
+        code<<"inline constexpr std::array<int,2> order_"<<name<<"[]={\n";
+        for (const auto& pivot : plan) code<<"    {"<<pivot.row<<","<<pivot.column<<"},\n";
+        code<<"};\n";
         code<<"inline constexpr std::uint64_t signature_"<<name<<'='<<signature<<"ULL;\n";
-        code<<"inline bool solve_"<<name<<"(double* __restrict a,double* __restrict b,double* __restrict x) {\n";
+        code<<"inline bool solve_"<<name<<"(double* __restrict a,double* __restrict b,double* __restrict x,const double* __restrict factors) {\n";
         code<<"    double u=0,v=0;\n";
         for (const auto& s : activePivots) {
             if (s.changes) {
                 code<<"    u=a["<<s.pivot<<"]; if (std::abs(u)<1e-17 || !std::isfinite(u)) return false; "
                     <<"u=1/u; a["<<s.pivot<<"]=u;\n";
             }
+            const auto pivotIndex=&s-activePivots.data();
             for (int j=s.begin;j<s.end;++j) {
                 const auto& row=runtime[j];
                 if (row.changes) {
                     code<<"    v=a["<<row.slot<<"]*";
                     if (s.changes) code<<"u";
-                    else code<<std::hexfloat<<s.reciprocal<<std::defaultfloat;
+                    else code<<"factors["<<pivotIndex<<"]";
                     code<<";\n";
                 }
-                else if (row.factor == 0) continue;
-                else code<<"    v="<<std::hexfloat<<row.factor<<std::defaultfloat<<";\n";
+                else code<<"    v=factors["<<plan.size()+j<<"];\n";
                 code<<"    b["<<row.index<<"]-=v*b["<<s.row<<"];\n";
                 for (int k=row.first;k<row.last;++k)
                     code<<"    a["<<activeUpdates[k].index<<"]-=v*a["<<activeUpdates[k].slot<<"];\n";
@@ -235,10 +256,10 @@ public:
             code<<"    v=b["<<s->row<<"];\n";
             for (int k=s->upperBegin;k<s->upperEnd;++k)
                 code<<"    v-=a["<<uppers[k].slot<<"]*x["<<uppers[k].index<<"];\n";
-            const auto& forward=activePivots[static_cast<std::size_t>((s+1).base()-plan.begin())];
+            const auto pivotIndex=(s+1).base()-plan.begin();
+            const auto& forward=activePivots[pivotIndex];
             if (forward.changes) code<<"    x["<<s->column<<"]=v*a["<<s->pivot<<"];\n";
-            else code<<"    x["<<s->column<<"]=v*"<<std::hexfloat<<forward.reciprocal
-                     <<std::defaultfloat<<";\n";
+            else code<<"    x["<<s->column<<"]=v*factors["<<pivotIndex<<"];\n";
 
         }
         code<<"    bool finite=true;\n";
@@ -247,8 +268,8 @@ public:
     }
 
     bool solve() {
-#if __has_include("GeneratedSolve.hpp")
-        if (generated) return generated(entries.data(),rhs.data(),x.data());
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
+        if (generated) return generated(entries.data(),rhs.data(),x.data(),factors.data());
 #endif
         const auto* upper=uppers.data();
         auto* values=entries.data();
@@ -287,10 +308,45 @@ public:
     }
     void addSlot(int slot,double value) { entries[slot]+=value; }
 
+    bool usesGeneratedSolve() const {
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
+        return generated!=nullptr;
+#else
+        return false;
+#endif
+    }
+
     int operationCount() const { return static_cast<int>(activeUpdates.size()); }
     std::vector<double> rhs, x;
 
 private:
+    std::vector<int> reverseCuthillMcKee() const {
+        std::vector<int> order;
+        // Reverse Cuthill–McKee breaks equal-cost, equally stable pivot
+        // ties. Markowitz and the pivot guards still control fill and stability.
+        std::vector<std::vector<int>> neighbors(size);
+        for (int row=0;row<size;++row) for (int col=0;col<size;++col)
+            if (row!=col && (has(row,col) || has(col,row))) neighbors[row].push_back(col);
+        const auto degree=[&](int a,int b){return neighbors[a].size()<neighbors[b].size();};
+        for (auto& node : neighbors) std::stable_sort(node.begin(),node.end(),degree);
+        std::vector<bool> visited(size);
+        while (order.size()<static_cast<std::size_t>(size)) {
+            int root=-1;
+            for (int i=0;i<size;++i)
+                if (!visited[i] && (root<0 || degree(i,root))) root=i;
+            auto next=order.size();
+            order.push_back(root);
+            visited[root]=true;
+            for (;next<order.size();++next)
+                for (int n : neighbors[order[next]]) if (!visited[n]) {
+                    order.push_back(n);
+                    visited[n]=true;
+                }
+        }
+        std::reverse(order.begin(),order.end());
+        return order;
+    }
+
     struct Terminal { int index, slot; };
     struct Row {
         int row, column;
@@ -301,11 +357,12 @@ private:
     double& v(int row, int col) { return dense[row*size+col]; }
 
     std::uint64_t signature=0;
-#if __has_include("GeneratedSolve.hpp")
-    bool (*generated)(double*,double*,double*)=nullptr;
+#if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
+    GeneratedFunction generated=nullptr;
 #endif
     int size = 0;
     bool ready = false;
+    bool dynamicContacts=false;
     std::vector<int> lookup, updates;
     std::vector<Row> rows;
     struct Pivot { int row,column,pivot,upperBegin,upperEnd,lowerBegin,lowerEnd; };
@@ -315,6 +372,7 @@ private:
     std::vector<ActiveLower> runtime;
     std::vector<ActivePivot> activePivots;
     std::vector<Terminal> uppers,lowers,activeUpdates;
-    std::vector<double> dense, entries, fixed;
+    std::vector<int> circuitSlots,allMutableSlots;
+    std::vector<double> dense, entries, fixed, factors, linearEntries;
 };
 }

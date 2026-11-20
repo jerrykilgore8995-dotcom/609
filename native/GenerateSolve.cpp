@@ -1,3 +1,4 @@
+#define MKII_NATIVE_GENERATE_SOLVER
 #include "Circuit.hpp"
 
 #include <fstream>
@@ -14,12 +15,18 @@ int main(int argc,char** argv) {
     solver.emitSolver(out,"hz48000");
     if (!solver.prepare(96000)) return 4;
     solver.emitSolver(out,"hz96000");
-    out<<"using GeneratedFunction = bool(*)(double*,double*,double*);\n"
+    out<<"using GeneratedFunction = bool(*)(double*,double*,double*,const double*);\n"
          "inline GeneratedFunction findGeneratedSolve(std::uint64_t signature) {\n"
          "  if (signature==signature_hz44100) return solve_hz44100;\n"
          "  if (signature==signature_hz48000) return solve_hz48000;\n"
          "  if (signature==signature_hz96000) return solve_hz96000;\n"
          "  return nullptr;\n"
+         "}\n"
+         "inline PivotOrder findGeneratedOrder(double rate) {\n"
+         "  if (rate==44100) return order_hz44100;\n"
+         "  if (rate==48000) return order_hz48000;\n"
+         "  if (rate==96000) return order_hz96000;\n"
+         "  return {};\n"
          "}\n"
          "using GeneratedResidual = void(*)(double*,const double*);\n"
          "inline GeneratedResidual findGeneratedResidual(double rate) {\n"

@@ -118,13 +118,15 @@ private:
     void wake() {
 #ifdef _WIN32
         if (event) SetEvent(event);
+#else
+        written.notify_one();
 #endif
     }
-    void wait() {
+    void wait([[maybe_unused]] std::uint64_t observed) {
 #ifdef _WIN32
         WaitForSingleObject(event,INFINITE);
 #else
-        std::this_thread::sleep_for(std::chrono::microseconds(75));
+        written.wait(observed,std::memory_order_acquire);
 #endif
     }
     void run() {
@@ -140,8 +142,8 @@ private:
         while (true) {
             const auto available=written.load(std::memory_order_acquire);
             if (available==stopSignal) return;
-            if (available==next) {wait();continue;}
-            const auto end=std::min(available,next+8);
+            if (available==next) {wait(available);continue;}
+            const auto end=std::min(available,next+32);
             for (;next<end;++next) {
                 const auto& sample=input[next&mask];
                 const auto result=solver.step({sample.values[0],sample.values[1]},sample.settings);

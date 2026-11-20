@@ -48,6 +48,11 @@ int transientProbe(int mode,int seconds) {
         const double ms=std::chrono::duration<double,std::milli>(Clock::now()-start).count();
         elapsed+=ms;
         if (count==blockSize) blockTimes.push_back(ms);
+        if (frame==blockSize)
+            std::printf("First block: solve %s, residual %s, %d matrix updates, %u refinements\n",
+                        solver.usesGeneratedSolve()?"generated":"generic",
+                        solver.usesGeneratedResidual()?"generated":"generic",
+                        solver.operations(),solver.refinedSamples());
     }
     std::sort(blockTimes.begin(),blockTimes.end());
     const auto p99=(99*blockTimes.size()+99)/100-1;
