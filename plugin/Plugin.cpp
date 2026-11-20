@@ -1,5 +1,6 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "Presets.hpp"
 #include "../native/Realtime.hpp"
 #include "../native/SupplyNoise.hpp"
 
@@ -78,6 +79,44 @@ public:
             }
             state.replaceState(saved);
         }
+    }
+    void applyPreset(const mkii::presets::Setting& preset) {
+        const auto write = [this](const String& id, int value) {
+            auto* parameter = state.getParameter(id);
+            const auto normalized = parameter->convertTo0to1(static_cast<float>(value));
+            if (parameter->getValue() == normalized) return;
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost(normalized);
+            parameter->endChangeGesture();
+        };
+        const auto values = mkii::presets::detents(preset);
+        for (int ch=0; ch<2; ++ch)
+            for (std::size_t i=0; i<values.size(); ++i)
+                write(parameterId(ch,controls[i].id), values[i]);
+        write("in",1);
+        write("power",1);
+        write("stereo",preset.linked);
+        write("external",0);
+        write("comp_attack",preset.attack);
+    }
+    int matchingPreset(int preferred) const {
+        if (modeParams[0]->load()==0 || modeParams[2]->load()==0 || modeParams[3]->load()!=0)
+            return 0;
+        const auto matches = [this](const mkii::presets::Setting& preset) {
+            if (attackParam->load()!=preset.attack || modeParams[1]->load()!=preset.linked)
+                return false;
+            const auto values = mkii::presets::detents(preset);
+            for (const auto& channel : channelParams)
+                for (std::size_t i=0; i<values.size(); ++i)
+                    if (channel[i]->load()!=values[i]) return false;
+            return true;
+        };
+        const auto& bank = mkii::presets::bank;
+        if (preferred>0 && preferred<=static_cast<int>(bank.size()) && matches(bank[preferred-1]))
+            return preferred;
+        for (std::size_t i=0; i<bank.size(); ++i)
+            if (matches(bank[i])) return static_cast<int>(i)+1;
+        return 0;
     }
     juce::AudioProcessorValueTreeState state;
     std::array<std::atomic<float>,2> meters{};
@@ -162,6 +201,25 @@ public:
         attackSwitch.setName("Compressor Attack");
         addAndMakeVisible(attackSwitch);
         dialBindings.push_back(std::make_unique<DialBinding>(processor.state,"comp_attack",attackSwitch));
+        presetBox.setName("33609 presets");
+        presetBox.setTextWhenNothingSelected("Choose a preset");
+        presetBox.setColour(juce::ComboBox::backgroundColourId,juce::Colour(0xff20252b));
+        presetBox.setColour(juce::ComboBox::outlineColourId,juce::Colour(0xff4d5158));
+        const auto& bank = mkii::presets::bank;
+        String group;
+        for (std::size_t i=0; i<bank.size(); ++i) {
+            if (group!=bank[i].group) {
+                group=bank[i].group;
+                presetBox.addSectionHeading(group);
+            }
+            presetBox.addItem(bank[i].name,static_cast<int>(i)+1);
+        }
+        presetBox.onChange = [this] {
+            const int selected=presetBox.getSelectedId();
+            if (selected>0) processor.applyPreset(mkii::presets::bank[selected-1]);
+        };
+        presetBox.setSelectedId(processor.matchingPreset(0),juce::dontSendNotification);
+        addAndMakeVisible(presetBox);
         setSize(1200,275);
         startTimerHz(30);
     }
@@ -179,6 +237,7 @@ public:
             for (int i=0;i<6;++i) knobs[ch][i].setBounds(x[i]-24,y-24,48,48);
             for (int i=0;i<3;++i) switches[ch][i].setBounds(sx[i]-10,y-17,20,34);
         }
+        presetBox.setBounds(106,232,252,30);
         noise.setBounds(1045,221,112,24);
         attackSwitch.setBounds(710,230,20,38);
         for (int i=0;i<4;++i) chassis[i].setBounds(i<2?707:1049,35+91*(i<2?i%2:1-i%2),60,61);
@@ -221,6 +280,7 @@ public:
             label(g,"LIMIT "+String(ch+1),148,y+83,130,15,11);
             label(g,"COMPRESS "+String(ch+1),445,y+83,154,15,11);
         }
+        label(g,"PRESET",45,232,59,30,10);
         label(g,"COMP ATTACK L/R",580,238,120,20,10);
         label(g,"15 ms",732,230,55,10,9);
         label(g,"7.5 ms",732,244,55,10,9);
@@ -391,6 +451,9 @@ private:
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,id,button));
     }
     void timerCallback() override {
+        const int selected=presetBox.getSelectedId();
+        const int match=processor.matchingPreset(selected);
+        if (selected!=match) presetBox.setSelectedId(match,juce::dontSendNotification);
         static const std::array<juce::Rectangle<int>,2> meterBounds{{
             {792,26,113,101}, {914,88,113,101}
         }};
@@ -408,6 +471,7 @@ private:
     std::array<std::array<juce::ToggleButton,3>,2> switches;
     std::array<juce::ToggleButton,4> chassis;
     juce::ToggleButton noise;
+    juce::ComboBox presetBox;
     juce::Slider attackSwitch;
     std::vector<std::unique_ptr<DialBinding>> dialBindings;
     std::vector<std::unique_ptr<ToggleBinding>> toggleBindings;

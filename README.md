@@ -30,3 +30,7 @@ hum amplitudes are −78 and −86 dBFS.
 This branch evaluates a bounded model at 44.1 kHz and 512 samples. It adds zero samples of host latency. The compressor models the charging and recovery of the timing capacitor. The limiter uses a peak and smoothed detector, and the audio path uses measured harmonic residuals for coherent cycles.
 
 The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks the VST3 in a paced test host against an 11.61 ms callback budget. The Timing Evaluation artifact includes the candidate plug-in and its stepped-sine results. The Real World Audio Test artifact requires the additional packaged smoke and harmonic parity checks. See [bounded parity results](docs/bounded-parity.md) for the remaining differences and the conflicting reference measurements.
+
+## Presets and JD conformance
+
+The VST3 footer includes a [30-preset bank](docs/presets.md) with documented 33609 applications and 609 starting points. The [JD measurement notes](docs/jd-stock-bounded.md) describe the stock ratio ladder, measured confidence, and how to run a resumable comparison between live SPICE and the loaded VST3.

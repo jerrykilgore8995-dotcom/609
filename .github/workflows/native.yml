@@ -1,7 +1,7 @@
 name: 609 bounded parity evaluation
 on:
   push:
-    branches: [bounded-609-parity, jd-timing-calibration]
+    branches: [bounded-609-parity, jd-timing-calibration, jd-transformer-calibration]
     paths: ['circuit/**', 'native/**', 'plugin/**', 'tools/**', '.github/workflows/native.yml']
   workflow_dispatch:
 

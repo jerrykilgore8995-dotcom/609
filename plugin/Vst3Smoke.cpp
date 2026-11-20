@@ -1,6 +1,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "Presets.hpp"
 #include "../native/Realtime.hpp"
 #include "../native/DynamicsProbe.hpp"
 #include "../native/PlaybackClock.hpp"
@@ -13,6 +14,7 @@
 #include <iomanip>
 #include <cmath>
 #include <numbers>
+#include <string>
 #include <string_view>
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
@@ -25,6 +27,45 @@ bool setControl(juce::AudioProcessor& plugin,const juce::String& name,float valu
         return true;
     }
     std::cerr<<"VST3 parameter not found: "<<name<<'\n';
+    return false;
+}
+
+bool checkPresets(juce::AudioProcessor& plugin, juce::AudioProcessorEditor& editor) {
+    juce::ComboBox* box=nullptr;
+    for (auto* child : editor.getChildren())
+        if (child->getName()=="33609 presets") box=dynamic_cast<juce::ComboBox*>(child);
+    if (!box || box->getNumItems()!=static_cast<int>(mkii::presets::bank.size())) return false;
+    const auto check=[&](const juce::String& name,float value) {
+        for (const auto* parameter : plugin.getParameters())
+            if (parameter->getName(100)==name) return std::abs(parameter->getValue()-value)<1e-6f;
+        return false;
+    };
+    constexpr std::array<const char*,9> names{"Compress Threshold","Compress Ratio","Compress Recovery",
+        "Compress Gain","Limit Threshold","Limit Recovery","Compress In","Limit In","Fast Attack"};
+    constexpr std::array upper{15,4,5,10,22,5,1,1,1};
+    for (std::size_t i=0; i<mkii::presets::bank.size(); ++i) {
+        const auto& preset=mkii::presets::bank[i];
+        box->setSelectedId(static_cast<int>(i)+1,juce::sendNotificationSync);
+        const auto values=mkii::presets::detents(preset);
+        for (int channel : {1,2}) {
+            const auto prefix="Channel "+juce::String(channel)+" ";
+            for (std::size_t j=0; j<values.size(); ++j)
+                if (!check(prefix+names[j],float(values[j])/upper[j])) return false;
+        }
+        if (!check("Stereo Link",preset.linked) || !check("Compressor Attack",preset.attack/2.f)) return false;
+    }
+    juce::MemoryBlock state;
+    plugin.getStateInformation(state);
+    std::unique_ptr<juce::AudioProcessor> restored(createPluginFilter());
+    restored->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+    std::unique_ptr<juce::AudioProcessorEditor> panel(restored->createEditorIfNeeded());
+    if (!panel) return false;
+    for (auto* child : panel->getChildren())
+        if (const auto* recalled=dynamic_cast<const juce::ComboBox*>(child))
+            if (recalled->getName()=="33609 presets" && recalled->getSelectedId()==box->getSelectedId()) {
+                std::cout<<"Preset recall and save/restore passed for "<<box->getNumItems()<<" presets\n";
+                return true;
+            }
     return false;
 }
 
@@ -141,6 +182,46 @@ std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin
     return spectrum;
 }
 
+bool runJdCase(juce::AudioProcessor& plugin,char** args) {
+    constexpr int rate=44100,blockSize=512;
+    constexpr std::array<const char*,9> names{"Compress Threshold","Compress Ratio","Compress Recovery",
+        "Compress Gain","Limit Threshold","Limit Recovery","Compress In","Limit In","Fast Attack"};
+    constexpr std::array upper{15,4,5,10,22,5,1,1,1};
+    for (std::size_t i=0; i<names.size(); ++i)
+        if (!setControl(plugin,"Channel 1 "+juce::String(names[i]),std::stof(args[i])/upper[i])) return false;
+    if (!setControl(plugin,"Compressor Attack",std::stof(args[9])/2.f)) return false;
+    const auto frequency=std::stod(args[10]), low=std::stod(args[11]), high=std::stod(args[12]);
+    const auto burst=std::stod(args[13]), stop=std::stod(args[14]);
+    plugin.setNonRealtime(true);
+    std::cout<<std::setprecision(12);
+    if (burst==0.) {
+        const auto durationTenths=static_cast<int>(std::ceil(stop*10));
+        const auto spectrum=measureSpectrum(plugin,frequency,high,rate,durationTenths);
+        for (const auto& bin:spectrum)
+            std::cout<<bin.real()*(10./rate)<<' '<<bin.imag()*(10./rate)<<'\n';
+        return true;
+    }
+    plugin.prepareToPlay(rate,blockSize);
+    juce::AudioBuffer<float> block(2,blockSize);
+    juce::MidiBuffer midi;
+    const int frames=static_cast<int>(std::ceil(stop*rate))+1;
+    const auto peak=[](double db) {return std::pow(10.,(db-24.)/20.);};
+    const auto quiet=peak(low), loud=peak(high);
+    const auto omega=2*std::numbers::pi*frequency;
+    for (int frame=0;frame<frames;frame+=blockSize) {
+        block.clear();
+        for (int i=0;i<blockSize;++i) {
+            const auto time=double(frame+i)/rate;
+            block.setSample(0,i,static_cast<float>((time>=.45 && time<.45+burst?loud:quiet)*std::sin(time*omega)));
+        }
+        plugin.processBlock(block,midi);
+        for (int i=0;i<blockSize && frame+i<frames;++i)
+            std::cout<<double(frame+i)/rate<<' '<<block.getSample(0,i)<<'\n';
+    }
+    plugin.releaseResources();
+    return true;
+}
+
 bool checkThroughResponse(juce::AudioProcessor& plugin) {
     if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0) ||
         !setControl(plugin,"Bypass In",1) || !setControl(plugin,"Power",1)) return false;
@@ -241,7 +322,8 @@ int main(int argc,char** argv) {
     std::cerr<<std::unitbuf;
     const bool offline=argc==3 && std::string_view(argv[2])=="--offline";
     const bool dynamics=argc==11 && std::string_view(argv[2])=="--jd-timing";
-    if (argc!=2 && !offline && !dynamics) {
+    const bool jdCase=argc==18 && std::string_view(argv[2])=="--jd-case";
+    if (argc!=2 && !offline && !dynamics && !jdCase) {
         std::cerr<<"Expected one VST3 bundle argument\n";
         return 2;
     }
@@ -265,6 +347,7 @@ int main(int argc,char** argv) {
         std::cerr<<error<<'\n';
         return 4;
     }
+    if (jdCase) return runJdCase(*vst,argv+3) ? 0 : 19;
     if (dynamics) {
         for (const auto* parameter : vst->getParameters()) {
             if (parameter->getName(100) == "Compressor Attack" && parameter->getValue() != 0.f) {
@@ -283,6 +366,10 @@ int main(int argc,char** argv) {
         const auto path=juce::File::getCurrentWorkingDirectory().getChildFile("609-faceplate.png");
         juce::FileOutputStream png(path);
         if (!png.openedOk() || !juce::PNGImageFormat().writeImageToStream(image,png)) return 5;
+        if (!checkPresets(*processor,*panel)) {
+            std::cerr<<"Preset recall or state restore failed\n";
+            return 18;
+        }
     }
     constexpr int rate=44100,n=512,blocks=(6*rate/n);
     bool passed=true;

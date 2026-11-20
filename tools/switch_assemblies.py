@@ -25,9 +25,8 @@ def ladder(name, first, values, first_tap=1, bypass_first=False):
     return '\n'.join([*lines, f".ends {name}"])
 
 
-# Effective PL20233 segments for the fitted 1N4153 bridge. The cumulative
-# tap resistances align the compressor with the JD 0/+10 dBu test.
-ratio = ladder("PL20233", "C", [560, 987, 3076, 7843, 36545])
+# PL20233 position 1 connects directly to C. Positions 2–5 travel the stock ladder.
+ratio = ladder("PL20233", "C", [820, 2700, 3300, 15000], first_tap=2)
 makeup = ladder("PL20234", "C", [130, 43, 51, 75, 91, 160, 240, 390, 820, 2400], bypass_first=True)
 threshold = ladder("PL20236", "C", [240, 68, 75, 110, 130, 180, 200, 300, 360, 510, 680, 910, 1200, 2000, 3000, 5100])
 limiter = ladder("PL20238", "C", [51, 62, 56, 68, 68, 68, 75, 82, 91, 91, 91, 100, 110, 110, 120, 130, 130, 150, 150, 160, 180, 180], first_tap=2)
