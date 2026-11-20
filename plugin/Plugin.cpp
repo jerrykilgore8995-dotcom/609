@@ -1,7 +1,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Presets.hpp"
-#include "../native/Realtime.hpp"
+#include "../native/Pipeline.hpp"
 #include "../native/SupplyNoise.hpp"
 
 #include <algorithm>
@@ -58,13 +58,12 @@ public:
         return input==layout.getMainOutputChannelSet() &&
                (input==juce::AudioChannelSet::mono() || input==juce::AudioChannelSet::stereo());
     }
-    void prepareToPlay(double rate,int) override {
-        engine.prepare(rate);
-        ready=true;
+    void prepareToPlay(double rate,int blockSize) override {
+        ready=engine.prepare(rate,getTotalNumInputChannels(),blockSize);
         supplyNoise.prepare(rate);
-        setLatencySamples(0);
+        setLatencySamples(ready?mkii::native::playbackLatency(blockSize):0);
     }
-    void releaseResources() override {ready=false;}
+    void releaseResources() override {engine.stop();ready=false;}
     void processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {process(audio,false);}
     void processBlockBypassed(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {process(audio,true);}
     void getStateInformation(juce::MemoryBlock& data) override {copyXmlToBinary(*state.copyState().createXml(),data);}
@@ -147,22 +146,15 @@ private:
         positions[18]=modeParams[remote?4:0]->load()>0.5f;
         positions[19]=modeParams[remote?5:1]->load()>0.5f;
         positions[20]=modeParams[2]->load()>0.5f;
-        engine.control(positions,static_cast<int>(attackParam->load()));
-        auto* const left=audio.getWritePointer(0);
-        auto* const right=audio.getNumChannels()==2?audio.getWritePointer(1):nullptr;
-        for (int frame=0;frame<audio.getNumSamples();++frame) {
-            const auto wet=engine.step({left[frame],right?right[frame]:0.0});
-            if (dry) continue;
-            left[frame]=static_cast<float>(wet[0]);
-            if (right) right[frame]=static_cast<float>(wet[1]);
-        }
+        positions[mkii::native::compressorAttackControl]=static_cast<int>(attackParam->load());
+        engine.process(audio.getArrayOfWritePointers(),audio.getNumSamples(),positions,isNonRealtime(),dry);
         if (dry || !positions[18] || !positions[20]) supplyNoise.silence();
         else supplyNoise.process(audio.getArrayOfWritePointers(),audio.getNumChannels(),audio.getNumSamples(),
                                  noiseParam->load()>0.5f);
-        const auto current=engine.gainReduction();
+        const auto current=engine.readMeters();
         for (int i=0;i<2;++i) meters[i].store(dry?0.0f:static_cast<float>(current[i]));
     }
-    mkii::native::Realtime engine;
+    mkii::native::Pipeline engine;
     mkii::native::SupplyNoise supplyNoise;
     const std::atomic<float>* attackParam=nullptr;
     const std::atomic<float>* noiseParam=nullptr;

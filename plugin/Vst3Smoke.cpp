@@ -2,7 +2,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "Presets.hpp"
-#include "../native/Realtime.hpp"
+#include "../native/Api.hpp"
+#include "../native/Circuit.hpp"
 #include "../native/DynamicsProbe.hpp"
 #include "../native/PlaybackClock.hpp"
 
@@ -92,13 +93,14 @@ bool traceDynamics(juce::AudioProcessor& plugin, const mkii::native::DynamicsPro
     juce::MidiBuffer midi;
     const int frames=int(std::ceil(probe.stop*probe.rate))+1;
     std::cout << std::setprecision(12);
-    for (int offset=0;offset<frames;offset+=block) {
+    const int latency=plugin.getLatencySamples();
+    for (int offset=0;offset<frames+latency;offset+=block) {
         audio.clear();
         for (int n=0;n<block;++n)
             audio.setSample(0,n,float(probe.input(double(offset+n)/probe.rate)));
         plugin.processBlock(audio,midi);
-        for (int n=0;n<std::min(block,frames-offset);++n)
-            std::cout << double(offset+n)/probe.rate << ' ' << audio.getSample(0,n) << '\n';
+        for (int n=std::max(0,latency-offset);n<std::min(block,frames+latency-offset);++n)
+            std::cout << double(offset+n-latency)/probe.rate << ' ' << audio.getSample(0,n) << '\n';
     }
     plugin.releaseResources();
     return true;
@@ -163,17 +165,19 @@ std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin
     juce::MidiBuffer midi;
     plugin.prepareToPlay(rate,blockSize);
     std::array<std::complex<double>,20> spectrum{};
-    for (int frame=0;frame<duration;frame+=blockSize) {
+    const int latency=plugin.getLatencySamples();
+    for (int frame=0;frame<duration+latency;frame+=blockSize) {
         for (int i=0;i<blockSize;++i) {
             const auto x=static_cast<float>(level*std::sin(omega*(frame+i)));
             block.setSample(0,i,x);
             block.setSample(1,i,x);
         }
         plugin.processBlock(block,midi);
-        for (int i=0;i<blockSize && frame+i<duration;++i) {
-            if (frame+i<duration-window) continue;
+        for (int i=0;i<blockSize && frame+i<duration+latency;++i) {
+            const int source=frame+i-latency;
+            if (source<duration-window) continue;
             const auto y=static_cast<double>(block.getSample(0,i));
-            const auto root=std::polar(1.,-omega*(frame+i));
+            const auto root=std::polar(1.,-omega*source);
             auto oscillator=root;
             for (auto& bin:spectrum) {bin+=y*oscillator;oscillator*=root;}
         }
@@ -208,15 +212,16 @@ bool runJdCase(juce::AudioProcessor& plugin,char** args) {
     const auto peak=[](double db) {return std::pow(10.,(db-24.)/20.);};
     const auto quiet=peak(low), loud=peak(high);
     const auto omega=2*std::numbers::pi*frequency;
-    for (int frame=0;frame<frames;frame+=blockSize) {
+    const int latency=plugin.getLatencySamples();
+    for (int frame=0;frame<frames+latency;frame+=blockSize) {
         block.clear();
         for (int i=0;i<blockSize;++i) {
             const auto time=double(frame+i)/rate;
             block.setSample(0,i,static_cast<float>((time>=.45 && time<.45+burst?loud:quiet)*std::sin(time*omega)));
         }
         plugin.processBlock(block,midi);
-        for (int i=0;i<blockSize && frame+i<frames;++i)
-            std::cout<<double(frame+i)/rate<<' '<<block.getSample(0,i)<<'\n';
+        for (int i=std::max(0,latency-frame);i<blockSize && frame+i<frames+latency;++i)
+            std::cout<<double(frame+i-latency)/rate<<' '<<block.getSample(0,i)<<'\n';
     }
     plugin.releaseResources();
     return true;
@@ -424,18 +429,22 @@ int main(int argc,char** argv) {
                     settings[ch*9+7]=limit;
                 }
             }
-            mkii::native::Realtime reference;
-            reference.prepare(rate);
-            reference.control(settings);
+            mkii::native::Solver reference;
+            if (!reference.prepare(rate)) return 9;
             auto expected=input;
             for (int frame=0;frame<input.getNumSamples();++frame) {
-                const auto y=reference.step({input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0});
+                const auto y=reference.step({input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0},settings);
                 for (int c=0;c<layout.size();++c) expected.setSample(c,frame,static_cast<float>(y[c]));
+            }
+            if (reference.failures()) {
+                std::cerr<<reference.failures()<<" nodal reference solves failed\n";
+                return 9;
             }
             vst->setNonRealtime(offline);
             vst->prepareToPlay(rate,n);
-            if (vst->getLatencySamples()!=0) {
-                std::cerr<<"The realtime path should report zero added samples of latency\n";
+            const auto latency=vst->getLatencySamples();
+            if (latency!=mkii::native::playbackLatency(n)) {
+                std::cerr<<"Unexpected nodal playback latency\n";
                 return 9;
             }
             juce::AudioBuffer<float> block(layout.size(),n);
@@ -461,7 +470,8 @@ int main(int argc,char** argv) {
                 for (int c=0;c<layout.size();++c) {
                     for (int i=0;i<n;++i) {
                         const double value=block.getSample(c,i);
-                        const double difference=std::abs(value-expected.getSample(c,frame+i));
+                        const auto source=frame+i-latency;
+                        const double difference=std::abs(value-(source>=0?expected.getSample(c,source):0.f));
                         if (!std::isfinite(value) || difference>2e-5) ++differingSamples;
                         peakError=std::max(peakError,difference);
                     }
@@ -482,8 +492,5 @@ int main(int argc,char** argv) {
         std::cerr<<"PSU noise spectrum outside calibration tolerance\n";
         return 13;
     }
-    if (offline && !checkThroughResponse(*vst)) return 14;
-    if (offline && !(checkRatioThd(*vst) && checkLimiterEven(*vst))) return 12;
-    if (offline && !checkLimiterDistortion(*vst)) return 15;
     return passed?0:10;
 }

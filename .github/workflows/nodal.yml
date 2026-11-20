@@ -1,0 +1,56 @@
+name: 609 nodal VST3
+on:
+  push:
+    branches: [jd-transformer-calibration]
+    paths: ['circuit/**', 'native/**', 'plugin/**', 'tools/native_seed.py', '.github/workflows/nodal.yml']
+  workflow_dispatch:
+
+jobs:
+  deck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ngspice
+          python -m pip install numpy
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/Deck.hpp
+  windows:
+    runs-on: windows-2022
+    needs: deck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+      - name: Build the embedded nodal VST3
+        shell: pwsh
+        run: |
+          $deck = (Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Save the Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: 609-Nodal-Windows-x64-VST3
+          path: build-plugin/Compressor609_artefacts/Release/VST3/609.vst3
+      - name: Test the loaded VST3 at 44.1 kHz and 512 samples
+        shell: pwsh
+        run: |
+          $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
+          $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
+          & $test $bundle 2>&1 | Tee-Object -FilePath nodal-playback.txt
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-nodal-playback
+          path: nodal-playback.txt

@@ -176,13 +176,17 @@ base_devices = condense_rotaries(devices)
 face = dict(ct=range(1,17), cr=range(1,6), cm=range(1,7), cg=range(1,12),
             lt=range(1,24), lr=range(1,7), ce=range(2), le=range(2), fast=range(2))
 controls = {**{key+side: positions for side in "lr" for key, positions in face.items()},
-            **{key: range(2) for key in ("active", "linked", "power")}}
+            **{key: range(2) for key in ("active", "linked", "power")},
+            "catkl": range(3)}
 contact_values = {}
 for control_index, (control, positions) in enumerate(controls.items()):
     variants = []
     for pos in positions:
         devices.clear()
-        expand(top, override={"cel":1,"cer":1,"cgl":11,"cgr":11,"linked":1,"active":1,"power":1,control:pos})
+        override={"cel":1,"cer":1,"cgl":11,"cgr":11,"linked":1,"active":1,"power":1,control:pos}
+        if control == "catkl":
+            override["catkr"] = pos
+        expand(top, override=override)
         variants.append({name:value for kind,name,_,value in condense_rotaries(devices) if kind=="r"})
     for name in variants[0]:
         values = [variant[name] for variant in variants]

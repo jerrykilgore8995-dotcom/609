@@ -14,7 +14,7 @@ struct Api {
     unsigned (*failedSolves)(void*);
     void (*readMeters)(void*,MeterReadings*);
 };
-inline constexpr std::uint32_t apiVersion=1;
+inline constexpr std::uint32_t apiVersion=2;
 constexpr int playbackLatency(int hostBlock) {return 3*(hostBlock<512?512:hostBlock);}
 using LoadApi=const Api* (*)();
 }
