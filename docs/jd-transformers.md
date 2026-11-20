@@ -59,3 +59,21 @@ The gain stage values are simulated. The current measurement uses zero-volt sour
 At the +22 dBu limiter-only point, output was +8.01 dBu and THD through K20 was 0.474% at a 2.5 µs maximum timestep. The bridge already measured 0.472%, and K3 dominated the output at −46.5 dBc. The bridge averaged 53.1 µA per measured junction. The result improves on the prior 0.860%, with 0.024 percentage point still separating it from the handbook’s 0.45% ceiling. At +9 dBu input in through mode, THD was 0.0088%. The 20 Hz to 20 kHz through response ranged from −0.003 to +0.240 dB relative to 1 kHz.
 
 The effective SPICE timing network was realigned where it shifted with the new bridge curve. On the stepped-sine bench in [JD timing](jd-timing.md), compressor attack measured 2.99, 7.22 and 14.23 ms, with the JD setting first. The 100 ms compressor recovery detent gave 94.56 ms at 63.2% gain recovery. Normal and fast limiter attack gave 4.21 and 2.04 ms. The 50 ms limiter recovery detent gave 49.67 ms at 90% control-voltage recovery in normal attack. These are spot checks. The compressor ratio sweep yielded output steps of 7.56, 6.37, 4.46, 3.28 and 2.10 dB for a 10 dB increase at the input terminals. Several detents still exceed the handbook tolerance. The full recovery matrix and bounded VST3 require separate validation against this circuit revision.
+
+## Compressor ratio recalibration
+
+The fitted bridge changes the conversion from sidechain control voltage to gain reduction. Using the previous PL20233 values made the compressor output rise too far as the input increased, even though the ratio switch selected the correct tap. The updated effective PL20233 tap resistances calibrate only the compressor detector’s R26 branch. The shared bridge law, makeup network and limiter sidechain retain their existing calibration.
+
+The factory ratio check uses a 1 kHz tone, −20 dBu compressor threshold, 100 ms recovery, the default JD attack and a 0 to +10 dBu input increase measured at the terminals. The highest detent is marked 6:1 on the JD drawing. Its 1.67 dB target is within the handbook’s 1.50 ±0.50 dB range.
+
+| Ratio detent | Previous output step | Calibrated output step | Bench target |
+| --- | ---: | ---: | ---: |
+| 1.5:1 | 7.56 dB | 6.50 dB | 6.50 dB |
+| 2:1 | 6.37 dB | 5.00 dB | 5.00 dB |
+| 3:1 | 4.45 dB | 3.50 dB | 3.50 dB |
+| 4:1 | 3.28 dB | 2.50 dB | 2.50 dB |
+| 6:1 | 2.07 dB | 1.67 dB | 1.67 dB |
+
+The limiter-only retest at +22 dBu in, +8 dBu threshold and 800 ms recovery measured +8.01 dBu out and about 0.47% THD with the compressor ratio set to either end of its range.
+
+The 4:1 stepped-sine test measured 2.74, 6.84 and 14.02 ms of attack at the 100 ms recovery setting. The longer fixed recovery positions were recalibrated through the compressor-only recovery ladder. At the JD attack setting, 63.2% gain recovery took 96.93, 399.59, 800.62 and 1501.84 ms across the four fixed detents. The automatic modes and bounded VST3 were outside this calibration.
