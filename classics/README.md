@@ -32,7 +32,14 @@ The 2254 uses the early L/10004 circuit with an added compressor threshold trim 
 
 The 2264 motherboard scan calls out EX20127, EX20128 and EX20129 for the rotary subassemblies. The first pass uses related 609-family ladders and estimated recovery values. Limiter calibration, interstage termination and amplifier bias need per-revision confirmation. Stereo link uses the MKII's 10 Ω Norton equivalent with one sample of delay between the channel solvers.
 
-The current bench checks finite output and convergence under combined compression and limiting. Hardware comparison of the full ratio curves, timing, THD and frequency response remains open.
+The current bench checks finite output and convergence under combined compression and limiting. At the +8 dBu limiter setting, the corrected SPICE decks produced these 1 kHz results:
+
+| Model | Out at +10 dBu in | Out at +20 dBu in |
+|---|---:|---:|
+| 2254 | +8.00 dBu | +7.91 dBu |
+| 2264 | +7.87 dBu | +8.00 dBu |
+
+The 2254 still over-attenuates at the 6:1 setting. It produced −27.60 dBu at +10 dBu input and −17.67 dBu at +20 dBu input in the late measurement window. The 2264 compressor passed this operating sanity check, but that does not verify its individual rotary assemblies or hardware ratio curves. Hardware comparison of the full ratio curves, timing, THD and frequency response remains open.
 
 ## Faceplates
 
