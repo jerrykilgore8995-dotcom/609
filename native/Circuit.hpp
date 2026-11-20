@@ -114,13 +114,13 @@ struct QModel {
 };
 struct JModel { double vto,beta,is,lambda,cgs,cgd,pb,fc; };
 struct D { int a,b; double q1=0,q2=0,q=0,slope=0,knee=0; std::array<int,4> slots{}; };
-struct Q { int c,b,e; double f1=0,f2=0,f=0,r1=0,r2=0,r=0; Jet fq{},rq{}; int sign=1; std::array<int,9> slots{}; };
+struct Q { int c,b,e; double f1=0,f2=0,f=0,r1=0,r2=0,r=0; Jet fq{},rq{}; int sign=1; std::array<int,9> slots{}; bool limiterCharge=false; };
 struct J { int d,g,s; std::array<int,9> slots{}; };
 
 struct Circuit {
     int size=0,nodes=0;
     std::array<int,4> output{};
-    std::array<int,2> meter{};
+    std::array<int,2> meter{}, limiterEnvelope{-1,-1};
     std::vector<Constant> constants;
     std::vector<R> resistors;
     std::vector<Contact> contact;
@@ -141,7 +141,7 @@ struct Circuit {
 
 class Solver {
 public:
-    explicit Solver(int channel=-1):lane(channel),linkConductance(channel<0?0.0:0.1) {
+    explicit Solver(int channel=-1,bool simplify=false):lane(channel),linkConductance(channel<0?0.0:0.1),omitLimiterCharge(simplify) {
         loadDeck(deck);
         if (lane>=0) isolateChannel();
     }
@@ -252,6 +252,7 @@ public:
                 (v(deck.output[2])-v(deck.output[3]))/fullScalePeakVolts};
     }
 
+    double limiterEnvelope() const {return v(deck.limiterEnvelope[lane]);}
     double linkVoltage() const {return previous[linkNode];}
     void setPeerLinkVoltage(double volts) {peerLinkVoltage=volts;}
     Frame meterVolts() const {return {v(deck.meter[0]),v(deck.meter[1])};}
@@ -342,6 +343,7 @@ private:
             if (!remap(j,&J::s,&J::d,&J::g)) j.d=unusedNode;
         for (auto& n:deck.output) n=std::max(-1,node(n));
         for (auto& n:deck.meter) n=std::max(-1,node(n));
+        for (auto& n:deck.limiterEnvelope) n=std::max(-1,node(n));
         deck.size=static_cast<int>(bias.size());
         deck.channel.assign(deck.size,lane);
         deck.bias=std::move(bias);
@@ -751,24 +753,26 @@ private:
             Jet ibf=f*(1/m.bf)+junction(be,m.ne*thermal,m.ise)+be*gmin;
             Jet ibr=r*(1/m.br)+junction(bc,m.nc*thermal,m.isc)+bc*gmin;
             if constexpr (m.cje!=0 || m.tf!=0 || m.cjc!=0 || m.tr!=0) {
-                if constexpr (sizing) {
-                    bjtStorage.push_back(at);
-                    d.sign=sign;
-                }
-                if constexpr (m.cje!=0 || m.tf!=0) {
-                    Jet qf=capacitance<m.mje>(be,m.cje,m.vje,m.fc);
-                    if (m.tf && be.value>0) qf=qf+f*baseCharge*m.tf;
-                    d.f=qf.value;
-                    d.fq=qf;
-                    ibf=ibf+qf*inverse;
-                    ibf.value+=history1*d.f1+history2*d.f2;
-                }
-                if constexpr (m.cjc!=0 || m.tr!=0) {
-                    const Jet qr=capacitance<m.mjc>(bc,m.cjc,m.vjc,m.fc)+r*m.tr;
-                    d.r=qr.value;
-                    d.rq=qr;
-                    ibr=ibr+qr*inverse;
-                    ibr.value+=history1*d.r1+history2*d.r2;
+                if constexpr (sizing) d.sign=sign;
+                if (!omitLimiterCharge || !d.limiterCharge) {
+                    if constexpr (sizing) {
+                        bjtStorage.push_back(at);
+                    }
+                    if constexpr (m.cje!=0 || m.tf!=0) {
+                        Jet qf=capacitance<m.mje>(be,m.cje,m.vje,m.fc);
+                        if (m.tf && be.value>0) qf=qf+f*baseCharge*m.tf;
+                        d.f=qf.value;
+                        d.fq=qf;
+                        ibf=ibf+qf*inverse;
+                        ibf.value+=history1*d.f1+history2*d.f2;
+                    }
+                    if constexpr (m.cjc!=0 || m.tr!=0) {
+                        const Jet qr=capacitance<m.mjc>(bc,m.cjc,m.vjc,m.fc)+r*m.tr;
+                        d.r=qr.value;
+                        d.rq=qr;
+                        ibr=ibr+qr*inverse;
+                        ibr.value+=history1*d.r1+history2*d.r2;
+                    }
                 }
             }
             terminal<sizing>(d.c,d.c,d.b,d.e,sign,transport-ibr,d.slots.data());
@@ -925,6 +929,7 @@ private:
     int lane;
     int linkNode=-1;
     const double linkConductance;
+    const bool omitLimiterCharge;
     double peerLinkVoltage=0;
     bool partitionValid=true;
     Circuit deck;

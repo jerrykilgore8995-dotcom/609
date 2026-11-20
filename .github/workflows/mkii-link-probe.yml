@@ -1,7 +1,7 @@
-name: 609 MKII Windows code-speed benchmark
+name: 609 MKII Windows worker-buffer and limiter benchmark
 on:
   push:
-    branches: [609-mkii-code-speed]
+    branches: [609-mkii-buffer-charge]
   workflow_dispatch:
 permissions:
   actions: read
@@ -21,6 +21,8 @@ jobs:
         shell: pwsh
         run: |
           $deck = (Resolve-Path build/deck).Path
+          python native/mkii-probe/MarkDeck.py "$deck/Deck.hpp"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake -S native/mkii-probe -B build/link -A x64 "-DDECK_DIR=$deck"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build/link --config Release --parallel 4
@@ -28,9 +30,7 @@ jobs:
       - name: Measure timing and linked output
         shell: pwsh
         run: |
-          & build/link/Release/LinkProbe.exe 2>&1 | Tee-Object -FilePath mkii-link-benchmark.txt
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & build/link/Release/FastLinkProbe.exe 2>&1 | Tee-Object -FilePath mkii-link-benchmark.txt -Append
+          & build/link/Release/FastLinkProbe.exe 2>&1 | Tee-Object -FilePath mkii-link-benchmark.txt
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
