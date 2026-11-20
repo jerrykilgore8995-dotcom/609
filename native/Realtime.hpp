@@ -82,11 +82,12 @@ public:
             // converts them to the shorter front-panel recovery times in dB.
             constexpr std::array compRelease{.182,.596,1.102,1.958};
             constexpr std::array compAuto{.090,.046};
-            constexpr std::array limRelease{.022,.047,.0965,.396,.100,.050};
+            constexpr std::array limRelease{.022,.047,.0965,.396,.085,.036};
             constexpr std::array compAttack{.003,.0075,.015};
-            constexpr std::array autoTail{2.,5.};
-            const double compTail=cm>=4?autoTail[cm-4]:0.;
-            const double limTail=lr>=4?autoTail[lr-4]:0.;
+            constexpr std::array compTail{2.,5.};
+            // The limiter is measured in output dB. The live feedback loop
+            // settles the output earlier than its timing capacitor settles.
+            constexpr std::array limiterGainTail{.33,1.80};
             std::copy_n(compressor,ch.staticReduction.size(),ch.staticReduction.begin());
             const double attackSeconds=compAttack[std::clamp(attackMode,0,2)];
             ch.fixedAttack=-std::expm1(-1/(rate*attackSeconds));
@@ -94,7 +95,7 @@ public:
             ch.autoRelease=cm>=4;
             ch.voltRelease=1/(rate*compRelease[std::min(cm,3)]);
             ch.attack=1/(rate*pulseAttack);
-            if (ch.autoRelease) ch.comp.setup(rate,attackSeconds,compAuto[cm-4],compTail,cm==4?.80:.91);
+            if (ch.autoRelease) ch.comp.setup(rate,attackSeconds,compAuto[cm-4],compTail[cm-4],cm==4?.80:.91);
             for (std::size_t k=0;k<ch.chargeCurve.size();++k) {
                 const double reduction=std::max(0.0f,compressor[k]);
                 const auto voltage=voltsForGain(reduction);
@@ -118,7 +119,8 @@ public:
                 ch.chargeCurve[k][0]=std::max(ch.chargeCurve[k][0],ch.chargeCurve[k-1][0]+1e-6);
                 ch.chargeCurve[k][1]=std::max(ch.chargeCurve[k][1],ch.chargeCurve[k-1][1]);
             }
-            ch.lim.setup(rate,fast?.00065:.00142,limRelease[lr],limTail,lr==4?.60:.70);
+            ch.lim.setup(rate,fast?.00065:.00142,limRelease[lr],
+                         lr>=4?limiterGainTail[lr-4]:0.,lr==4?.60:.78);
         }
     }
 
@@ -393,20 +395,21 @@ private:
             memoryRise=coefficient(.24);
             memoryFall=tail>0?coefficient(tail):1.;
             coupling=tail>0?weight:0.;
+            if (coupling==0.) memory=0.;
         }
         double update(double wanted,bool voltageMemory=false) {
+            if (coupling>0. && !voltageMemory)
+                memory+=(wanted-memory)*(wanted>memory?memoryRise:memoryFall);
             if (wanted>=gain) {
                 gain+=rise*(wanted-gain);
-                if (coupling>0.) {
-                    const double charged=voltageMemory?voltsForGain(gain)-states.front():gain;
-                    memory+=memoryRise*(charged-memory);
-                }
+                if (coupling>0. && voltageMemory)
+                    memory+=memoryRise*(voltsForGain(gain)-states.front()-memory);
             } else if (coupling>0.) {
                 // The second capacitor holds up the main envelope during
                 // recovery. Compressor memory uses the measured bridge law
                 // to convert between capacitor voltage and attenuation.
                 const double target=voltageMemory?voltsForGain(wanted)-states.front():wanted;
-                memory+=memoryFall*(target-memory);
+                if (voltageMemory) memory+=memoryFall*(target-memory);
                 const double held=target+coupling*std::max(0.,memory-target);
                 const double floor=voltageMemory?gainForVolts(held+states.front()):held;
                 gain+=fall*(std::min(floor,gain)-gain);

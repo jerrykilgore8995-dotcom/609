@@ -31,6 +31,17 @@ The 1 kHz stimulus uses the fixture's generator dBu convention. Compressor timin
 
 The table uses 63.2% output gain recovery for both engines, with JD compressor attack and normal limiter attack. At the limiter's SPICE control node the 90% times were 50.08, 101.37, 203.20 and 816.19 ms. The stepped-sine numbers describe the stated fixture. Detector overdrive and recovery history can change the measured trajectory at other levels.
 
+The following automatic recovery figures read 63.2% of output gain recovery. The compressor uses +4 dBu input, a −2 dBu threshold and 4:1. The limiter uses normal attack and the same +10/+20 dBu bench step.
+
+| Mode | SPICE, 100 / 500 ms burst | Bounded, 100 / 500 ms burst |
+| --- | ---: | ---: |
+| Compressor A1 | 104 / 268 ms | 95 / 285 ms |
+| Compressor A2 | 54 / 1372 ms | 51 / 1078 ms |
+| Limiter A1 | 129 / 209 ms | 119 / 234 ms |
+| Limiter A2 | 72 / 1184 ms | 65 / 1137 ms |
+
+At the lighter compressor setting, the physical model takes roughly 8–9 ms to reach 63.2% of its gain change. The VST3 uses the selected 3 ms time at this setting. The A2 short-burst tail and the deepest bass transients still differ from the reconstruction.
+
 The published [33609/N drum-bus capture](https://www.amazona.de/test-ams-neve-33609-n-limiter-und-kompressor/) gives a separate program-material reference. On the 3:1, fast, 100 ms example, the bounded engine at about 6.3 dB peak reduction differed from the hardware envelope by 0.38 dB median and 1.39 dB at the 95th percentile in 10 ms RMS windows after median level matching. The hardware increased crest factor by 1.26 dB, versus 0.46 dB for the model. The clips are MP3s and the hardware converter calibration is unspecified.
 
 The revised reference also retested the 1 kHz, +10 dBu compressor THD case at a 0 dBu threshold. The bounded model and SPICE agreed to within 1% relative across the five ratios in the local comparison. The old through-path SPICE result measured about -0.44 dB at 20 kHz relative to 1 kHz. The limiter's 0.45% factory THD limit is a ceiling. At the assumed +8 dBu detent, the original diode model in SPICE measures about 1% at the handbook's +22 dBu input. The loaded VST3 measured 0.399% at the equivalent +22 dBu input-terminal condition using the bounded limiter's existing spectral correction.
