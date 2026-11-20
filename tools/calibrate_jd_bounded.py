@@ -8,6 +8,8 @@ import subprocess
 
 import numpy as np
 
+from measure_jd_grid import COMP_LEVELS
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -42,17 +44,15 @@ def gain_tables(rows, path):
         reduction = [point['input'] + base_gain - point['output'] for point in observations]
         threshold = row['threshold']
         if row['mode'] == 'comp':
-            mark = -20 + (threshold - 1) * 2
-            comp[row['ratio'], threshold] = interpolate(np.subtract(inputs, mark), reduction, row['offsets'])
+            if threshold != 1 or tuple(row['offsets']) != COMP_LEVELS:
+                raise ValueError('Expected the four compressor endpoints from the reference detent')
+            comp[row['ratio']] = np.asarray(reduction) - reduction[0]
         else:
             mark = 4 + (threshold - 1) * 0.5
             limiter[row['attack'], threshold] = interpolate(np.subtract(inputs, mark), reduction, row['offsets'])
     text = path.read_text()
-    comp_rows = []
-    for ratio in range(1, 6):
-        lines = ['        {' + floats(comp[ratio, threshold]) + '},' for threshold in range(1, 17)]
-        comp_rows.append('    {\n' + '\n'.join(lines) + '\n    },')
-    text = re.sub(r'(inline constexpr float compressor\[5\]\[16\]\[14\]=\{).*?(\n\};)',
+    comp_rows = ['    {' + floats(comp[ratio]) + '},' for ratio in range(1, 6)]
+    text = re.sub(r'(inline constexpr float compressor\[5\]\[compLevelCount\]=\{).*?(\n\};)',
                   lambda match: match[1] + '\n' + '\n'.join(comp_rows) + match[2], text, count=1, flags=re.S)
     block = re.search(r'inline constexpr Point limiter\[2\]\[23\]\[12\]=\{(.*?)\n\};', text, re.S)
     points = iter(value for a in range(2) for t in range(1, 24) for value in limiter[a, t])

@@ -77,7 +77,8 @@ public:
             ch.spectral.configure(static_cast<int>(ch.ct),cr+1,ch.lt,lr,fast);
             bassTransient.configure(i,cr+1,ct+1,cm+1);
             ch.makeupDb=ch.compress?measured::makeup[cg]:0;
-            const auto& compressor=measured::compressor[cr][ct];
+            const auto& compressor=measured::compressor[cr];
+            constexpr std::array ratios{1.5,2.,3.,4.,6.};
             ch.limiter=measured::limiter[fast][lt];
             // The compressor RC constants are in control volts. The bridge
             // converts them to the shorter front-panel recovery times in dB.
@@ -92,6 +93,13 @@ public:
             // settles the output earlier than its timing capacitor settles.
             constexpr std::array limiterGainTail{1.117,3.431};
             std::copy_n(compressor,ch.staticReduction.size(),ch.staticReduction.begin());
+            ch.reductionSlopes.front()=0.;
+            for (std::size_t k=1;k+1<ch.reductionSlopes.size();++k) {
+                const auto left=(compressor[k]-compressor[k-1])/(measured::compLevels[k]-measured::compLevels[k-1]);
+                const auto right=(compressor[k+1]-compressor[k])/(measured::compLevels[k+1]-measured::compLevels[k]);
+                ch.reductionSlopes[k]=(left>0. && right>0.)?2.*left*right/(left+right):0.;
+            }
+            ch.reductionSlopes.back()=1.-1./ratios[cr];
             const double attackSeconds=compAttack[std::clamp(attackMode,0,2)];
             ch.fixedAttack=-std::expm1(-1/(rate*attackSeconds));
             if (cm>=4 && !ch.autoRelease) ch.comp.memory=ch.compSmooth;
@@ -183,15 +191,24 @@ public:
             const double current=pulse*(24-ch.charge)*ch.attack*pulseScale*
                 std::max(.2,1-.15925579*transient+0.0523322195*weight*bias);
             ch.charge=std::clamp(ch.charge+current-(ch.charge-.582)*ch.voltRelease,.582,18.);
-            const double relative=level-ch.ct;
+            // Align the bounded peak detector with the SPICE input reference.
+            const double relative=level-ch.ct+.25;
             const auto& axis=measured::compLevels;
             const auto& curve=ch.staticReduction;
             double wanted=0.;
             if (ch.compress) {
                 const auto upper=std::upper_bound(std::begin(axis),std::end(axis),relative);
                 const auto k=std::clamp<std::size_t>(upper-std::begin(axis),1,curve.size()-1);
-                const double fraction=std::clamp((relative-axis[k-1])/(axis[k]-axis[k-1]),0.,2.);
-                wanted=std::max(0.,std::lerp(double(curve[k-1]),double(curve[k]),fraction));
+                const double width=axis[k]-axis[k-1];
+                const double t=std::clamp((relative-axis[k-1])/width,0.,1.);
+                const double slope=(curve[k]-curve[k-1])/width;
+                // Cubic Hermite interpolation preserves the four measurements.
+                // The slope grows smoothly from unity to the marked ratio.
+                wanted=std::lerp(double(curve[k-1]),double(curve[k]),t)
+                    +width*t*(1.-t)*((1.-t)*(ch.reductionSlopes[k-1]-slope)
+                                     -t*(ch.reductionSlopes[k]-slope));
+                wanted=std::clamp(wanted+std::max(0.,relative-axis[ch.staticReduction.size()-1])
+                                  *ch.reductionSlopes.back(),0.,48.);
             }
             // The JD's attack stretches at lighter compression. The stock
             // and optional attack positions share that measured taper.
@@ -309,7 +326,7 @@ private:
         const double phase=std::acos(threshold);
         return (std::sin(phase)-threshold*phase)/std::numbers::pi;
     }
-    static Frame pulseThreshold(const std::array<std::array<double,3>,14>& a,double v) {
+    static Frame pulseThreshold(const std::array<std::array<double,3>,measured::compLevelCount>& a,double v) {
         if (v<=a.front()[0]) return {a.front()[1],a.front()[2]};
         for (std::size_t j=1;j<a.size();++j) {
             if (v<a[j][0]) {
@@ -431,8 +448,9 @@ private:
     struct Channel {
         Ballistics comp,lim;
         SpectralCorrection spectral;
-        std::array<float,14> staticReduction{};
-        std::array<std::array<double,3>,14> chargeCurve{};
+        std::array<float,measured::compLevelCount> staticReduction{};
+        std::array<double,measured::compLevelCount> reductionSlopes{};
+        std::array<std::array<double,3>,measured::compLevelCount> chargeCurve{};
         double charge=.582,voltRelease=0,attack=0,fixedAttack=0,compSmooth=0;
         bool autoRelease=false;
         std::array<double,4> dcHistory{};

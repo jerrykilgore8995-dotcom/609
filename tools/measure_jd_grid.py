@@ -11,7 +11,8 @@ import tempfile
 import numpy as np
 import measure
 
-COMP_LEVELS = (-16, -10, -6, -3, 0, 3, 6, 9, 12, 18, 24, 30, 36, 44)
+# The uncompressed baseline is 6 dB below the marked threshold on the bench.
+COMP_LEVELS = (-6, 4, 14, 24)
 LIMIT_LEVELS = (-12, -6, -3, 0, 1, 2, 4, 6, 10, 16, 23, 32)
 SOURCE_DB = 0.577
 RMS_REF = 0.775
@@ -95,7 +96,7 @@ def main():
     args = parser.parse_args()
     if args.section == 'gain':
         levels = COMP_LEVELS
-        tasks = [('comp', 0, r, t, 1000, levels, .16, 22) for r in range(1, 6) for t in range(1, 17)]
+        tasks = [('comp', 0, r, 1, 1000, levels, .75, 12) for r in range(1, 6)]
         tasks += [('limit', a, 4, t, 1000, LIMIT_LEVELS, .16, 22) for a in range(2) for t in range(1, 24)]
     else:
         frequencies = (100, 1000, 5000, 10000)
