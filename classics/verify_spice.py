@@ -1,4 +1,5 @@
 """Check assembly-level operation in ngspice before preparing a release."""
+import argparse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import math
@@ -59,9 +60,13 @@ def dbu(voltage):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=("2254", "2264"))
+    model = parser.parse_args().model
+    models = (model,) if model else ("2254", "2264")
     cases = [
         Case(model, level, compressor, limiter, ratio)
-        for model in ("2254", "2264")
+        for model in models
         for level, compressor, limiter, ratio in (
             (0, False, False, 4),
             (10, False, True, 4),
@@ -86,7 +91,7 @@ def main():
             except (ValueError, subprocess.TimeoutExpired) as error:
                 print(f"{label}  failed measurement: {error}", flush=True)
     ok = len(results) == len(cases)
-    for model in ("2254", "2264"):
+    for model in models:
         def get(case, metric):
             value = results.get(case, {}).get(metric, math.nan)
             return value

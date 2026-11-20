@@ -1,5 +1,8 @@
-name: Classic 2254 and 2264 Windows VST3
+name: Classic Windows VST3
 on:
+  push:
+    branches: [classic-2254-2264]
+    paths: ['classics/**', '.github/workflows/classic-nodal.yml']
   workflow_dispatch:
 
 permissions:
@@ -14,8 +17,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ngspice
-      - name: Validate the SPICE circuits
-        run: python3 classics/verify_spice.py
+      - name: Validate the candidate SPICE circuit
+        run: python3 classics/verify_spice.py --model 2264
       - name: Generate nodal decks from SPICE
         run: |
           for model in 2254 2264; do
@@ -32,39 +35,37 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
           name: Classic-SPICE-operating-points
           path: decks
-      - name: Compile VST3s and native benchmark
+      - name: Compile the 2264 VST3 and benchmark
         shell: pwsh
         run: |
           $deck = (Resolve-Path decks).Path
           cmake -S classics -B build -A x64 "-DDECK_DIR=$deck"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build --config Release --target Classic2254_VST3 Classic2264_VST3 Bench2254 Bench2264 --parallel 4
+          cmake --build build --config Release --target Classic2264_VST3 Bench2264 --parallel 4
           exit $LASTEXITCODE
+      - name: Verify dynamics and processing
+        shell: pwsh
+        run: |
+          python -m pip install numpy
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -u classics/read_dynamics.py 2264 build/Release/Bench2264.exe --require-close | Tee-Object -FilePath classic-benchmark.txt
+          $dynamics = $LASTEXITCODE
+          & build/Release/Bench2264.exe | Tee-Object -FilePath classic-benchmark.txt -Append
+          if ($LASTEXITCODE -ne 0 -or $dynamics -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: 2254-Nodal-Windows-x64-VST3
-          path: build/Classic2254_artefacts/Release/VST3/
-          if-no-files-found: error
+          name: 2264-Dynamics-and-44k1-512
+          path: classic-benchmark.txt
       - uses: actions/upload-artifact@v4
         with:
           name: 2264-Nodal-Windows-x64-VST3
           path: build/Classic2264_artefacts/Release/VST3/
           if-no-files-found: error
-      - name: Measure both nodal engines at 44.1 kHz and 512 samples
-        shell: pwsh
-        run: |
-          $result=0
-          foreach ($model in 2254,2264) {
-            & "build/Release/Bench$model.exe" | Tee-Object -FilePath classic-benchmark.txt -Append
-            if ($LASTEXITCODE -ne 0) { $result=1 }
-          }
-          exit $result
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Classic-2254-2264-44k1-512-benchmark
-          path: classic-benchmark.txt
