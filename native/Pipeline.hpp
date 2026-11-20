@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <limits>
+#include <semaphore>
 #include <thread>
 #if defined(__SSE2__) || defined(_M_X64)
 #include <xmmintrin.h>
@@ -30,7 +31,8 @@ public:
         if (inputChannels<1 || inputChannels>2 || hostBlock<1 || hostBlock>4096) return false;
         delay=playbackLatency(hostBlock);
         channels=inputChannels;
-        if (!solver.prepare(rate)) return false;
+        for (int ch=0;ch<channels;++ch)
+            if (!laneSolvers[ch].prepare(rate)) return false;
 #ifdef _WIN32
         if (!event) event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
         if (!event) return false;
@@ -129,7 +131,7 @@ private:
         written.wait(observed,std::memory_order_acquire);
 #endif
     }
-    void run() {
+    static void prepareWorker() {
 #if defined(__SSE2__) || defined(_M_X64)
         constexpr unsigned flushToZero=1u<<15;
         constexpr unsigned denormalsAreZero=1u<<6;
@@ -138,26 +140,57 @@ private:
 #ifdef _WIN32
         SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_ABOVE_NORMAL);
 #endif
-        std::uint64_t next=0;
-        while (true) {
-            const auto available=written.load(std::memory_order_acquire);
-            if (available==stopSignal) return;
-            if (available==next) {wait(available);continue;}
-            const auto end=std::min(available,next+32);
-            for (;next<end;++next) {
-                const auto& sample=input[next&mask];
-                const auto result=solver.step({sample.values[0],sample.values[1]},sample.settings);
-                const auto voltage=solver.meterVolts();
-                auto& out=output[next&mask];
-                out.values={float(result[0]),float(result[1])};
-                for (int ch=0;ch<2;++ch)
-                    out.meter[ch]=float(std::max(0.0,voltage[ch]*6.9));
-            }
-            failures.store(solver.failures(),std::memory_order_relaxed);
-            rendered.store(next,std::memory_order_release);
+    }
+    void renderLane(int channel,std::uint64_t first,std::uint64_t end) {
+        auto& lane=laneSolvers[channel];
+        for (auto frame=first;frame<end;++frame) {
+            const auto& sample=input[frame&mask];
+            const auto result=lane.step({sample.values[0],sample.values[1]},sample.settings);
+            auto& out=output[frame&mask];
+            out.values[channel]=float(result[channel]);
+            out.meter[channel]=float(std::max(0.0,lane.meterVolts()[channel]*6.9));
         }
     }
-    Solver solver;
+    void run() {
+        prepareWorker();
+        std::binary_semaphore begin(0),done(0);
+        std::uint64_t first=0,last=0;
+        std::thread right;
+        if (channels==2) right=std::thread([&] {
+            prepareWorker();
+            for (;;) {
+                begin.acquire();
+                if (last==stopSignal) return;
+                renderLane(1,first,last);
+                done.release();
+            }
+        });
+
+        std::uint64_t next=0;
+        for (;;) {
+            const auto available=written.load(std::memory_order_acquire);
+            if (available==stopSignal) break;
+            if (available==next) {wait(available);continue;}
+            const auto end=std::min(available,next+512);
+            if (right.joinable()) {
+                first=next;
+                last=end;
+                begin.release();
+            }
+            renderLane(0,next,end);
+            if (right.joinable()) done.acquire();
+            failures.store(laneSolvers[0].failures()+
+                (channels==2 ? laneSolvers[1].failures():0),std::memory_order_relaxed);
+            rendered.store(end,std::memory_order_release);
+            next=end;
+        }
+        if (right.joinable()) {
+            last=stopSignal;
+            begin.release();
+            right.join();
+        }
+    }
+    std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};
     std::array<Input,capacity> input{};

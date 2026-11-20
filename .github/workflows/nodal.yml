@@ -41,13 +41,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: 609-Nodal-Windows-x64-VST3
-          path: build-plugin/Compressor609_artefacts/Release/VST3/609.vst3
-      - name: Test the loaded VST3 at 44.1 kHz and 512 samples
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+      - name: Verify the dual-mono Windows VST3 at 44.1 kHz and 512 samples
         shell: pwsh
         run: |
           $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
           $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
-          & $test $bundle 2>&1 | Tee-Object -FilePath nodal-playback.txt
+          & $test $bundle --offline 2>&1 | Tee-Object -FilePath nodal-playback.txt
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()

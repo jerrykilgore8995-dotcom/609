@@ -53,7 +53,7 @@ bool checkPresets(juce::AudioProcessor& plugin, juce::AudioProcessorEditor& edit
             for (std::size_t j=0; j<values.size(); ++j)
                 if (!check(prefix+names[j],float(values[j])/upper[j])) return false;
         }
-        if (!check("Stereo Link",preset.linked) || !check("Compressor Attack",preset.attack/2.f)) return false;
+        if (!check("Compressor Attack",preset.attack/2.f)) return false;
     }
     juce::MemoryBlock state;
     plugin.getStateInformation(state);
@@ -110,7 +110,6 @@ bool checkSupplyNoise(juce::AudioProcessor& plugin) {
     constexpr int rate=44100,blockSize=512,settle=8192;
     constexpr int fft=4096,pinkBin=93;
     constexpr double tau=2*std::numbers::pi;
-    if (!setControl(plugin,"Stereo Link",0)) return false;
     for (int channel=1;channel<=2;++channel) {
         const auto prefix="Channel "+juce::String(channel)+" ";
         if (!setControl(plugin,prefix+"Limit In",0) || !setControl(plugin,prefix+"Compress In",0)) return false;
@@ -228,7 +227,7 @@ bool runJdCase(juce::AudioProcessor& plugin,char** args) {
 }
 
 bool checkThroughResponse(juce::AudioProcessor& plugin) {
-    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0) ||
+    if (!setControl(plugin,"PSU Noise",0) ||
         !setControl(plugin,"Bypass In",1) || !setControl(plugin,"Power",1)) return false;
     for (int channel=1;channel<=2;++channel) {
         const auto prefix="Channel "+juce::String(channel)+" ";
@@ -248,7 +247,7 @@ bool checkThroughResponse(juce::AudioProcessor& plugin) {
 }
 
 bool checkRatioThd(juce::AudioProcessor& plugin) {
-    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0)) return false;
+    if (!setControl(plugin,"PSU Noise",0)) return false;
     bool valid=true;
     for (int detent=0;detent<5;++detent) {
         for (int channel=1;channel<=2;++channel) {
@@ -271,7 +270,7 @@ bool checkRatioThd(juce::AudioProcessor& plugin) {
 }
 
 bool checkLimiterDistortion(juce::AudioProcessor& plugin) {
-    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0)) return false;
+    if (!setControl(plugin,"PSU Noise",0)) return false;
     for (int channel=1;channel<=2;++channel) {
         const auto prefix="Channel "+juce::String(channel)+" ";
         if (!setControl(plugin,prefix+"Compress In",0) ||
@@ -405,13 +404,11 @@ int main(int argc,char** argv) {
                 input.setSample(c,i,static_cast<float>(t<2?cymbal:t<4?noisyBass:sustained));
             }
         }
-        const std::array<const char*,4> caseNames{"through","linked compressor","linked limiter","linked compressor and limiter"};
+        const std::array<const char*,4> caseNames{"through","dual mono compressor","dual mono limiter","dual mono compressor and limiter"};
         const int caseCount=layout.size()==2?4:1;
         for (int testCase=0;testCase<caseCount;++testCase) {
             auto settings=mkii::native::defaults;
             if (layout.size()==2) {
-                if (!setControl(*vst,"Stereo Link",testCase!=0?1.0f:0.0f)) return 11;
-                settings[19]=testCase!=0;
                 for (int ch=0;ch<2;++ch) {
                     const auto prefix=juce::String("Channel ")+juce::String(ch+1)+" ";
                     const bool combined=testCase==3;
@@ -429,15 +426,21 @@ int main(int argc,char** argv) {
                     settings[ch*9+7]=limit;
                 }
             }
-            mkii::native::Solver reference;
-            if (!reference.prepare(rate)) return 9;
+            std::array<mkii::native::Solver,2> lanes{mkii::native::Solver(0),mkii::native::Solver(1)};
+            for (int ch=0;ch<layout.size();++ch) {
+                auto& lane=lanes[ch];
+                if (!lane.prepare(rate) || !lane.usesGeneratedSolve() || !lane.usesGeneratedResidual()) return 9;
+            }
             auto expected=input;
             for (int frame=0;frame<input.getNumSamples();++frame) {
-                const auto y=reference.step({input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0},settings);
-                for (int c=0;c<layout.size();++c) expected.setSample(c,frame,static_cast<float>(y[c]));
+                const mkii::native::Solver::Frame source{
+                    input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0};
+                for (int ch=0;ch<layout.size();++ch)
+                    expected.setSample(ch,frame,static_cast<float>(lanes[ch].step(source,settings)[ch]));
             }
-            if (reference.failures()) {
-                std::cerr<<reference.failures()<<" nodal reference solves failed\n";
+            const auto failures=lanes[0].failures()+lanes[1].failures();
+            if (failures) {
+                std::cerr<<failures<<" nodal reference solves failed\n";
                 return 9;
             }
             vst->setNonRealtime(offline);

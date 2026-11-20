@@ -141,8 +141,12 @@ struct Circuit {
 
 class Solver {
 public:
-    Solver() { loadDeck(deck); }
+    explicit Solver(int channel=-1):lane(channel) {
+        loadDeck(deck);
+        if (lane>=0) isolateChannel();
+    }
     bool prepare(double rate) {
+        if (!partitionValid) return false;
         x = deck.bias;
         previous = x;
         older = x;
@@ -168,7 +172,7 @@ public:
         stampNonlinear<true>();
         PivotOrder order;
 #if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
-        order=findGeneratedOrder(rate);
+        order=findGeneratedOrder(rate,lane);
 #endif
         if (!matrix.prepare(order)) return false;
         cacheNonlinearSlots();
@@ -178,7 +182,7 @@ public:
         if (!prepareLinear(true)) return false;
         std::swap(matrix,retryMatrix);
 #if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
-        generatedResidual=findGeneratedResidual(rate);
+        generatedResidual=findGeneratedResidual(rate,lane);
 #endif
         accept(true);
         inverse = 1.5*rate;
@@ -231,7 +235,7 @@ public:
             older[i]=previous[i];
         }
         slope=difference;
-        fastConvergence=closest[0]&&closest[1];
+        fastConvergence=lane<0 ? closest[0]&&closest[1] : closest[lane]!=nullptr;
         const bool fullStep=newton(20) || continueSource(input);
         const bool subdivided=!fullStep && retry(input);
         if (fullStep || subdivided || recoverAtSampleRate(input)) {
@@ -274,6 +278,70 @@ public:
     double rawOutput() const { return v(deck.output[0])-v(deck.output[1]); }
 
 private:
+    static constexpr int unusedNode=-10000;
+
+    void isolateChannel() {
+        std::vector<int> map(deck.size,unusedNode);
+        const int originalNodes=deck.nodes;
+        deck.nodes=0;
+        std::vector<double> bias;
+        for (int n=0;n<deck.size;++n) if (deck.channel[n]==lane) {
+            map[n]=static_cast<int>(bias.size());
+            bias.push_back(deck.bias[n]);
+            if (n<originalNodes) ++deck.nodes;
+        }
+        const auto node=[&](int n) {return n<0 ? n : map[n];};
+        const auto remap=[&](auto& part,auto... member) {
+            const bool here=(((part.*member)>=0 && node(part.*member)!=unusedNode)||...);
+            const bool elsewhere=((node(part.*member)==unusedNode)||...);
+            if (here && elsewhere) partitionValid=false;
+            if (!here || elsewhere) return false;
+            ((part.*member=node(part.*member)),...);
+            return true;
+        };
+        const auto retain=[&](auto& parts,auto keep) {
+            std::size_t count=0;
+            for (std::size_t i=0;i<parts.size();++i) if (keep(parts[i],i)) {
+                if (count!=i) parts[count]=std::move(parts[i]);
+                ++count;
+            }
+            parts.resize(count);
+        };
+        const auto trim=[&](auto& parts,auto... member) {
+            retain(parts,[&](auto& part,std::size_t) {return remap(part,member...);});
+        };
+        trim(deck.resistors,&R::a,&R::b);
+        int linkContacts=0;
+        retain(deck.contact,[&](auto& part,std::size_t) {
+            if (part.a>=0 && part.b>=0 && deck.channel[part.a]!=deck.channel[part.b]) {
+                if (part.tables.empty() || part.tables.front().control!=19) partitionValid=false;
+                ++linkContacts;
+                return false;
+            }
+            return remap(part,&Contact::a,&Contact::b);
+        });
+        if (linkContacts!=1) partitionValid=false;
+        trim(deck.capacitors,&C::a,&C::b);
+        trim(deck.inductance,&Inductance::row,&Inductance::column);
+        trim(deck.currents,&I::a,&I::b);
+        trim(deck.sources,&V::a,&V::b,&V::k);
+        trim(deck.controlled,&Control::a,&Control::b,&Control::p,&Control::m);
+        trim(deck.cubic,&Cubic::a,&Cubic::b,&Cubic::control);
+        if (!deck.behavioral.empty()) partitionValid=false;
+        // Keep indices for the generated model groups.
+        for (auto& d:deck.diodes)
+            if (!remap(d,&D::a,&D::b)) d.a=unusedNode;
+        for (auto& q:deck.bjts)
+            if (!remap(q,&Q::c,&Q::b,&Q::e)) q.c=unusedNode;
+        for (auto& j:deck.jfets)
+            if (!remap(j,&J::s,&J::d,&J::g)) j.d=unusedNode;
+        for (auto& n:deck.output) n=std::max(-1,node(n));
+        for (auto& n:deck.meter) n=std::max(-1,node(n));
+        deck.size=static_cast<int>(bias.size());
+        deck.channel.assign(deck.size,lane);
+        deck.bias=std::move(bias);
+    }
+
     struct Guess {Frame input,delta;std::vector<double> nodes;};
     void saveGuess(Frame input,Frame delta) {
         auto& g=guesses[nextGuess];
@@ -409,9 +477,9 @@ private:
             int at=0;
             for (int row : nodes) for (int col : nodes) slots[at++]=matrix.slot(row,col);
         };
-        for (auto& d : deck.diodes) assign(d.slots,std::array{d.a,d.b});
-        for (auto& d : deck.bjts) assign(d.slots,std::array{d.c,d.b,d.e});
-        for (auto& d : deck.jfets) assign(d.slots,std::array{d.d,d.g,d.s});
+        for (auto& d : deck.diodes) if (d.a!=unusedNode) assign(d.slots,std::array{d.a,d.b});
+        for (auto& d : deck.bjts) if (d.c!=unusedNode) assign(d.slots,std::array{d.c,d.b,d.e});
+        for (auto& d : deck.jfets) if (d.d!=unusedNode) assign(d.slots,std::array{d.d,d.g,d.s});
     }
 
     void supply(Frame input) {
@@ -563,9 +631,9 @@ private:
         }
         for (const auto& d : deck.controlled) branch(d.a,d.b,d.p,d.m,d.gain);
         std::vector<int> mutableSlots;
-        for (const auto& d : deck.diodes) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
-        for (const auto& d : deck.bjts) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
-        for (const auto& d : deck.jfets) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
+        for (const auto& d : deck.diodes) if (d.a!=unusedNode) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
+        for (const auto& d : deck.bjts) if (d.c!=unusedNode) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
+        for (const auto& d : deck.jfets) if (d.d!=unusedNode) mutableSlots.insert(mutableSlots.end(),d.slots.begin(),d.slots.end());
         std::vector<int> contactSlots;
         const auto twoTerminal=[&](std::vector<int>& slots,int a,int b) {
             for (int r : {a,b}) for (int c : {a,b}) slots.push_back(matrix.slot(r,c));
@@ -628,6 +696,7 @@ private:
         stamp_diodes([&]<DModel m>(int begin,int count) {
         for (int at=begin;at<begin+count;++at) {
             auto& d=deck.diodes[at];
+            if (d.a==unusedNode) continue;
             const Jet voltage{v(d.a)-v(d.b),1,0};
             Jet i=junction(voltage,m.n*thermal,m.is);
             if constexpr (m.bv>0) {
@@ -663,6 +732,7 @@ private:
         stamp_bjts([&]<QModel m,int sign>(int begin,int count) {
         for (int at=begin;at<begin+count;++at) {
             auto& d=deck.bjts[at];
+            if (d.c==unusedNode) continue;
             const Jet be{sign*(v(d.b)-v(d.e)),1,0},bc{sign*(v(d.b)-v(d.c)),0,1};
             const Jet f=junction(be,m.nf*thermal,m.is),r=junction(bc,m.nr*thermal,m.is);
             const Jet inf=be*(m.var ? 1.0/m.var : 0.0)+bc*(m.vaf ? 1.0/m.vaf : 0.0);
@@ -703,6 +773,7 @@ private:
         stamp_jfets([&]<JModel m,int sign>(int begin,int count) {
         for (int at=begin;at<begin+count;++at) {
             const auto& d=deck.jfets[at];
+            if (d.d==unusedNode) continue;
             const Jet gs{sign*(v(d.g)-v(d.s)),1,0},gd{sign*(v(d.g)-v(d.d)),0,1};
             const Jet ds=gs-gd;
             const bool reverse=ds.value<0;
@@ -737,7 +808,7 @@ private:
         double previousMerit=0,olderMerit=0;
         for (int iter=0;iter<iterations;++iter) {
             const auto initial=residual;
-            if (initial<(fastConvergence?5e-11:4e-13)) return true;
+            if (initial<1e-9) return true;
             if (!matrix.solve()) return false;
             double maxNode=0, maxBranch=0;
             for (int i=0;i<deck.nodes;++i) maxNode=std::max(maxNode,std::abs(matrix.x[i]));
@@ -752,14 +823,14 @@ private:
                        (knee>0 && std::min(voltage,voltage+dv)<-knee+reverse))
                         maximum=std::max(maximum,std::abs(dv));
                 };
-                for (const auto& d:deck.diodes) compare(d.a,d.b,1,d.knee);
-                for (const auto& q:deck.bjts) {compare(q.b,q.e,q.sign,0);compare(q.b,q.c,q.sign,0);}
-                for (const auto& j:deck.jfets) {compare(j.g,j.s,1,0);compare(j.g,j.d,1,0);}
+                for (const auto& d:deck.diodes) if (d.a!=unusedNode) compare(d.a,d.b,1,d.knee);
+                for (const auto& q:deck.bjts) if (q.c!=unusedNode) {compare(q.b,q.e,q.sign,0);compare(q.b,q.c,q.sign,0);}
+                for (const auto& j:deck.jfets) if (j.d!=unusedNode) {compare(j.g,j.s,1,0);compare(j.g,j.d,1,0);}
                 return maximum;
             };
             const bool close=fastConvergence
                 ? (maxNode<0.055 && maxBranch<0.00011) || (maxNode<1.5 && peakJunction(0.22,0.07)<0.021)
-                : maxNode<0.22 && peakJunction(0.22,0.07)<0.008;
+                : maxNode<0.22 && peakJunction(0.22,0.07)<0.025;
             if (!recovery && close) {
                 const auto delta=[&](int n){return n<0?0:matrix.x[n];};
                 for (int i=0;i<deck.size;++i) x[i]+=matrix.x[i];
@@ -825,6 +896,8 @@ private:
     }
 
     struct Term { int column; double g; };
+    int lane;
+    bool partitionValid=true;
     Circuit deck;
     std::vector<Term> terms;
     struct KnownTerm {int row,column;double g;};
