@@ -838,7 +838,7 @@ private:
             };
             const bool close=fastConvergence
                 ? (maxNode<0.055 && maxBranch<0.00011) || (maxNode<1.5 && peakJunction(0.22,0.07)<0.021)
-                : maxNode<0.22 && peakJunction(0.22,0.07)<0.025;
+                : maxNode<0.35 && peakJunction(0.22,0.07)<0.018;
             if (!recovery && close) {
                 const auto delta=[&](int n){return n<0?0:matrix.x[n];};
                 for (int i=0;i<deck.size;++i) x[i]+=matrix.x[i];

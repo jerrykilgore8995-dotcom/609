@@ -69,6 +69,7 @@ void print(const char* name,Results& result) {
 }
 
 int main() {
+    std::puts("Ordinary close limits: 0.35 V node, 0.018 V junction");
     ftz();
     auto settings=defaults;
     settings[1]=settings[10]=4;
