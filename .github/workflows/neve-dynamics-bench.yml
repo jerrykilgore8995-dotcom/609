@@ -13,10 +13,17 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Wait for exact updated binary
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run watch 44677788499 --repo $env:GITHUB_REPOSITORY --exit-status
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - uses: actions/download-artifact@v4
         with:
           name: 609-Real-World-Audio-Test-Windows-x64-VST3
-          run-id: 44559077441
+          run-id: 44677788499
           github-token: ${{ github.token }}
           path: existing-binary
       - name: Build independent VST3 host only
