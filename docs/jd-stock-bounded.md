@@ -24,4 +24,11 @@ Rerunning the same command skips completed indexes. Each shard should use the sa
 
 The 1 kHz combined-control pilot exercised 3:1 compression with different thresholds, makeup settings, attack and recovery. The earlier preview build showed up to 0.26 dB of output-level error across its six tones, with considerably larger harmonic errors at some settings. This is verification of the measurement route and evidence that the isolated-section harmonic tables cannot certify combined parity. The measured mono limiter response from +10 to +20 dBu gives 49.66, 99.76, 201.34 and 804.20 ms of control-voltage recovery at its four fixed positions.
 
-One cold-start 1 kHz SPICE tone in the combined pilot took 14.34 seconds in the local validation environment. At that measured rate, all 20,240 fixed-timing combined states at 61 levels and four frequencies would take about 102 days on eight workers, assuming ideal scaling. This is a runtime estimate for the current fixture.
+The bounded VST3 already stores the measured compressor curves by ratio detent. For the reduced combined sweep, hold the ratio at one detent with `--fixed-ratio`, then vary all 16 compressor thresholds, 11 makeup settings, and 23 limiter thresholds. With both sections in and timing fixed, this gives 4,048 states. The selected ratio is saved in the output header. A completed sweep characterizes the interaction at that ratio.
+
+```sh
+python tools/jd_conformance.py /path/to/Vst3Smoke /path/to/609.vst3 jd-3to1-0000.jsonl \
+  --both-enabled --fixed-timing --fixed-ratio 3:1 --start 0 --count 32 --bursts
+```
+
+One cold-start 1 kHz SPICE tone in the combined pilot took 14.34 seconds in the local validation environment. At that measured rate, the single-ratio sweep at 61 levels and four frequencies would take about 20.5 days on eight workers, assuming ideal scaling. This estimate uses the cold-start fixture and excludes bursts.

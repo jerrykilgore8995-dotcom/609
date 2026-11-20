@@ -21,6 +21,7 @@ from measure_jd_grid import SOURCE_DB, run_tones
 # physical loading and some combinations can leave a measurable residual.
 AXES = (16, 5, 6, 11, 23, 6, 2, 2, 2, 3)
 FIXED_TIMING_AXES = (16, 5, 1, 11, 23, 1, 2, 2, 1, 1)
+RATIO_DETENTS = ('1.5:1', '2:1', '3:1', '4:1', '6:1')
 
 
 def positions(index, axes):
@@ -31,13 +32,17 @@ def positions(index, axes):
     return tuple(reversed(values))
 
 
-def axes_for(fixed_timing, both_enabled):
+def axes_for(fixed_timing, both_enabled, fixed_ratio=None):
     axes = FIXED_TIMING_AXES if fixed_timing else AXES
+    if fixed_ratio is not None:
+        axes = (axes[0], 1, *axes[2:])
     return (*axes[:6], 1, 1, *axes[8:]) if both_enabled else axes
 
 
-def controls(index, fixed_timing=False, both_enabled=False):
-    values = positions(index, axes_for(fixed_timing, both_enabled))
+def controls(index, fixed_timing=False, both_enabled=False, fixed_ratio=None):
+    values = positions(index, axes_for(fixed_timing, both_enabled, fixed_ratio))
+    if fixed_ratio is not None:
+        values = (values[0], fixed_ratio, *values[2:])
     return (*values[:6], 1, 1, *values[8:]) if both_enabled else values
 
 
@@ -151,10 +156,13 @@ def main():
                         help='Sweep only with compressor and limiter switched in')
     parser.add_argument('--fixed-timing', action='store_true',
                         help='Use the JD attack and shortest fixed recovery for the steady control grid')
+    parser.add_argument('--fixed-ratio', choices=RATIO_DETENTS,
+                        help='Hold the compressor at one stock ratio detent across the control grid')
     parser.add_argument('--all-transitions', action='store_true',
                         help='Exercise every pair of sampled input levels in the burst tests')
     args = parser.parse_args()
-    total = prod(axes_for(args.fixed_timing,args.both_enabled))
+    ratio = RATIO_DETENTS.index(args.fixed_ratio) if args.fixed_ratio is not None else None
+    total = prod(axes_for(args.fixed_timing, args.both_enabled, ratio))
     if args.start < 0 or args.count < 1 or args.start+args.count > total:
         parser.error(f'Choose a shard within the {total} single-channel control combinations')
     if not all(20<=f<=20000 and f%5==0 for f in args.frequencies):
@@ -174,6 +182,8 @@ def main():
     header = dict(frequencies=args.frequencies, levels=args.levels, bursts=args.bursts,
                   total_combinations=total, quick=args.quick, fixed_timing=args.fixed_timing, both_enabled=args.both_enabled,
                   all_transitions=args.all_transitions, fingerprints=fingerprints)
+    if args.fixed_ratio is not None:
+        header['fixed_ratio'] = args.fixed_ratio
     done = set()
     if args.output.is_file():
         with args.output.open() as old:
@@ -182,9 +192,11 @@ def main():
             done = {json.loads(line)['index'] for line in old}
     else:
         args.output.write_text(json.dumps(header)+'\n')
-    cases = (enumerate(((9,2,0,1,8,0,1,1,0,0),(10,2,4,3,16,4,1,1,1,1),
-                        (8,2,5,5,14,5,1,1,0,2)), -3) if args.quick else
-             ((i,controls(i,args.fixed_timing,args.both_enabled)) for i in range(args.start,args.start+args.count)))
+    pilot_ratio = 2 if ratio is None else ratio
+    cases = (enumerate(((9,pilot_ratio,0,1,8,0,1,1,0,0),(10,pilot_ratio,4,3,16,4,1,1,1,1),
+                        (8,pilot_ratio,5,5,14,5,1,1,0,2)), -3) if args.quick else
+             ((i, controls(i, args.fixed_timing, args.both_enabled, ratio))
+              for i in range(args.start, args.start+args.count)))
     common = (args.host.resolve(), args.bundle.resolve(), args.ngspice,
               args.frequencies, args.levels, args.bursts, args.all_transitions)
     with ProcessPoolExecutor(args.jobs) as pool, args.output.open('a') as output:
