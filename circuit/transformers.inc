@@ -1,17 +1,17 @@
-* Drawing winding connections with estimated electrical constants.
-* K and winding capacitances represent leakage and high-frequency loading.
+* T2, series/series T1452 reference. CJ reports 67 H / 16.4 H,
+* 328 ohms / 112 ohms and about 8.2 mH measured or estimated from the
+* low-turns side. K accounts for about 33 mH referred to the high-turns side.
+* CP and CS are effective differential capacitances for the loaded JD.
 .subckt TF10016 P N S T
-RP P IP 58
-LP IP N 26
-RSH S ISH 9
-LSH ISH ST 1.625
-RSL ST ISL 9
-LSL ISL T 1.625
-KPH LP LSH .99998
-KPL LP LSL .99998
-KHL LSH LSL .99998
+RP1 P IP 164
+RP2 N IN 164
+LP IP IN 67
+RS1 S IS 56
+RS2 T IT 56
+LS IS IT 16.4
+K1 LP LS 0.999755194
 CP P N 120p
-CS S T 180p
+CS S T 850p
 .ends TF10016
 
 * Secondary windings are strapped in parallel by the EX11475 PCB.
@@ -29,12 +29,17 @@ CP P N 130p
 CS S T 95p
 .ends TF10015
 
+* T3, TF12009 / VT26247 reference with 3 / 34.5 ohm measured winding DCR.
+* 2.2 H is a provisional open-circuit primary estimate. Fit the loaded
+* response with one effective leakage term, encoded in K (16.2 uH primary).
+* The 1:2.5 nominal ratio follows the JD circuit gain structure.
 .subckt TF12009 P N S T
-RP P IP 13
-LP IP N 9
-RS S IS 79
-LS IS T 56.25
-K1 LP LS .9999991
+RP P IP 3
+LP IP N 2.2
+RS1 S IS 17.25
+RS2 T IT 17.25
+LS IS IT 13.75
+K1 LP LS .999996318175
 CP P N 110p
 CS S T 180p
 .ends TF12009
