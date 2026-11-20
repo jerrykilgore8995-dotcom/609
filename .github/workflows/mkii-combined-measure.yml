@@ -1,0 +1,70 @@
+name: 609 MKII combined mode loaded VST3 measurements
+on:
+  push:
+    branches: [609-mkii-windows]
+    paths: ['.github/workflows/mkii-combined-measure.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  combined:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-MKII-Windows-x64-VST3
+          path: build/target
+          github-token: ${{ github.token }}
+          run-id: '44824278228'
+      - name: Build Windows VST3 measurement host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure engaged modes, compressor and limiter individually and together
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build/target/609 MKII.vst3').Path
+          $test=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -Type Directory -Force combined-results | Out-Null
+          # 4:1 compressor at 0 dBu threshold; +8 dBu limiter; zero makeup
+          # Each render: source-level tone, 0.9 seconds, offline 44.1 kHz / 512
+          foreach ($mode in @('through','comp','limit','both')) {
+            foreach ($hz in @(100,1000,5000,10000)) {
+              $levels = switch ($mode) {
+                'through' { @(4) }
+                'comp' { @(4,10) }
+                'limit' { @(10,20) }
+                'both' { @(10,20) }
+              }
+              foreach ($level in $levels) {
+                $ci=if ($mode -in @('comp','both')) {1} else {0}
+                $li=if ($mode -in @('limit','both')) {1} else {0}
+                $argsList=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9)
+                $label="$mode-$hz-$level"
+                Write-Host "BEGIN $label"
+                & $test $bundle --jd-case @argsList 2> "combined-results/$label.stderr.txt" |
+                  Out-File -Encoding utf8 "combined-results/$label.txt"
+                if ($LASTEXITCODE) {exit $LASTEXITCODE}
+                Write-Host "DONE $label"
+              }
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MKII-engaged-compressor-limiter-spectra
+          path: combined-results/
+          if-no-files-found: warn
