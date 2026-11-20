@@ -16,7 +16,7 @@ void ftz() {_mm_setcsr(_mm_getcsr()|0x8040);}
 struct Results {
     std::vector<Frame> output;
     std::vector<double> times;
-    unsigned fails=0,subdivisions=0;
+    unsigned fails=0,subdivisions=0,retries=0,searchCaps=0,iterationCaps=0;
 };
 template<class Render>
 void record(Results& run,Render render) {
@@ -26,8 +26,8 @@ void record(Results& run,Render render) {
         run.times.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t).count());
     }
 }
-Results render(std::span<const Frame> input,const Controls& settings,double conductance,bool offline,int maxIterations) {
-    Solver left(0,conductance),right(1,conductance);
+Results render(std::span<const Frame> input,const Controls& settings,double conductance,bool offline,int maxIterations,bool widerClose) {
+    Solver left(0,conductance,widerClose),right(1,conductance,widerClose);
     if (!left.prepare(rate)||!right.prepare(rate)||!left.usesGeneratedSolve()||!right.usesGeneratedSolve()||
         !left.usesGeneratedResidual()||!right.usesGeneratedResidual())
         throw std::runtime_error("Lagged generated solvers unavailable");
@@ -56,6 +56,9 @@ Results render(std::span<const Frame> input,const Controls& settings,double cond
     other.join();
     result.fails=left.failures()+right.failures();
     result.subdivisions=left.refinedSamples()+right.refinedSamples();
+    result.retries=left.retryCount()+right.retryCount();
+    result.searchCaps=left.lineSearchCount()+right.lineSearchCount();
+    result.iterationCaps=left.iterationCapCount()+right.iterationCapCount();
     return result;
 }
 void print(const char* name,Results& result) {
@@ -63,13 +66,13 @@ void print(const char* name,Results& result) {
     double total=0;
     for (const auto time:result.times) total+=time;
     const auto over=std::count_if(result.times.begin(),result.times.end(),[](double ms){return ms>1000.0*block/rate;});
-    std::printf("%s mean %.3f ms, p99 %.3f ms, max %.3f ms, over budget %d/%d, failed samples %u, refined samples %u\n",name,
-        total/blocks,result.times[(99*blocks+99)/100-1],result.times.back(),int(over),blocks,result.fails,result.subdivisions);
+    std::printf("%s mean %.3f ms, p99 %.3f ms, max %.3f ms, over budget %d/%d, failed %u, recovered %u, retries %u, line-search stops %u, iteration-limit stops %u\n",name,
+        total/blocks,result.times[(99*blocks+99)/100-1],result.times.back(),int(over),blocks,result.fails,result.subdivisions,result.retries,result.searchCaps,result.iterationCaps);
 }
 }
 
 int main() {
-    std::puts("Ordinary close limits: 0.35 V node, 0.018 V junction");
+    std::puts("Real-time only: one 2x retry with 8 iterations, no source continuation or recovery, 4 halvings.");
     ftz();
     auto settings=defaults;
     settings[1]=settings[10]=4;
@@ -82,22 +85,13 @@ int main() {
             input[n][ch]=float(.06*std::sin(78*w+ch)+.05*std::sin(847*w)+
                 transient*(.15*std::sin(7479*w+ch)+.08*std::sin(15601*w)));
     }
-    struct Variant {double conductance;const char* full;const char* capped;};
-    for (const auto& variant:{Variant{0.1,"Linked 10 ohm 10","Linked 10 ohm 7"},
-            Variant{0.045,"Linked 22 ohm 10","Linked 22 ohm 7"}}) {
-        const double conductance=variant.conductance;
-        auto baseline=render(input,settings,conductance,false,10);
-        auto trial=render(input,settings,conductance,false,7);
-        print(variant.full,baseline);
-        print(variant.capped,trial);
-        for (int ch=0;ch<2;++ch) {
-            double sum=0,peak=0;
-            for (std::size_t n=0;n<input.size();++n) {
-                const double d=trial.output[n][ch]-baseline.output[n][ch];
-                sum+=d*d;peak=std::max(peak,std::abs(d));
+    for (const double conductance:{0.1,0.045})
+        for (const bool widerClose:{false,true})
+            for (const int cap:{7,10,12}) {
+                auto result=render(input,settings,conductance,false,cap,widerClose);
+                char label[128];
+                std::snprintf(label,sizeof(label),"%d ohm, %s, cap %d",
+                    conductance==0.1?10:22,widerClose?"350/18 mV":"220/25 mV",cap);
+                print(label,result);
             }
-            std::printf("Channel %d difference %.2f dBFS RMS, peak %.6f FS\n",
-                ch+1,10*std::log10(sum/input.size()),peak);
-        }
-    }
 }

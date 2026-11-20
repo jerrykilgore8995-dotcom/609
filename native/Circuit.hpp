@@ -141,7 +141,7 @@ struct Circuit {
 
 class Solver {
 public:
-    explicit Solver(int channel=-1,double conductance=0.1):lane(channel),linkConductance(channel<0?0.0:conductance) {
+    explicit Solver(int channel=-1,double conductance=0.1,bool widerClose=false):lane(channel),linkConductance(channel<0?0.0:conductance),useWiderClose(widerClose) {
         loadDeck(deck);
         if (lane>=0) isolateChannel();
     }
@@ -192,13 +192,13 @@ public:
         savedNodes.resize(deck.size);
         savedHistory.resize(deck.capacitors.size()+deck.inductance.size()+deck.diodes.size()+2*deck.bjts.size());
         misses = 0;
-        subdivisions=0;
+        subdivisions=retryAttempts=lineSearchExhaustions=iterationExhaustions=0;
         lastInput={};
         return true;
     }
 
     using Frame = std::array<double,2>;
-    Frame step(Frame input, const Controls& controls, bool offline=true,int maxIterations=20) {
+    Frame step(Frame input, const Controls& controls, bool offline=true,int maxIterations=12) {
         const bool changed=controls!=lastControls;
         if (changed) {
             for (auto& contact : deck.contact) selectContact(contact,controls);
@@ -237,9 +237,10 @@ public:
         }
         slope=difference;
         fastConvergence=lane<0 ? closest[0]&&closest[1] : closest[lane]!=nullptr;
-        const bool fullStep=newton(maxIterations) || continueSource(input,offline);
+        const bool fullStep=newton(offline?20:maxIterations,offline) || (offline && continueSource(input));
+        if (!fullStep) ++retryAttempts;
         const bool subdivided=!fullStep && retry(input,offline);
-        if (fullStep || subdivided || recoverAtSampleRate(input)) {
+        if (fullStep || subdivided || (offline && recoverAtSampleRate(input))) {
             if (subdivided) ++subdivisions;
             else accept(false);
             saveGuess(input,difference);
@@ -278,6 +279,9 @@ public:
     }
     unsigned failures() const { return misses; }
     unsigned refinedSamples() const { return subdivisions; }
+    unsigned retryCount() const {return retryAttempts;}
+    unsigned lineSearchCount() const {return lineSearchExhaustions;}
+    unsigned iterationCapCount() const {return iterationExhaustions;}
     double rawOutput() const { return v(deck.output[0])-v(deck.output[1]); }
 
 private:
@@ -394,10 +398,9 @@ private:
         return newton<true>(96);
     }
 
-    bool continueSource(Frame input,bool offline) {
+    bool continueSource(Frame input) {
         // Try a numerical continuation before changing the time integration.
         for (int count : {2,4,8}) {
-            if (!offline && count>4) break;
             std::copy(previous.begin(),previous.end(),x.begin());
             int i=1;
             for (;i<=count;++i) {
@@ -426,7 +429,7 @@ private:
         // The next host sample resumes BDF2 with history on the host grid.
         std::swap(matrix,retryMatrix);
         for (int count : {2,4,8,16,32,64,128}) {
-            if (!offline && count>4) break;
+            if (!offline && count>2) break;
             restore();
             inverse=count*hostRate;
             history1=-inverse;
@@ -436,7 +439,7 @@ private:
                 supply({std::lerp(lastInput[0],input[0],double(i)/count),
                         std::lerp(lastInput[1],input[1],double(i)/count)});
                 prepareHistory();
-                if (!newton(30)) {solved=false;break;}
+                if (!newton(offline?30:8,offline)) {solved=false;break;}
                 accept(false);
             }
             if (solved) break;
@@ -810,7 +813,8 @@ private:
     }
 
     template<bool recovery=false>
-    bool newton(int iterations) {
+    bool newton(int iterations,bool offline=true) {
+        const double minimumScale=offline?0.0001220703125:0.0625;
         stampStep();
         double residual=merit();
         double previousMerit=0,olderMerit=0;
@@ -838,7 +842,7 @@ private:
             };
             const bool close=fastConvergence
                 ? (maxNode<0.055 && maxBranch<0.00011) || (maxNode<1.5 && peakJunction(0.22,0.07)<0.021)
-                : maxNode<0.35 && peakJunction(0.22,0.07)<0.018;
+                : maxNode<(useWiderClose?.35:.22) && peakJunction(0.22,0.07)<(useWiderClose?.018:.025);
             if (!recovery && close) {
                 const auto delta=[&](int n){return n<0?0:matrix.x[n];};
                 for (int i=0;i<deck.size;++i) x[i]+=matrix.x[i];
@@ -866,15 +870,17 @@ private:
             }
             double scale=1;
             bool acceptable=false;
-            for (;scale>=0.0001220703125;scale*=.5) {
+            for (;scale>=minimumScale;scale*=.5) {
                 for (int i=0;i<deck.size;++i) x[i]=oldIter[i]+scale*matrix.x[i];
                 stampStep();
                 residual=merit();
                 if (residual<(1-1e-5*scale)*meritLimit) {acceptable=true;break;}
             }
-            if (!acceptable) return false;
+            if (!acceptable) {++lineSearchExhaustions;return false;}
         }
-        return residual<(fastConvergence?1e-10:1e-12);
+        const bool valid=residual<(fastConvergence?1e-10:1e-12);
+        if (!valid) ++iterationExhaustions;
+        return valid;
     }
 
     void accept(bool dc) {
@@ -907,6 +913,7 @@ private:
     int lane;
     int linkNode=-1;
     const double linkConductance;
+    const bool useWiderClose;
     double peerLinkVoltage=0;
     bool partitionValid=true;
     Circuit deck;
@@ -932,7 +939,7 @@ private:
     Frame lastInput{},slope{};
     std::vector<double> older;
     Controls lastControls=defaults;
-    unsigned misses=0,subdivisions=0;
+    unsigned misses=0,subdivisions=0,retryAttempts=0,lineSearchExhaustions=0,iterationExhaustions=0;
 
 };
 }
