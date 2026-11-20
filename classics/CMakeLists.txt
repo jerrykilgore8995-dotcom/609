@@ -17,6 +17,7 @@ foreach(model IN ITEMS 2254 2264)
     endif()
     add_executable(Generate${model} "${native_dir}/GenerateSolve.cpp")
     target_include_directories(Generate${model} PRIVATE "${deck}")
+    target_compile_definitions(Generate${model} PRIVATE CLASSIC_MODEL=${model})
     target_compile_features(Generate${model} PRIVATE cxx_std_20)
     add_custom_command(OUTPUT "${generated}/GeneratedSolve.hpp"
         COMMAND Generate${model} "${generated}/GeneratedSolve.hpp"

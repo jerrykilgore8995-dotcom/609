@@ -44,7 +44,12 @@ def read(path, title=False):
         args = line.split()
         directive = args[0]
         if directive == ".include":
-            read(path.parent / args[1])
+            include = path.parent / args[1].strip('"')
+            if not include.is_file():
+                reference = args[1].strip('"')
+                include = next((p for p in include.parent.iterdir()
+                                if p.name.lower() == Path(reference).name), include)
+            read(include)
         elif directive == ".subckt":
             split = args.index("params:") if "params:" in args else len(args)
             current = []
@@ -179,12 +184,14 @@ face = dict(ct=range(1,17), cr=range(1,6), cm=range(1,7), cg=range(1,12),
 controls = {**{key+side: positions for side in "lr" for key, positions in face.items()},
             **{key: range(2) for key in ("active", "linked", "power")},
             "catkl": range(3)}
+if entry.stem in {"2254", "2264"}:
+    controls.update({name: range(2) for name in ("deessl", "deessr", "panelinl", "panelinr")})
 contact_values = {}
 for control_index, (control, positions) in enumerate(controls.items()):
     variants = []
     for pos in positions:
         devices.clear()
-        override={"cel":1,"cer":1,"cgl":11,"cgr":11,"linked":1,"active":1,"power":1,control:pos}
+        override={"cel":1,"cer":1,"cgl":11,"cgr":11,"linked":1,"active":1,"power":1,"panelinl":1,"panelinr":1,control:pos}
         if control == "catkl":
             override["catkr"] = pos
         expand(top, override=override)

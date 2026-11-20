@@ -1,7 +1,5 @@
 name: Classic 2254 and 2264 Windows VST3
 on:
-  push:
-    branches: [classic-2254-2264]
   workflow_dispatch:
 
 permissions:
@@ -12,10 +10,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Generate nodal decks from SPICE
+      - name: Install ngspice
         run: |
           sudo apt-get update
           sudo apt-get install -y ngspice
+      - name: Validate the SPICE circuits
+        run: python3 classics/verify_spice.py
+      - name: Generate nodal decks from SPICE
+        run: |
           for model in 2254 2264; do
             python3 classics/seed.py "classics/circuit/$model.cir" "build/$model/seed.raw"
             python3 native/compile_deck.py "classics/circuit/$model.cir" "build/$model/seed.raw" "build/$model/Deck.hpp"

@@ -39,24 +39,27 @@ CS S T 142p
 .subckt L10468_CT P MID N S T
 RPH P PH 23.7
 RPL N PL 24
-LPH PH MID 8.0008
-LPL MID PL 8.0008
+LPH PH MID 9.46
+LPL MID PL 9.55
 RS S SS 275.5
 LS SS T 125.6
-KPH LPH LS .999906
-KPL LPL LS .999906
-KPP LPH LPL .9998
+* The two half-primary mutual terms sum to the measured 6 mH
+* series-primary short-circuit leakage. KPP recovers the measured 32 H.
+KPH LPH LS .9195147631
+KPL LPL LS .9151717145
+KPP LPH LPL .6833322242
 CP P N 106p
 CS S T 142p
 .ends L10468_CT
 
-* LO1166: series windings, 622:1044 turns from the Marinair teardown.
-* Small-signal inductance is provisional under standing Class A bias.
+* LO1166/A bench specimen: 14.2/43.6 ohm winding DCR, 1:1.68 ratio.
+* 2.026 H from the measured 255 ohm open-secondary magnitude at 20 Hz.
+* The working-point inductance and leakage of the 2254 LO1166 are unverified.
 .subckt LO1166 P N S T
-RP P PP 17.2
-LP PP N .32
-RS S SS 42.2
-LS SS T .901511
+RP P PP 14.2
+LP PP N 2.026
+RS S SS 43.6
+LS SS T 5.7181824
 KPS LP LS .9997
 .ends LO1166
 
