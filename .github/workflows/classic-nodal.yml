@@ -1,0 +1,68 @@
+name: Classic 2254 and 2264 Windows VST3
+on:
+  push:
+    branches: [classic-2254-2264]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  decks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate nodal decks from SPICE
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ngspice
+          for model in 2254 2264; do
+            python3 classics/seed.py "classics/circuit/$model.cir" "build/$model/seed.raw"
+            python3 native/compile_deck.py "classics/circuit/$model.cir" "build/$model/seed.raw" "build/$model/Deck.hpp"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Classic-SPICE-operating-points
+          path: build/
+
+  windows:
+    needs: decks
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Classic-SPICE-operating-points
+          path: decks
+      - name: Compile VST3s and native benchmark
+        shell: pwsh
+        run: |
+          $deck = (Resolve-Path decks).Path
+          cmake -S classics -B build -A x64 "-DDECK_DIR=$deck"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --target Classic2254_VST3 Classic2264_VST3 Bench2254 Bench2264 --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 2254-Nodal-Windows-x64-VST3
+          path: build/Classic2254_artefacts/Release/VST3/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 2264-Nodal-Windows-x64-VST3
+          path: build/Classic2264_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure both nodal engines at 44.1 kHz and 512 samples
+        shell: pwsh
+        run: |
+          $result=0
+          foreach ($model in 2254,2264) {
+            & "build/Release/Bench$model.exe" | Tee-Object -FilePath classic-benchmark.txt -Append
+            if ($LASTEXITCODE -ne 0) { $result=1 }
+          }
+          exit $result
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Classic-2254-2264-44k1-512-benchmark
+          path: classic-benchmark.txt

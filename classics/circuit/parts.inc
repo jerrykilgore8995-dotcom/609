@@ -1,0 +1,13 @@
+* Pin-compatible compact model estimates for the named vintage parts.
+* Matching and sample-dependent leakage are provisional.
+.model BC107 NPN(IS=18f BF=230 NF=1 VAF=75 IKF=.08 ISE=25f NE=1.5 BR=5 RB=38 RC=1 RE=.25 CJE=12p CJC=5p TF=.6n TR=60n)
+.model BC109 NPN(IS=12f BF=400 NF=1 VAF=80 IKF=.07 ISE=15f NE=1.5 BR=5 RB=50 RC=1 RE=.25 CJE=10p CJC=4p TF=.5n TR=60n)
+.model BCY70 PNP(IS=15f BF=210 NF=1 VAF=50 IKF=.08 ISE=25f NE=1.5 BR=5 RB=42 RC=1 RE=.25 CJE=13p CJC=5p TF=.75n TR=80n)
+.model Q2N1132 PNP(IS=45f BF=100 NF=1 VAF=50 IKF=.25 BR=5 RB=15 RC=.4 RE=.15 CJE=35p CJC=18p TF=2n TR=150n)
+.model Q2N1711 NPN(IS=30f BF=120 NF=1 VAF=70 IKF=.2 BR=5 RB=13 RC=.4 RE=.15 CJE=33p CJC=13p TF=2n TR=130n)
+.model BD123 NPN(IS=55f BF=75 NF=1 VAF=60 IKF=.8 BR=4 RB=6 RC=.18 RE=.08 CJE=180p CJC=60p TF=11n TR=300n)
+.model BAX16 D(IS=2.4n N=1.74 RS=.6 CJO=4p VJ=.74 M=.4 TT=4n BV=75 IBV=.1u)
+.model HBX31 D(IS=8n N=1.95 RS=1.1 CJO=3p VJ=.73 M=.39 TT=4n BV=60 IBV=.1u)
+.model BAX52 D(IS=8n N=1.85 RS=.8 CJO=4p VJ=.74 M=.4 TT=4n BV=60 IBV=.1u)
+.model HS2027 D(IS=1.2n N=1.52 RS=15 CJO=290p VJ=.64 M=.34 BV=2.7 IBV=5m)
+.model E413 NJF(VTO=-2 BETA=.001 IS=1p LAMBDA=.01 RD=18 RS=18 CGS=4p CGD=4p PB=1 FC=.5)

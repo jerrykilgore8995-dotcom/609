@@ -7,6 +7,7 @@ import re
 import sys
 
 source, bias_file, dest = map(Path, sys.argv[1:4])
+entry = source if source.is_file() else source / "609.cir"
 top, subs, models, devices = [], {}, {}, []
 scales = dict(meg=1e6, t=1e12, gig=1e9, g=1e9, k=1e3, m=1e-3, u=1e-6,
               n=1e-9, p=1e-12, f=1e-15)
@@ -43,7 +44,7 @@ def read(path, title=False):
         args = line.split()
         directive = args[0]
         if directive == ".include":
-            read(next(p for p in path.parent.rglob("*") if p.relative_to(path.parent).as_posix().lower() == args[1]))
+            read(path.parent / args[1])
         elif directive == ".subckt":
             split = args.index("params:") if "params:" in args else len(args)
             current = []
@@ -170,7 +171,7 @@ def condense_rotaries(expanded):
     return remaining
 
 
-read(source/"609.cir", True)
+read(entry, True)
 expand(top)
 base_devices = condense_rotaries(devices)
 face = dict(ct=range(1,17), cr=range(1,6), cm=range(1,7), cg=range(1,12),
