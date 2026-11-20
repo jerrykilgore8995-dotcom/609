@@ -1,0 +1,30 @@
+name: 609 MKII factory and harmonic measurements
+on:
+  push:
+    branches: [609-mkii-windows]
+    paths:
+      - '.github/workflows/mkii-factory-measure.yml'
+      - 'tools/mkii_factory_measure.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install measurement dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ngspice
+          python -m pip install numpy
+      - name: Measure original component-level MKII SPICE
+        run: python tools/mkii_factory_measure.py
+      - name: Upload raw measurement report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 609-MKII-factory-harmonic-measurements
+          path: mkii-factory-measurements.json
+          if-no-files-found: warn
