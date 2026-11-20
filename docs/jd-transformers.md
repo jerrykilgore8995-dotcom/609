@@ -34,3 +34,28 @@ C16 is the JD drawing’s 470 µF capacitor between the output amplifier and the
 With T1 updated, PRESET 0.56145 restores unity at 1 kHz. The 600 Ω AC sweep was within the JD’s ±0.5 dB magnitude tolerance, from −0.003 to +0.372 dB relative to 1 kHz. The +20 dBu generator, +8 dBu limiter alignment point still produces +8.00 dBu at the output.
 
 At 1 kHz and +22.00 dBu measured at the input terminals (about +22.58 dBu at the fixture generator), with compression off, normal attack, 800 ms limiter recovery and the +8 dBu detent, output THD was 0.853% at a 10 µs maximum timestep and 0.860% at 5 µs. The output was +7.96 dBu. The 5 µs result is 0.410 percentage points above the 0.45% JD ceiling, or 1.91 times the limit. K3 dominated at −41.3 dBc. The THD was already present at the amplifier output upstream of C16. The handbook lists −18 dBu for the limiter distortion test, below the actual +4 to +15 dBu limiter control range. This bench uses its documented +8 dBu alignment detent.
+
+## Loaded output and limiter recalibration
+
+The limiter remains closed-loop in this calibration. The original pad and Zobel values, the CJ-derived T2 and T1 models, and the 470 µF output coupling capacitor are used throughout. T3 retains the measured 3 / 34.5 Ω winding DCR. Its secondary inductance is fitted to the drawing’s +8 dB primary-to-output stage gain at 1 kHz with the board shunt and the 600 Ω external load. This is an effective loaded fit. The turns ratio and phase have no independent hardware verification.
+
+The isolated EX10340C model was checked using the handbook’s 620 Ω gain test and 75 Ω distortion test. Its output bias trim gives 22.0 mA of idle supply current and 12.24 V at the amplifier output. Amplifier gain is 20.30 dB and THD is 0.003% near +18 dBu. In the complete loaded channel, C16 blocks approximately 12.1 V DC from the output transformer.
+
+The four 1N4153 bridge junctions share an effective forward curve. At 25 °C the fit is within the [Fairchild data sheet](https://media.digikey.com/pdf/Data%20Sheets/Fairchild%20PDFs/1N4153.pdf) forward-voltage limits for 0.1, 0.25, 1, 2, 10 and 20 mA. Its slope below 0.1 mA is inferred from the circuit-level distortion benchmark. The 350–400 µA runs were diagnostic. Forced current imposed much greater attenuation than required at the +8 dBu detent with the limiter alone. The handbook makeup control adds amplifier gain with the compressor switched in.
+
+| Stage | 1 kHz through, relative to input | Limiter-only at +22 dBu input |
+| --- | ---: | ---: |
+| Input terminals | 0.0 dB | +22.0 dBu |
+| T2 secondary | −6.9 dB | +15.1 dBu |
+| D14–D17 pad output | −31.9 dB | −23.9 dBu |
+| T1 secondary | −26.3 dB | −18.2 dBu |
+| T3 primary after C16 | −8.0 dB | +0.0 dBu |
+| Output terminals | 0.0 dB | +8.0 dBu |
+
+In through mode the bridge pad drops about 25 dB from the T2 secondary. During the limiter-only test it drops about 39 dB across the pad. The T1 secondary to T3 primary stage adds about 18 dB with compression out, and T3 adds 8 dB. With compression in and low signal level, all eleven makeup detents are within 0.19 dB of their marked increments at 1 kHz.
+
+The gain stage values are simulated. The current measurement uses zero-volt sources in series with the two upper bridge junctions, leaving their connection to the control circuit intact. The limiter measurements use the handbook’s +8 dBu detent as the threshold because the THD line in the handbook prints a threshold outside the limiter’s control range.
+
+At the +22 dBu limiter-only point, output was +8.01 dBu and THD through K20 was 0.474% at a 2.5 µs maximum timestep. The bridge already measured 0.472%, and K3 dominated the output at −46.5 dBc. The bridge averaged 53.1 µA per measured junction. The result improves on the prior 0.860%, with 0.024 percentage point still separating it from the handbook’s 0.45% ceiling. At +9 dBu input in through mode, THD was 0.0088%. The 20 Hz to 20 kHz through response ranged from −0.003 to +0.240 dB relative to 1 kHz.
+
+The effective SPICE timing network was realigned where it shifted with the new bridge curve. On the stepped-sine bench in [JD timing](jd-timing.md), compressor attack measured 2.99, 7.22 and 14.23 ms, with the JD setting first. The 100 ms compressor recovery detent gave 94.56 ms at 63.2% gain recovery. Normal and fast limiter attack gave 4.21 and 2.04 ms. The 50 ms limiter recovery detent gave 49.67 ms at 90% control-voltage recovery in normal attack. These are spot checks. The compressor ratio sweep yielded output steps of 7.56, 6.37, 4.46, 3.28 and 2.10 dB for a 10 dB increase at the input terminals. Several detents still exceed the handbook tolerance. The full recovery matrix and bounded VST3 require separate validation against this circuit revision.

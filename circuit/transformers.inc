@@ -32,13 +32,14 @@ CS S T 142p
 * T3, TF12009 / VT26247 reference with 3 / 34.5 ohm measured winding DCR.
 * 2.2 H is a provisional open-circuit primary estimate. Fit the loaded
 * response with one effective leakage term, encoded in K (16.2 uH primary).
-* The 1:2.5 nominal ratio follows the JD circuit gain structure.
+* The secondary inductance fits the drawing's +8 dB stage at 1 kHz
+* with the 1.2k board shunt and 600-ohm external load.
 .subckt TF12009 P N S T
 RP P IP 3
 LP IP N 2.2
 RS1 S IS 17.25
 RS2 T IT 17.25
-LS IS IT 13.75
+LS IS IT 18.31735
 K1 LP LS .999996318175
 CP P N 110p
 CS S T 180p
