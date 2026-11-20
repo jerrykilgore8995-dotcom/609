@@ -82,14 +82,11 @@ int main() {
                 transient*(.15*std::sin(7479*w+ch)+.08*std::sin(15601*w)));
     }
     struct Variant {double conductance;const char* full;const char* capped;};
-    for (const auto& variant:{Variant{0.0,"Dual mono 20","Dual mono 10"},
-            Variant{0.045,"Linked 22 ohm 20","Linked 22 ohm 10"},
-            Variant{0.1,"Linked 10 ohm 20","Linked 10 ohm 10"}}) {
+    for (const auto& variant:{Variant{0.1,"Linked 10 ohm 10","Linked 10 ohm 7"},
+            Variant{0.045,"Linked 22 ohm 10","Linked 22 ohm 7"}}) {
         const double conductance=variant.conductance;
-        const bool dualMono=conductance==0;
-        settings[19]=!dualMono;
-        auto baseline=render(input,settings,conductance,dualMono,20);
-        auto trial=render(input,settings,conductance,dualMono,10);
+        auto baseline=render(input,settings,conductance,false,10);
+        auto trial=render(input,settings,conductance,false,7);
         print(variant.full,baseline);
         print(variant.capped,trial);
         for (int ch=0;ch<2;++ch) {
