@@ -81,13 +81,17 @@ int main() {
             input[n][ch]=float(.06*std::sin(78*w+ch)+.05*std::sin(847*w)+
                 transient*(.15*std::sin(7479*w+ch)+.08*std::sin(15601*w)));
     }
-    for (const double conductance:{0.0,0.045}) {
+    struct Variant {double conductance;const char* full;const char* capped;};
+    for (const auto& variant:{Variant{0.0,"Dual mono 20","Dual mono 10"},
+            Variant{0.045,"Linked 22 ohm 20","Linked 22 ohm 10"},
+            Variant{0.1,"Linked 10 ohm 20","Linked 10 ohm 10"}}) {
+        const double conductance=variant.conductance;
         const bool dualMono=conductance==0;
         settings[19]=!dualMono;
         auto baseline=render(input,settings,conductance,dualMono,20);
         auto trial=render(input,settings,conductance,dualMono,10);
-        print(dualMono?"Dual mono 20":"Linked 22 ohm 20",baseline);
-        print(dualMono?"Dual mono 10":"Linked 22 ohm 10",trial);
+        print(variant.full,baseline);
+        print(variant.capped,trial);
         for (int ch=0;ch<2;++ch) {
             double sum=0,peak=0;
             for (std::size_t n=0;n<input.size();++n) {

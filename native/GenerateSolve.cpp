@@ -10,7 +10,8 @@ int main(int argc,char** argv) {
 
     struct Schedule {int rate,lane;double conductance;const char* name;};
     constexpr Schedule schedules[]={{44100,0,0.0,"leftDualMono"},{44100,1,0.0,"rightDualMono"},
-        {44100,0,0.045,"left22"},{44100,1,0.045,"right22"}};
+        {44100,0,0.045,"left22"},{44100,1,0.045,"right22"},
+        {44100,0,0.1,"left10"},{44100,1,0.1,"right10"}};
     out<<"// Generated sparse elimination schedules for the native circuit.\n";
     for (const auto& schedule:schedules) {
         mkii::native::Solver solver(schedule.lane,schedule.conductance);
