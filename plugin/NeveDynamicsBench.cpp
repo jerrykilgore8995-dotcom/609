@@ -46,10 +46,8 @@ double timingTest(AudioProcessor& p,bool lim,int ratio,int recovery,bool fast,in
 }
 int main(int argc,char**argv){try{ScopedJuceInitialiser_GUI gui;AudioPluginFormatManager fm;auto f=std::make_unique<VST3PluginFormat>();OwnedArray<PluginDescription> d;f->findAllTypesForFile(d,String::fromUTF8(argv[1]));if(d.size()!=1)return 3;fm.addFormat(f.release());String err;auto p=fm.createPluginInstance(*d[0],sr,bs,err);if(!p)return 4;AudioProcessor::BusesLayout layout;layout.inputBuses.add(AudioChannelSet::stereo());layout.outputBuses.add(AudioChannelSet::stereo());if(!p->setBusesLayout(layout))return 5;std::cout<<std::fixed<<std::setprecision(6);
 
- set(*p,"Compressor Attack",.5f);
- for(int r:{4,5}) for(int burst:{100,500}) {
- double gr[16]; for(int ct=0;ct<16;ct++) gr[ct]=timingTest(*p,false,3,r,false,burst,ct,4);
- for(double target:{1.,3.,8.}) {int best=0;for(int ct=1;ct<16;ct++)if(std::abs(gr[ct]-target)<std::abs(gr[best]-target))best=ct;
- std::cout<<"TARGET "<<target<<" ";timingTest(*p,false,3,r,false,burst,best,4,true);}
- }
+ for(int mode=0;mode<3;mode++){set(*p,"Compressor Attack",mode/2.f);
+ for(int ratio:{2,3}) for(int recovery:{0,2,4,5}) for(int ct:{7,11,13}){
+ std::cout<<"ATTACK_MODE "<<mode<<" ";timingTest(*p,false,ratio,recovery,false,500,ct,4,true);
+ }}
  return 0;}catch(std::exception&e){std::cerr<<e.what();return 8;}}
