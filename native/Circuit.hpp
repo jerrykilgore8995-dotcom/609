@@ -800,10 +800,30 @@ private:
     // Scale the inductor voltage equations alongside the node currents.
     double merit() const {
         double total=0;
+#if defined(MKII_CODE_SPEED)
+        // Vectorize the products and sum them in the original row order.
+        const auto* rhs=matrix.rhs.data();
+        alignas(32) double squares[4];
+        int i=0;
+        for (;i+4<=deck.nodes;i+=4) {
+            const auto y=_mm256_load_pd(rhs+i);
+            _mm256_store_pd(squares,_mm256_mul_pd(y,y));
+            total+=squares[0];
+            total+=squares[1];
+            total+=squares[2];
+            total+=squares[3];
+        }
+        for (;i<deck.nodes;++i) total+=rhs[i]*rhs[i];
+        for (;i<deck.size;++i) {
+            const auto y=rhs[i]*0.005;
+            total+=y*y;
+        }
+#else
         for (int i=0;i<deck.size;++i) {
             const auto y=matrix.rhs[i]*(i<deck.nodes?1:0.005);
             total+=y*y;
         }
+#endif
         return total;
     }
 

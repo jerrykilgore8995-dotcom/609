@@ -3,6 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <bit>
+#include <cstring>
+#include <new>
+#if defined(MKII_CODE_SPEED)
+#include <immintrin.h>
+#endif
 #include <cstdint>
 #include <ostream>
 #include <span>
@@ -10,6 +16,43 @@
 #include <vector>
 
 namespace mkii::native {
+#if defined(MKII_CODE_SPEED)
+template<class T> struct CacheAllocator {
+    using value_type=T;
+    CacheAllocator()=default;
+    template<class U> CacheAllocator(const CacheAllocator<U>&) noexcept {}
+    T* allocate(std::size_t count) {
+        return static_cast<T*>(::operator new(count*sizeof(T),std::align_val_t{64}));
+    }
+    void deallocate(T* values,std::size_t) noexcept {::operator delete(values,std::align_val_t{64});}
+    template<class U> bool operator==(const CacheAllocator<U>&) const noexcept {return true;}
+};
+using SolveBuffer=std::vector<double,CacheAllocator<double>>;
+#else
+using SolveBuffer=std::vector<double>;
+#endif
+
+inline bool finiteSolution(const double* values,int count) {
+#if defined(MKII_CODE_SPEED)
+    constexpr std::uint64_t exponent=0x7ff0000000000000ULL;
+    const auto mask=_mm256_set1_epi64x(exponent);
+    auto invalid=_mm256_setzero_si256();
+    int i=0;
+    for (;i+4<=count;i+=4) {
+        const auto bits=_mm256_castpd_si256(_mm256_load_pd(values+i));
+        invalid=_mm256_or_si256(invalid,_mm256_cmpeq_epi64(_mm256_and_si256(bits,mask),mask));
+    }
+    if (!_mm256_testz_si256(invalid,invalid)) return false;
+    for (;i<count;++i)
+        if ((std::bit_cast<std::uint64_t>(values[i])&exponent)==exponent) return false;
+    return true;
+#else
+    bool finite=true;
+    for (int i=0;i<count;++i) finite &= std::isfinite(values[i]);
+    return finite;
+#endif
+}
+
 using PivotOrder=std::span<const std::array<int,2>>;
 #if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
 #include "GeneratedSolve.hpp"
@@ -216,8 +259,16 @@ public:
     }
 
     void startIteration(const std::vector<double>& initial) {
+#if defined(MKII_CODE_SPEED)
+        std::size_t i=0;
+        for (;i+4<=fixed.size();i+=4)
+            _mm256_store_pd(entries.data()+i,_mm256_load_pd(fixed.data()+i));
+        std::copy(fixed.begin()+i,fixed.end(),entries.begin()+i);
+        std::memcpy(rhs.data(),initial.data(),initial.size()*sizeof(double));
+#else
         std::copy(fixed.begin(),fixed.end(),entries.begin());
         std::copy(initial.begin(),initial.end(),rhs.begin());
+#endif
     }
 
     void clear() {
@@ -262,9 +313,7 @@ public:
             else code<<"    x["<<s->column<<"]=v*factors["<<pivotIndex<<"];\n";
 
         }
-        code<<"    bool finite=true;\n";
-        code<<"    for (int i=0;i<"<<size<<";++i) finite &= std::isfinite(x[i]);\n";
-        code<<"    return finite;\n}\n";
+        code<<"    return finiteSolution(x,"<<size<<");\n}\n";
     }
 
     bool solve() {
@@ -317,7 +366,7 @@ public:
     }
 
     int operationCount() const { return static_cast<int>(activeUpdates.size()); }
-    std::vector<double> rhs, x;
+    SolveBuffer rhs, x;
 
 private:
     std::vector<int> reverseCuthillMcKee() const {
@@ -373,6 +422,7 @@ private:
     std::vector<ActivePivot> activePivots;
     std::vector<Terminal> uppers,lowers,activeUpdates;
     std::vector<int> circuitSlots,allMutableSlots;
-    std::vector<double> dense, entries, fixed, factors, linearEntries;
+    std::vector<double> dense;
+    SolveBuffer entries,fixed,factors,linearEntries;
 };
 }

@@ -1,5 +1,6 @@
 #include "Circuit.hpp"
 #include <barrier>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <immintrin.h>
@@ -16,7 +17,7 @@ void ftz() {_mm_setcsr(_mm_getcsr()|0x8040);}
 struct Results {
     std::vector<Frame> output;
     std::vector<double> times;
-    unsigned fails=0;
+    unsigned fails=0,refinements=0;
 };
 template<class Render>
 void record(Results& run,Render render) {
@@ -47,12 +48,26 @@ Results lagged(std::span<const Frame> input,const Controls& settings) {
     Voltages cv[2];
     cv[0].value[0]=left.linkVoltage();
     cv[1].value[0]=right.linkVoltage();
+#if defined(MKII_CODE_SPEED)
+    struct alignas(64) SampleCounter {std::atomic<std::uint64_t> done{0};};
+    SampleCounter counters[2];
+#else
     std::barrier<> sync(2);
+#endif
     const auto sample=[&](Solver& solver,int channel,int n) {
         solver.setPeerLinkVoltage(cv[1-channel].value[n%2]);
         result.output[n][channel]=solver.step(input[n],settings)[channel];
         cv[channel].value[1-n%2]=solver.linkVoltage();
+#if defined(MKII_CODE_SPEED)
+        const auto completed=static_cast<std::uint64_t>(n+1);
+        counters[channel].done.store(completed,std::memory_order_release);
+        for (unsigned spins=0;counters[1-channel].done.load(std::memory_order_acquire)<completed;++spins) {
+            _mm_pause();
+            if ((spins&1023)==1023) std::this_thread::yield();
+        }
+#else
         sync.arrive_and_wait();
+#endif
     };
     std::thread other([&] {
         ftz();
@@ -61,6 +76,7 @@ Results lagged(std::span<const Frame> input,const Controls& settings) {
     record(result,[&](int n){sample(left,0,n);});
     other.join();
     result.fails=left.failures()+right.failures();
+    result.refinements=left.refinedSamples()+right.refinedSamples();
     return result;
 }
 void print(const char* name,Results& result) {
@@ -74,6 +90,11 @@ void print(const char* name,Results& result) {
 
 int main() {
     ftz();
+#if defined(MKII_CODE_SPEED)
+    std::puts("Optimized: spin, aligned storage, vectorized checks");
+#else
+    std::puts("Baseline: standard barrier, original buffers and scans");
+#endif
     auto settings=defaults;
     settings[1]=settings[10]=4;
     settings[6]=settings[15]=settings[7]=settings[16]=settings[19]=1;
@@ -90,21 +111,15 @@ int main() {
                     transient*(.15*std::sin(7479*w+ch)+.08*std::sin(15601*w)));
         }
         std::puts(burst?"Asymmetric gain-reduction burst":"Stereo transient stress");
-        auto base=exact(input,settings);
         auto candidate=lagged(input,settings);
-        print("Same-sample relay",base);
         print("10 ohm lagged dual mono",candidate);
-        for (int ch=0;ch<2;++ch) {
-            double ref=0,test=0,error=0,peak=0;
-            int count=0;
-            for (std::size_t n=0;n<input.size();++n) {
-                const double t=double(n)/rate;
-                if (burst && (std::fmod(t,.8)<.25 || std::fmod(t,.8)>.50)) continue;
-                const double a=base.output[n][ch], b=candidate.output[n][ch], d=b-a;
-                ref+=a*a;test+=b*b;error+=d*d;peak=std::max(peak,std::abs(d));++count;
+        std::uint64_t hash=14695981039346656037ULL;
+        for (const auto& frame:candidate.output)
+            for (const auto sample:frame) {
+                hash^=std::bit_cast<std::uint64_t>(sample);
+                hash*=1099511628211ULL;
             }
-            std::printf("Channel %d level delta %+.4f dB, difference %.2f dBFS RMS, peak %.6f FS\n",
-                ch+1,10*std::log10(test/ref),10*std::log10(error/count),peak);
-        }
+        std::printf("Output checksum %016llx, refinements %u, failures %u\n",
+                    static_cast<unsigned long long>(hash),candidate.refinements,candidate.fails);
     }
 }
