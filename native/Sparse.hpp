@@ -43,6 +43,29 @@ public:
         updates.clear();
         activePivots.clear();
         std::vector<bool> liveRows(size, true), liveColumns(size, true);
+        // Reverse Cuthill–McKee breaks equal-cost, equally stable pivot
+        // ties. Markowitz and the pivot guards still control fill and stability.
+        std::vector<std::vector<int>> neighbors(size);
+        for (int row=0;row<size;++row) for (int col=0;col<size;++col)
+            if (row!=col && (has(row,col) || has(col,row))) neighbors[row].push_back(col);
+        const auto degree=[&](int a,int b){return neighbors[a].size()<neighbors[b].size();};
+        for (auto& node : neighbors) std::stable_sort(node.begin(),node.end(),degree);
+        std::vector<int> order;
+        std::vector<bool> visited(size);
+        while (order.size()<static_cast<std::size_t>(size)) {
+            int root=-1;
+            for (int i=0;i<size;++i)
+                if (!visited[i] && (root<0 || degree(i,root))) root=i;
+            auto next=order.size();
+            order.push_back(root);
+            visited[root]=true;
+            for (;next<order.size();++next)
+                for (int n : neighbors[order[next]]) if (!visited[n]) {
+                    order.push_back(n);
+                    visited[n]=true;
+                }
+        }
+        std::reverse(order.begin(),order.end());
         for (int step = 0; step < size; ++step) {
             std::vector<int> rowCount(size, 0), colCount(size, 0);
             std::vector<double> colMax(size, 0), rowMax(size, 0);
@@ -56,8 +79,8 @@ public:
             }
             int pr = -1, pc = -1, best = 2*size*size;
             double tie = -1.0;
-            for (int row = 0; row < size; ++row) if (liveRows[row]) {
-                for (int col = 0; col < size; ++col) if (liveColumns[col] && has(row,col)) {
+            for (int row : order) if (liveRows[row]) {
+                for (int col : order) if (liveColumns[col] && has(row,col)) {
                     const double pivot = std::abs(v(row,col));
                     if (pivot < 1e-17 || pivot < 0.01 * colMax[col]) continue;
                     // Prefer self-admittances to off-diagonal transistor

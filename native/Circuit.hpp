@@ -691,9 +691,10 @@ private:
     template<bool recovery=false>
     bool newton(int iterations) {
         stampStep();
+        double residual=merit();
         double previousMerit=0,olderMerit=0;
         for (int iter=0;iter<iterations;++iter) {
-            const auto initial=merit();
+            const auto initial=residual;
             if (initial<(fastConvergence?5e-11:4e-13)) return true;
             if (!matrix.solve()) return false;
             double maxNode=0, maxBranch=0;
@@ -747,11 +748,12 @@ private:
             for (;scale>=0.0001220703125;scale*=.5) {
                 for (int i=0;i<deck.size;++i) x[i]=oldIter[i]+scale*matrix.x[i];
                 stampStep();
-                if (merit()<(1-1e-5*scale)*meritLimit) {acceptable=true;break;}
+                residual=merit();
+                if (residual<(1-1e-5*scale)*meritLimit) {acceptable=true;break;}
             }
             if (!acceptable) return false;
         }
-        return merit()<(fastConvergence?1e-10:1e-12);
+        return residual<(fastConvergence?1e-10:1e-12);
     }
 
     void accept(bool dc) {

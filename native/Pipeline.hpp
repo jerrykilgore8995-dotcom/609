@@ -5,6 +5,9 @@
 #include <chrono>
 #include <limits>
 #include <thread>
+#if defined(__SSE2__) || defined(_M_X64)
+#include <xmmintrin.h>
+#endif
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -125,6 +128,11 @@ private:
 #endif
     }
     void run() {
+#if defined(__SSE2__) || defined(_M_X64)
+        constexpr unsigned flushToZero=1u<<15;
+        constexpr unsigned denormalsAreZero=1u<<6;
+        _mm_setcsr(_mm_getcsr() | flushToZero | denormalsAreZero);
+#endif
 #ifdef _WIN32
         SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_ABOVE_NORMAL);
 #endif
