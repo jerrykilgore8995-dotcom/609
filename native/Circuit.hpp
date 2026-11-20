@@ -198,7 +198,7 @@ public:
     }
 
     using Frame = std::array<double,2>;
-    Frame step(Frame input, const Controls& controls, bool offline=true) {
+    Frame step(Frame input, const Controls& controls, bool offline=true,int maxIterations=20) {
         const bool changed=controls!=lastControls;
         if (changed) {
             for (auto& contact : deck.contact) selectContact(contact,controls);
@@ -237,7 +237,7 @@ public:
         }
         slope=difference;
         fastConvergence=lane<0 ? closest[0]&&closest[1] : closest[lane]!=nullptr;
-        const bool fullStep=newton(20) || continueSource(input,offline);
+        const bool fullStep=newton(maxIterations) || continueSource(input,offline);
         const bool subdivided=!fullStep && retry(input,offline);
         if (fullStep || subdivided || recoverAtSampleRate(input)) {
             if (subdivided) ++subdivisions;
@@ -325,7 +325,7 @@ private:
             return remap(part,&Contact::a,&Contact::b);
         });
         if (linkContacts!=1) partitionValid=false;
-        if (partitionValid) deck.resistors.push_back({linkNode,-1,linkConductance,0});
+        if (partitionValid && linkConductance>0) deck.resistors.push_back({linkNode,-1,linkConductance,0});
         trim(deck.capacitors,&C::a,&C::b);
         trim(deck.inductance,&Inductance::row,&Inductance::column);
         trim(deck.currents,&I::a,&I::b);

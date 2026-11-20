@@ -1,7 +1,7 @@
-name: 609 MKII Windows 22-ohm link benchmark
+name: 609 Windows Newton iteration benchmark
 on:
   push:
-    branches: [609-mkii-22ohm-probe]
+    branches: [609-iteration-cap-probe]
   workflow_dispatch:
 permissions:
   actions: read
