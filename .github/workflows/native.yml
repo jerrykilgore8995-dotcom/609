@@ -83,7 +83,7 @@ jobs:
           foreach ($mode in @("comp", "limit")) {
             $attacks = if ($mode -eq "comp") { @(0,1,2) } else { @(0,1) }
             foreach ($attack in $attacks) {
-              python tools/jd_timing.py --engine $test --plugin $bundle --mode $mode --attack $attack --bus --output "build/jd-vst3-$mode-$attack.json"
+              python tools/jd_timing.py --engine $test --plugin $bundle --mode $mode --attack $attack --bus --validate --output "build/jd-vst3-$mode-$attack.json"
               if ($LASTEXITCODE) { exit $LASTEXITCODE }
             }
           }

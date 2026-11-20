@@ -79,6 +79,41 @@ def timing(case, engine=None, plugin=None):
     return rec
 
 
+def validate_bounded(results):
+    """Check front-panel timing on the shared bench stimulus."""
+    failures = []
+    for case in results:
+        mode, attack, recovery = case['mode'], case['attack'], case['recovery']
+        gain = case['gain']
+        label = f'{mode} attack {attack}, recovery {recovery}, burst {case["burst_ms"]} ms'
+        if mode == 'comp':
+            checks = [('attack63', gain.get('attack63'), (3., 7.5, 15.)[attack],
+                       (.5, .8, 1.5)[attack])]
+            if recovery <= 4:
+                target = (100, 400, 800, 1500)[recovery-1]
+                checks.append(('release63', gain.get('release63'), target, .08 * target))
+        else:
+            checks = [('settle1dB', case.get('settle1dB'), 2 if attack else 4, 1)]
+            if recovery <= 4:
+                # The limiter's factory figures read at the control node.
+                # These are the corresponding output-gain 63% measurements.
+                target = (24.5, 49.6, 99.2, 399.3)[recovery-1]
+                checks.append(('release63', gain.get('release63'), target, .15 * target))
+        for name, value, target, tolerance in checks:
+            if value is None or abs(value-target) > tolerance:
+                failures.append(f'{label}: {name} {value}, expected {target} ± {tolerance:g} ms')
+    autos = {(r['threshold'], r['ratio'], r['recovery'], r['burst_ms']): r['gain']
+             for r in results if r['recovery'] > 4}
+    for (threshold, ratio, recovery, burst), short in autos.items():
+        if burst != 100:
+            continue
+        long = autos[threshold, ratio, recovery, 500]
+        if long['retained300'] <= short['retained300']:
+            failures.append(f'A{recovery-4} had no additional tail after the longer burst')
+    if failures:
+        raise SystemExit('\n'.join(failures))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--engine', type=Path, help='Use the bounded-engine probe instead of ngspice')
@@ -87,6 +122,7 @@ def main():
     parser.add_argument('--attack', type=int, choices=range(3), required=True)
     parser.add_argument('--recovery', type=int, nargs='+', choices=range(1, 7), default=list(range(1, 7)))
     parser.add_argument('--bus', action='store_true', help='Include shorter automatic-recovery bursts and bus levels')
+    parser.add_argument('--validate', action='store_true', help='Check the bounded bench targets')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -94,6 +130,8 @@ def main():
         parser.error('Limiter has two attack positions')
     if args.plugin and not args.engine:
         parser.error('--plugin requires --engine pointing to Vst3Smoke')
+    if args.validate and not args.engine:
+        parser.error('--validate requires a bounded engine or VST3')
     limiter = args.mode == 'limit'
     cases = [(args.mode, args.attack, recovery, 800, 20 if limiter else 10, 9 if limiter else 1, 4)
              for recovery in args.recovery]
@@ -107,6 +145,8 @@ def main():
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
         results = list(pool.map(timing, cases, itertools.repeat(engine), itertools.repeat(plugin)))
     args.output.write_text(json.dumps(results, indent=2) + '\n')
+    if args.validate:
+        validate_bounded(results)
 
 
 if __name__ == '__main__':

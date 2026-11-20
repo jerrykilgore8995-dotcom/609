@@ -12,7 +12,7 @@ python tools/measure.py --level 0 --level 10 --set CEL=1 --set CRL=4
 python tools/measure.py --level 10 --level 20 --set LEL=1
 ```
 
-The circuit is undergoing bench validation. See the reference notes for the remaining transformer and semiconductor characterization.
+The compressor attack switch defaults to the 33609/JD position and offers the existing 7.5 and 15 ms alternatives. The corresponding SPICE detents are `CATKL=0/1/2` and `CATKR=0/1/2`. See [the JD timing bench](docs/jd-timing.md) for the test conditions and results.
 
 The [dynamics measurement workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/measure-dynamics.yml)
 reports compressor ratios at 0/+10 dBu and limiter ratios at +10/+20 dBu.
@@ -29,4 +29,4 @@ hum amplitudes are −78 and −86 dBFS.
 
 This branch evaluates a bounded model at 44.1 kHz and 512 samples. It adds zero samples of host latency. The compressor models the charging and recovery of the timing capacitor. The limiter uses a peak and smoothed detector, and the audio path uses measured harmonic residuals for coherent cycles.
 
-Download `609-Real-World-Audio-Test-Windows-x64-VST3` from a passing [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) on this branch. The workflow checks the installed VST3 in a paced Windows test host against an 11.61 ms callback budget and includes circuit and SPICE results. See [bounded parity results](docs/bounded-parity.md) for the remaining differences and the conflicting reference measurements.
+The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks the VST3 in a paced test host against an 11.61 ms callback budget. The Timing Evaluation artifact includes the candidate plug-in and its stepped-sine results. The Real World Audio Test artifact requires the additional packaged smoke and harmonic parity checks. See [bounded parity results](docs/bounded-parity.md) for the remaining differences and the conflicting reference measurements.
