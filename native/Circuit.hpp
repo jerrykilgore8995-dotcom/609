@@ -141,7 +141,7 @@ struct Circuit {
 
 class Solver {
 public:
-    explicit Solver(int channel=-1):lane(channel) {
+    explicit Solver(int channel=-1):lane(channel),linkConductance(channel<0?0.0:0.1) {
         loadDeck(deck);
         if (lane>=0) isolateChannel();
     }
@@ -157,6 +157,7 @@ public:
         fixed.resize(deck.constants.size());
         hostRate=rate;
         lastInput={};
+        peerLinkVoltage=0;
         supply({});
         lastControls=defaults;
         for (auto& c : deck.contact) selectContact(c,defaults);
@@ -251,6 +252,8 @@ public:
                 (v(deck.output[2])-v(deck.output[3]))/fullScalePeakVolts};
     }
 
+    double linkVoltage() const {return previous[linkNode];}
+    void setPeerLinkVoltage(double volts) {peerLinkVoltage=volts;}
     Frame meterVolts() const {return {v(deck.meter[0]),v(deck.meter[1])};}
     int operations() const { return matrix.operationCount(); }
     bool usesGeneratedSolve() const { return matrix.usesGeneratedSolve(); }
@@ -315,12 +318,14 @@ private:
         retain(deck.contact,[&](auto& part,std::size_t) {
             if (part.a>=0 && part.b>=0 && deck.channel[part.a]!=deck.channel[part.b]) {
                 if (part.tables.empty() || part.tables.front().control!=19) partitionValid=false;
+                linkNode=node(deck.channel[part.a]==lane?part.a:part.b);
                 ++linkContacts;
                 return false;
             }
             return remap(part,&Contact::a,&Contact::b);
         });
         if (linkContacts!=1) partitionValid=false;
+        if (partitionValid) deck.resistors.push_back({linkNode,-1,linkConductance,0});
         trim(deck.capacitors,&C::a,&C::b);
         trim(deck.inductance,&Inductance::row,&Inductance::column);
         trim(deck.currents,&I::a,&I::b);
@@ -375,6 +380,7 @@ private:
             if (d.b>=0) sampleRhs[d.b]+=charge;
         }
         for (const auto& d : deck.inductance) sampleRhs[d.row]+=history1*d.q1+history2*d.q2;
+        if (linkNode>=0) sampleRhs[linkNode]+=linkConductance*peerLinkVoltage;
     }
 
     bool recoverAtSampleRate(Frame input) {
@@ -897,6 +903,9 @@ private:
 
     struct Term { int column; double g; };
     int lane;
+    int linkNode=-1;
+    const double linkConductance;
+    double peerLinkVoltage=0;
     bool partitionValid=true;
     Circuit deck;
     std::vector<Term> terms;

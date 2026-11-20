@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.22)
+project(609LinkProbe LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_executable(GenerateSolve ../GenerateSolve.cpp)
+target_include_directories(GenerateSolve PRIVATE "${DECK_DIR}")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSolve.hpp"
+    COMMAND GenerateSolve "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSolve.hpp"
+    DEPENDS GenerateSolve)
+add_executable(LinkProbe LinkProbe.cpp "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSolve.hpp")
+target_include_directories(LinkProbe PRIVATE .. "${DECK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+if(MSVC)
+    target_compile_options(GenerateSolve PRIVATE /arch:AVX2)
+    target_compile_options(LinkProbe PRIVATE /arch:AVX2)
+endif()
