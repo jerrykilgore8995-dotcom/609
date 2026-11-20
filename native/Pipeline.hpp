@@ -141,27 +141,49 @@ private:
         SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_ABOVE_NORMAL);
 #endif
     }
-    void renderLane(int channel,std::uint64_t first,std::uint64_t end) {
+    struct alignas(64) LinkState {
+        std::atomic<std::uint64_t> completed{0};
+        std::array<double,2> volts{};
+    };
+    void renderLane(int channel,std::uint64_t first,std::uint64_t end,bool linked) {
         auto& lane=laneSolvers[channel];
         for (auto frame=first;frame<end;++frame) {
             const auto& sample=input[frame&mask];
-            const auto result=lane.step({sample.values[0],sample.values[1]},sample.settings);
+            const auto index=frame&1;
+            auto& local=linkState[channel];
+            auto& peer=linkState[1-channel];
+            if (linked) lane.setPeerLinkVoltage(peer.volts[index]);
+            auto settings=sample.settings;
+            settings[19]=linked;
+            const auto result=lane.step({sample.values[0],sample.values[1]},settings);
             auto& out=output[frame&mask];
             out.values[channel]=float(result[channel]);
             out.meter[channel]=float(std::max(0.0,lane.meterVolts()[channel]*6.9));
+            if (linked) {
+                local.volts[1-index]=lane.linkVoltage();
+                const auto completed=frame+1;
+                local.completed.store(completed,std::memory_order_release);
+                for (unsigned spins=0;peer.completed.load(std::memory_order_acquire)<completed;++spins) {
+#if defined(__SSE2__) || defined(_M_X64)
+                    _mm_pause();
+#endif
+                    if ((spins&1023)==1023) std::this_thread::yield();
+                }
+            }
         }
     }
     void run() {
         prepareWorker();
         std::binary_semaphore begin(0),done(0);
         std::uint64_t first=0,last=0;
+        bool linked=false;
         std::thread right;
         if (channels==2) right=std::thread([&] {
             prepareWorker();
             for (;;) {
                 begin.acquire();
                 if (last==stopSignal) return;
-                renderLane(1,first,last);
+                renderLane(1,first,last,linked);
                 done.release();
             }
         });
@@ -171,13 +193,26 @@ private:
             const auto available=written.load(std::memory_order_acquire);
             if (available==stopSignal) break;
             if (available==next) {wait(available);continue;}
-            const auto end=std::min(available,next+512);
+            const auto wantsLink=[&](std::uint64_t frame) {
+                const auto& settings=input[frame&mask].settings;
+                return channels==2 && settings[19] && settings[20];
+            };
+            linked=wantsLink(next);
+            const auto limit=std::min(available,next+512);
+            auto end=next+1;
+            while (end<limit && wantsLink(end)==linked) ++end;
+            if (linked) {
+                for (int ch=0;ch<2;++ch) {
+                    linkState[ch].volts[next&1]=laneSolvers[ch].linkVoltage();
+                    linkState[ch].completed.store(next,std::memory_order_relaxed);
+                }
+            }
             if (right.joinable()) {
                 first=next;
                 last=end;
                 begin.release();
             }
-            renderLane(0,next,end);
+            renderLane(0,next,end,linked);
             if (right.joinable()) done.acquire();
             failures.store(laneSolvers[0].failures()+
                 (channels==2 ? laneSolvers[1].failures():0),std::memory_order_relaxed);
@@ -190,6 +225,7 @@ private:
             right.join();
         }
     }
+    std::array<LinkState,2> linkState{};
     std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};

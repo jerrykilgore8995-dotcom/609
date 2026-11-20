@@ -12,6 +12,7 @@ struct Setting {
     int recovery;        // 1–4 = fixed, 5–6 = a1/a2
     int makeup;          // dB
     int attack;          // 0 = JD, 1 = 7.5 ms, 2 = 15 ms
+    bool linked = true;
     bool compress = true;
     int limitThreshold = 0; // Twice dBu. Zero switches the limiter out.
     int limitRecovery = 2;
@@ -28,14 +29,14 @@ inline constexpr std::array<Setting, 30> bank{{
     {"Mix Bus", "Dense Mix",                   -2, 4, 2, 4, 0},
     {"Mix Bus", "Slow Auto Mix",                2, 2, 6, 2, 2},
 
-    {"Drums", "CLA Parallel Drums",             0, 2, 1, 8, 0},
+    {"Drums", "CLA Parallel Drums",             0, 2, 1, 8, 0, false},
     {"Drums", "Rock Kit Punch",                -4, 4, 1, 4, 2},
     {"Drums", "Metal Kit Control",             -4, 4, 1, 4, 0},
     {"Drums", "Parallel Drum Crush",           -8, 5, 1, 8, 0},
-    {"Drums", "Parallel Drum Weight",          -6, 4, 1, 6, 0},
-    {"Drums", "Room Mic Sustain",              -6, 5, 5, 6, 1},
+    {"Drums", "Parallel Drum Weight",          -6, 4, 1, 6, 0, false},
+    {"Drums", "Room Mic Sustain",              -6, 5, 5, 6, 1, false},
     {"Drums", "Overhead Glue",                  0, 2, 2, 2, 1},
-    {"Drums", "Kick and Snare Punch",          -2, 4, 1, 4, 2},
+    {"Drums", "Kick and Snare Punch",          -2, 4, 1, 4, 2, false},
     {"Drums", "Sampled Drum and Loop Bus",     -4, 3, 2, 4, 0},
 
     {"Vocals", "Lead Vocal Peak Catch",         2, 4, 1, 2, 0},
@@ -50,10 +51,10 @@ inline constexpr std::array<Setting, 30> bank{{
     {"Instruments", "Acoustic Guitar Level",   -2, 2, 2, 2, 1},
     {"Instruments", "Electric Guitar Bus",      0, 2, 3, 2, 2},
 
-    {"Mastering", "Transformer Pass",          10, 1, 5, 0, 0, false},
+    {"Mastering", "Transformer Pass",          10, 1, 5, 0, 0, true, false},
     {"Mastering", "Light Mastering",            6, 1, 5, 0, 0},
-    {"Mastering", "Fast Mastering Catch",       6, 1, 1, 0, 0, true, 30, 1},
-    {"Mastering", "Limiter Insurance",          4, 2, 5, 2, 0, true, 30, 2},
+    {"Mastering", "Fast Mastering Catch",       6, 1, 1, 0, 0, true, true, 30, 1},
+    {"Mastering", "Limiter Insurance",          4, 2, 5, 2, 0, true, true, 30, 2},
 }};
 
 constexpr std::array<int, 9> detents(const Setting& p) {

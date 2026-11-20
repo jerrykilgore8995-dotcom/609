@@ -26,8 +26,8 @@ const std::array<Parameter,9> controls{{
     {"lr","Limit Recovery",{"50","100","200","800","a1","a2"},3.3f},
     {"ce","Compress In",{}},{"le","Limit In",{}},{"fast","Fast Attack",{}}
 }};
-const std::array<const char*,4> modes{"in","power","external","remote_in"};
-const std::array<const char*,4> modeTitles{"Bypass In","Power","External Control","Remote Bypass In"};
+const std::array<const char*,6> modes{"in","stereo","power","external","remote_in","remote_stereo"};
+const std::array<const char*,6> modeTitles{"Bypass In","Stereo Link","Power","External Control","Remote Bypass In","Remote Stereo Link"};
 String parameterId(int channel,const char* name) {return String(channel+1)+"_"+name;}
 
 class Compressor final : public juce::AudioProcessor {
@@ -37,11 +37,11 @@ public:
                  state(*this,nullptr,"Settings",parameters()) {
         for (int ch=0;ch<2;++ch) for (int i=0;i<9;++i)
             channelParams[ch][i]=state.getRawParameterValue(parameterId(ch,controls[i].id));
-        for (int i=0;i<4;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
+        for (int i=0;i<6;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
         noiseParam=state.getRawParameterValue("noise");
         attackParam=state.getRawParameterValue("comp_attack");
     }
-    const String getName() const override {return "609";}
+    const String getName() const override {return "609 MKII";}
     bool acceptsMidi() const override {return false;}
     bool producesMidi() const override {return false;}
     bool isMidiEffect() const override {return false;}
@@ -70,10 +70,6 @@ public:
     void setStateInformation(const void* data,int size) override {
         if (auto xml=getXmlFromBinary(data,size);xml && xml->hasTagName(state.state.getType())) {
             auto saved=juce::ValueTree::fromXml(*xml);
-            for (const auto* removed:{"stereo","remote_stereo"}) {
-                auto entry=saved.getChildWithProperty("id",removed);
-                if (entry.isValid()) saved.removeChild(entry,nullptr);
-            }
             if (!saved.getChildWithProperty("id","comp_attack").isValid()) {
                 juce::ValueTree attack("PARAM");
                 attack.setProperty("id","comp_attack",nullptr);
@@ -98,14 +94,15 @@ public:
                 write(parameterId(ch,controls[i].id), values[i]);
         write("in",1);
         write("power",1);
+        write("stereo",preset.linked);
         write("external",0);
         write("comp_attack",preset.attack);
     }
     int matchingPreset(int preferred) const {
-        if (modeParams[0]->load()==0 || modeParams[1]->load()==0 || modeParams[2]->load()!=0)
+        if (modeParams[0]->load()==0 || modeParams[2]->load()==0 || modeParams[3]->load()!=0)
             return 0;
         const auto matches = [this](const mkii::presets::Setting& preset) {
-            if (attackParam->load()!=preset.attack)
+            if (attackParam->load()!=preset.attack || modeParams[1]->load()!=preset.linked)
                 return false;
             const auto values = mkii::presets::detents(preset);
             for (const auto& channel : channelParams)
@@ -133,8 +130,8 @@ private:
             else layout.add(std::make_unique<juce::AudioParameterChoice>(id,title,setting.values,
                 mkii::native::defaults[ch*9+i]-1));
         }
-        for (int i=0;i<4;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
-            juce::ParameterID{modes[i],1},modeTitles[i],i!=2));
+        for (int i=0;i<6;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{modes[i],1},modeTitles[i],i==0 || i==1 || i==2 || i==4 || i==5));
         layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"noise",1},"PSU Noise",false));
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"comp_attack",1},"Compressor Attack",juce::StringArray{"JD (3 ms)","7.5 ms","15 ms"},0));
         return layout;
@@ -145,10 +142,10 @@ private:
         mkii::native::Controls positions;
         for (int ch=0;ch<2;++ch) for (int i=0;i<9;++i)
             positions[ch*9+i]=static_cast<int>(channelParams[ch][i]->load())+(i<6?1:0);
-        const bool remote=modeParams[2]->load()>0.5f;
-        positions[18]=modeParams[remote?3:0]->load()>0.5f;
-        positions[19]=0;
-        positions[20]=modeParams[1]->load()>0.5f;
+        const bool remote=modeParams[3]->load()>0.5f;
+        positions[18]=modeParams[remote?4:0]->load()>0.5f;
+        positions[19]=modeParams[remote?5:1]->load()>0.5f;
+        positions[20]=modeParams[2]->load()>0.5f;
         positions[mkii::native::compressorAttackControl]=static_cast<int>(attackParam->load());
         engine.process(audio.getArrayOfWritePointers(),audio.getNumSamples(),positions,isNonRealtime(),dry);
         if (dry || !positions[18] || !positions[20]) supplyNoise.silence();
@@ -162,7 +159,7 @@ private:
     const std::atomic<float>* attackParam=nullptr;
     const std::atomic<float>* noiseParam=nullptr;
     std::array<std::array<const std::atomic<float>*,9>,2> channelParams{};
-    std::array<const std::atomic<float>*,4> modeParams{};
+    std::array<const std::atomic<float>*,6> modeParams{};
     bool ready=false;
 };
 
@@ -185,7 +182,7 @@ public:
                 dialBindings.push_back(std::make_unique<DialBinding>(processor.state,id,knob));
             } else bindToggle(switches[ch][i-6],id,controls[i].title);
         }
-        for (int i=0;i<3;++i) bindToggle(chassis[i],modes[i],modeTitles[i]);
+        for (int i=0;i<4;++i) bindToggle(chassis[i],modes[i],modeTitles[i]);
         noise.setButtonText("PSU NOISE");
         addAndMakeVisible(noise);
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,"noise",noise));
@@ -235,9 +232,7 @@ public:
         presetBox.setBounds(106,232,252,30);
         noise.setBounds(1045,221,112,24);
         attackSwitch.setBounds(710,230,20,38);
-        chassis[0].setBounds(707,35,60,61);
-        chassis[1].setBounds(1049,126,60,61);
-        chassis[2].setBounds(1049,35,60,61);
+        for (int i=0;i<4;++i) chassis[i].setBounds(i<2?707:1049,35+91*(i<2?i%2:1-i%2),60,61);
     }
     void paint(juce::Graphics& g) override {
         const auto dark=juce::Colour(0xff202d42), light=juce::Colour(0xff33445f);
@@ -423,8 +418,8 @@ private:
                 label(g,"POWER",0,20,button.getWidth(),21,10,juce::Colour(0xff25251c));
                 return;
             }
-            const String top=name=="Bypass In"?"BYPASS":"EXT";
-            const String bottom=name=="Bypass In"?"IN":"INT";
+            const String top=name=="Bypass In"?"BYPASS":name=="Stereo Link"?"MONO":"EXT";
+            const String bottom=name=="Bypass In"?"IN":name=="Stereo Link"?"STEREO":"INT";
             const bool topActive=name=="External Control"?active:!active;
             const auto topFace=interior.withTrimmedBottom(interior.getHeight()/2+.5f);
             const auto bottomFace=interior.withTrimmedTop(interior.getHeight()/2+.5f);
@@ -466,7 +461,7 @@ private:
     Face face;
     std::array<std::array<juce::Slider,6>,2> knobs;
     std::array<std::array<juce::ToggleButton,3>,2> switches;
-    std::array<juce::ToggleButton,3> chassis;
+    std::array<juce::ToggleButton,4> chassis;
     juce::ToggleButton noise;
     juce::ComboBox presetBox;
     juce::Slider attackSwitch;

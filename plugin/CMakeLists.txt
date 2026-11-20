@@ -42,8 +42,9 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_plugin(Compressor609
     COMPANY_NAME Kilgore
     PLUGIN_MANUFACTURER_CODE Jkil
-    PLUGIN_CODE K609
-    PRODUCT_NAME "609"
+    PLUGIN_CODE K69B
+    BUNDLE_ID com.kilgore.609mkii
+    PRODUCT_NAME "609 MKII"
     FORMATS VST3
     IS_SYNTH FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
@@ -51,7 +52,7 @@ juce_add_plugin(Compressor609
 target_sources(Compressor609 PRIVATE Plugin.cpp)
 target_compile_features(Compressor609 PRIVATE cxx_std_20)
 target_compile_definitions(Compressor609 PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
-                                                 JUCE_VST3_CAN_REPLACE_VST2=0 NOMINMAX)
+                                                 JUCE_VST3_CAN_REPLACE_VST2=0 NOMINMAX MKII_CODE_SPEED)
 target_link_libraries(Compressor609 PRIVATE juce::juce_audio_processors juce::juce_gui_basics
                                            juce::juce_recommended_config_flags)
 juce_add_console_app(Vst3Smoke)
@@ -66,6 +67,6 @@ foreach(target Compressor609 Vst3Smoke)
 endforeach()
 if(MSVC)
     foreach(target Generate609Solve Compressor609 Vst3Smoke)
-        target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:/arch:AVX2>)
+        target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:/arch:AVX2> $<$<CONFIG:Release>:/fp:precise>)
     endforeach()
 endif()
