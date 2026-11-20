@@ -141,7 +141,7 @@ struct Circuit {
 
 class Solver {
 public:
-    explicit Solver(int channel=-1):lane(channel),linkConductance(channel<0?0.0:0.1) {
+    explicit Solver(int channel=-1,double conductance=0.1):lane(channel),linkConductance(channel<0?0.0:conductance) {
         loadDeck(deck);
         if (lane>=0) isolateChannel();
     }
@@ -173,7 +173,7 @@ public:
         stampNonlinear<true>();
         PivotOrder order;
 #if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
-        order=findGeneratedOrder(rate,lane);
+        order=findGeneratedOrder(rate,lane,linkConductance);
 #endif
         if (!matrix.prepare(order)) return false;
         cacheNonlinearSlots();
@@ -183,7 +183,7 @@ public:
         if (!prepareLinear(true)) return false;
         std::swap(matrix,retryMatrix);
 #if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
-        generatedResidual=findGeneratedResidual(rate,lane);
+        generatedResidual=findGeneratedResidual(rate,lane,linkConductance);
 #endif
         accept(true);
         inverse = 1.5*rate;
@@ -198,7 +198,7 @@ public:
     }
 
     using Frame = std::array<double,2>;
-    Frame step(Frame input, const Controls& controls) {
+    Frame step(Frame input, const Controls& controls, bool offline=true) {
         const bool changed=controls!=lastControls;
         if (changed) {
             for (auto& contact : deck.contact) selectContact(contact,controls);
@@ -237,8 +237,8 @@ public:
         }
         slope=difference;
         fastConvergence=lane<0 ? closest[0]&&closest[1] : closest[lane]!=nullptr;
-        const bool fullStep=newton(20) || continueSource(input);
-        const bool subdivided=!fullStep && retry(input);
+        const bool fullStep=newton(20) || continueSource(input,offline);
+        const bool subdivided=!fullStep && retry(input,offline);
         if (fullStep || subdivided || recoverAtSampleRate(input)) {
             if (subdivided) ++subdivisions;
             else accept(false);
@@ -394,9 +394,10 @@ private:
         return newton<true>(96);
     }
 
-    bool continueSource(Frame input) {
+    bool continueSource(Frame input,bool offline) {
         // Try a numerical continuation before changing the time integration.
         for (int count : {2,4,8}) {
+            if (!offline && count>4) break;
             std::copy(previous.begin(),previous.end(),x.begin());
             int i=1;
             for (;i<=count;++i) {
@@ -412,7 +413,7 @@ private:
         return false;
     }
 
-    bool retry(Frame input) {
+    bool retry(Frame input,bool offline) {
         std::copy(previous.begin(),previous.end(),savedNodes.begin());
         visitHistory([](History& save,double& q1,double& q2){save={q1,q2};});
         const auto restore=[&] {
@@ -425,6 +426,7 @@ private:
         // The next host sample resumes BDF2 with history on the host grid.
         std::swap(matrix,retryMatrix);
         for (int count : {2,4,8,16,32,64,128}) {
+            if (!offline && count>4) break;
             restore();
             inverse=count*hostRate;
             history1=-inverse;
