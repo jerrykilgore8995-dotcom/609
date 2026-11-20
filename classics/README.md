@@ -49,7 +49,7 @@ The 2254 editor traces the [first 2254's panel photograph](https://postfade.co.u
 
 The 2264 candidate builds on the Windows runner. Publishing its bundle requires a clean SPICE operating check, attack and release timing and effective ratio within 10% of the benchmark targets, and a clean mono and linked-stereo native benchmark. The 2254 is held at the source stage.
 
-The dynamics probe uses a 1 kHz carrier and a centred, one-cycle fundamental envelope. Ratio is the output change from +10 to +20 dBu input at a fixed threshold. Attack is the time from that step to 1 dB above the new plateau, with the compressor on 6:1 for the timing reference. Release is the time to recover 63.2% of the gain change in dB. A 0.55 s burst checks the fixed releases. The Auto checks compare 0.1 and 3 s bursts. Timing values are tied to these stimuli and measurement definitions.
+The dynamics probe uses a 1 kHz carrier and a centred, one-cycle fundamental envelope. Ratio is the output change from +10 to +20 dBu input at a fixed threshold. Attack is the time from that step to 1 dB above the new plateau, with the compressor on 6:1 for the timing reference. Release is the time to recover 63.2% of the gain change in dB. A 0.55 s burst checks the fixed releases. The Auto checks compare 0.1 and 3 s bursts. The 2264 recovery network keeps each Auto capacitor on a separate switched branch so SPICE and the generated solver use the same capacitance. A detent expression on a single capacitor would have stayed fixed at its default value in the generated solver. Timing values are tied to these stimuli and measurement definitions.
 
 ```text
 python classics/read_dynamics.py 2264 build/Release/Bench2264.exe --require-close
