@@ -1,7 +1,7 @@
 name: 609 bounded parity evaluation
 on:
   push:
-    branches: [bounded-609-parity]
+    branches: [bounded-609-parity, jd-timing-calibration]
     paths: ['circuit/**', 'native/**', 'plugin/**', 'tools/**', '.github/workflows/native.yml']
   workflow_dispatch:
 
@@ -67,17 +67,26 @@ jobs:
         run: |
           set -euo pipefail
           build/realtime-check.exe | tee build/circuit-comparison.txt
-      - name: Check compressor THD against both reference solvers
-        shell: pwsh
-        run: |
-          python tools/check_ratio_thd.py build/circuit-comparison.txt build/deck --output build/ratio-thd.tsv
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build the VST3 and test host
         shell: pwsh
         run: |
           cmake -S plugin -B build-plugin -A x64
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+      - name: Measure the packaged VST3 dynamics
+        shell: pwsh
+        run: |
+          python -m pip install numpy
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $bundle = (Resolve-Path "build-plugin/Compressor609_artefacts/Release/VST3/609.vst3").Path
+          $test = (Resolve-Path "build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe").Path
+          foreach ($mode in @("comp", "limit")) {
+            $attacks = if ($mode -eq "comp") { @(0,1,2) } else { @(0,1) }
+            foreach ($attack in $attacks) {
+              python tools/jd_timing.py --engine $test --plugin $bundle --mode $mode --attack $attack --bus --output "build/jd-vst3-$mode-$attack.json"
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            }
+          }
       - name: Test the VST3 offline and at 44.1 kHz / 512 samples
         shell: pwsh
         run: |
@@ -100,6 +109,17 @@ jobs:
           name: 609-Real-World-Audio-Test-Windows-x64-VST3
           path: release
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-Windows-x64-Timing-Evaluation
+          path: |
+            build-plugin/Compressor609_artefacts/Release/VST3/609.vst3
+            build/jd-vst3-*.json
+            smoke-out.txt
+            offline-smoke.txt
+            build/ratio-thd.tsv
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:

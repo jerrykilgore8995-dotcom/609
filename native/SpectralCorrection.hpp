@@ -127,14 +127,20 @@ private:
         const auto ratioThreshold=locate(ratioThresholds,compThreshold);
         const auto ratioWeight=std::clamp(1-std::abs(std::log2(frequency/1000.))/.48,0.,1.)*
             std::clamp((db+12)/12.,0.,1.);
+        // Refit the harmonic amplitudes at the 0 dBu threshold / +10 dBu
+        // JD bench anchor after changing the charge and recovery trajectories.
+        constexpr std::array timingRefit{.967,.960,.959,.991,1.095};
+        const auto benchWeight=std::clamp(1-std::abs(compThreshold)/10.,0.,1.)*
+            std::clamp(1-std::abs(db-10)/6.,0.,1.);
         const auto ratioResidual=[&](int harmonic) {
             const auto& table=ratioToneResiduals[compRatio-1];
             const auto interpolate=[&](int threshold) {
                 return std::lerp(table[threshold][ratioLevel.lower][harmonic],
                                  table[threshold][ratioLevel.lower+1][harmonic],ratioLevel.fraction);
             };
-            return std::lerp(interpolate(ratioThreshold.lower),
-                             interpolate(ratioThreshold.lower+1),ratioThreshold.fraction);
+            const auto residual=std::lerp(interpolate(ratioThreshold.lower),
+                                          interpolate(ratioThreshold.lower+1),ratioThreshold.fraction);
+            return harmonic<2 ? residual : residual*std::lerp(1.,timingRefit[compRatio-1],benchWeight);
         };
         const auto fetch=[&](int group,Axis level,int at) {
             const auto& low=spectralResiduals[group][fr.lower];

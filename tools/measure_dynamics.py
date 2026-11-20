@@ -12,7 +12,7 @@ import numpy as np
 from measure import CIRCUIT
 
 
-def simulate(settings, stop, signals, step=None):
+def simulate(settings, stop, signals, step=None, *, burst_ms=800):
     deck = (CIRCUIT / '609.cir').read_text().rsplit('.end', 1)[0]
     for key, value in settings.items():
         deck, count = re.subn(r'(?<=\s)' + key + r'=[^\s{}]+(?=\s)', f'{key}={value}', deck, count=1)
@@ -21,15 +21,20 @@ def simulate(settings, stop, signals, step=None):
     deck = re.sub(r'(?m)^\.include (\S+)', lambda m: f'.include "{CIRCUIT / m[1]}"', deck)
     if step:
         low, high = step
-        source = f'BINPUT SL 0 V=sin(2*pi*1000*time)*({low}+({high-low})*(u(time-0.45)-u(time-1.25)))'
+        off = (450 + burst_ms) / 1000
+        source = f'BINPUT SL 0 V=sin(2*pi*1000*time)*({low}+({high-low})*(u(time-0.45)-u(time-{off})))'
         deck = re.sub(r'(?m)^VINL .*$', source, deck)
 
+    nodes = {node for group in re.findall(r'v\(([^)]+)\)', signals) for node in group.split(',')}
+    saved = ' '.join(f'v({node})' for node in sorted(nodes))
     with tempfile.TemporaryDirectory() as temporary:
         work = Path(temporary)
         fixture = deck + f'''
 .options method=gear reltol=0.002
+.save {saved}
 .control
 set wr_singlescale
+set numdgt=12
 tran 10u {stop} {0 if step else stop-0.11} 10u
 wrdata trace.dat {signals}
 quit
@@ -39,8 +44,8 @@ quit
         (work / 'deck.cir').write_text(fixture)
         run = subprocess.run(['ngspice', '-b', 'deck.cir'], cwd=work,
                              capture_output=True, text=True, timeout=600)
-        if run.returncode or 'aborted' in run.stdout + run.stderr:
-            raise RuntimeError((run.stdout + run.stderr)[-2000:])
+        if run.returncode or 'aborted' in run.stdout + run.stderr or not (work / 'trace.dat').is_file():
+            raise RuntimeError(f'ngspice exit {run.returncode}: {run.stderr[-2000:]}\n{run.stdout[-500:]}')
         trace = np.loadtxt(work / 'trace.dat')
         if trace[-1, 0] < stop-0.001:
             raise RuntimeError('Incomplete transient')

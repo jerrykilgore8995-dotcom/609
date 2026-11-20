@@ -2,7 +2,7 @@ name: 609 dynamics measurements
 on:
   workflow_dispatch:
   push:
-    paths: ['.github/workflows/measure-dynamics.yml', 'tools/measure_dynamics.py', 'circuit/**']
+    paths: ['.github/workflows/measure-dynamics.yml', 'tools/measure_dynamics.py', 'tools/jd_timing.py', 'circuit/**']
 jobs:
   measure:
     runs-on: ubuntu-latest
@@ -29,3 +29,29 @@ jobs:
         with:
           name: dynamics-${{ matrix.mode }}-${{ matrix.pos }}-${{ matrix.fast }}
           path: result.json
+  jd-timing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {mode: comp, attack: 0}
+          - {mode: comp, attack: 1}
+          - {mode: comp, attack: 2}
+          - {mode: limit, attack: 0}
+          - {mode: limit, attack: 1}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ngspice
+          python -m pip install numpy
+      - run: python tools/jd_timing.py --mode ${{ matrix.mode }} --attack ${{ matrix.attack }} --bus --output jd-spice.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jd-spice-${{ matrix.mode }}-${{ matrix.attack }}
+          path: jd-spice.json
