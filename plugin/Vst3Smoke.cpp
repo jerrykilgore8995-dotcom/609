@@ -430,14 +430,20 @@ int main(int argc,char** argv) {
             std::array<mkii::native::Solver,2> lanes{mkii::native::Solver(0),mkii::native::Solver(1)};
             for (int ch=0;ch<layout.size();++ch) {
                 auto& lane=lanes[ch];
-                if (!lane.prepare(rate) || !lane.usesGeneratedSolve() || !lane.usesGeneratedResidual()) return 9;
+                if (!lane.prepare(rate*2) || !lane.usesGeneratedSolve() || !lane.usesGeneratedResidual()) return 9;
             }
             auto expected=input;
+            mkii::native::Solver::Frame previousSource{};
             for (int frame=0;frame<input.getNumSamples();++frame) {
                 const mkii::native::Solver::Frame source{
                     input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0};
-                for (int ch=0;ch<layout.size();++ch)
+                const mkii::native::Solver::Frame midpoint{
+                    .5*(previousSource[0]+source[0]),.5*(previousSource[1]+source[1])};
+                for (int ch=0;ch<layout.size();++ch) {
+                    lanes[ch].step(midpoint,settings);
                     expected.setSample(ch,frame,static_cast<float>(lanes[ch].step(source,settings)[ch]));
+                }
+                previousSource=source;
             }
             const auto failures=lanes[0].failures()+lanes[1].failures();
             if (failures) {
