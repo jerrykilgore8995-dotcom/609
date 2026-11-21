@@ -33,6 +33,14 @@ jobs:
             cat "diagnostic/stage-$freq.txt"
             cat "diagnostic/stage-$freq.stderr"
           done
+          for rate in 96000 192000; do
+            for freq in 1000 20000; do
+              echo "BEGIN RATE $rate FREQ $freq"
+              /tmp/stage-hf-probe "$freq" "$rate" 4 > "diagnostic/stage-$rate-$freq.txt" 2> "diagnostic/stage-$rate-$freq.stderr"
+              cat "diagnostic/stage-$rate-$freq.txt"
+              cat "diagnostic/stage-$rate-$freq.stderr"
+            done
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
