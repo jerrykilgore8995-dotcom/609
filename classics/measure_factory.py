@@ -12,8 +12,9 @@ from spice_response import BANDS
 RATE = 44100
 
 
-def tone(executable, mode, frequency, level, *, rate=RATE, threshold=11, recovery=1, makeup=1):
-    burst = 2.5 if mode != 2 else .8
+def tone(executable, mode, frequency, level, *, rate=RATE, threshold=11, recovery=1, makeup=1, burst=None):
+    if burst is None:
+        burst = 2.5 if mode != 2 else .8
     compress, limit = int(mode == 0), int(mode == 1)
     args = (limit, 5, recovery, threshold, 0, level - 20, level, burst, .08, frequency,
             compress, limit, makeup, rate)
@@ -71,7 +72,7 @@ def measure(model, executable, rate):
     reference_output = 9 if limit else 8
     through = target_output(executable, 2, reference_output, rate=rate)
     compressor = target_output(executable, 0, reference_output, recovery=3 if limit else 2,
-                               rate=rate, threshold=11 if limit else 15, makeup=5 if limit else 1)
+                               rate=rate, threshold=11 if limit else 15, makeup=6 if limit else 1)
     limiter = tone(executable, 1, 1000, 20, threshold=1, recovery=4 if limit else 3, rate=rate)
     mode_results = {"through": through, "compressor": compressor, "limiter": limiter}
     spec = (.05, .2, .4) if limit else (.08, .2, None)
@@ -89,14 +90,29 @@ def measure(model, executable, rate):
         print(f"{model} through {row['frequency_hz']:5d} Hz | {row['relative_dB']:+.3f} dB"
               f" | phase {row['phase_deg']:+.2f} deg | {row['failures']} fails", flush=True)
     audit = {"model": model, "rate": rate, "load_ohms": 600, "response": bands, "modes": mode_results}
-    if model == 2254:
-        thresholds = []
-        for position in range(1, 18):
-            point = tone(executable, 1, 1000, 20, threshold=position, recovery=3, rate=rate)
-            target = 4 + .5 * (position - 1)
-            thresholds.append({"detent_dBu": target, "output_dBu": point["output_dBu"],
-                               "failures": point["failures"]})
-        audit["limiter_thresholds"] = thresholds
+    thresholds = []
+    for position in range(1, 24 if limit else 18):
+        point = (limiter if limit and position == 1 else
+                 tone(executable, 1, 1000, 20, threshold=position, recovery=4 if limit else 3,
+                      rate=rate, burst=.75 if limit else None))
+        target = 4 + .5 * (position - 1)
+        thresholds.append({"detent_dBu": target, "output_dBu": point["output_dBu"],
+                           "failures": point["failures"]})
+    audit["limiter_thresholds"] = thresholds
+    if limit:
+        errors = [abs(p["output_dBu"] - p["detent_dBu"]) for p in thresholds]
+        max_error = max(errors)
+        max_response = max(abs(p["relative_dB"]) for p in bands)
+        ok = (all(p["failures"] == 0 for p in bands + thresholds)
+              and all(p["passes_thd_limit"] for p in mode_results.values())
+              and max_response <= 1 and max_error <= .25)
+        audit["release_checks"] = {
+            "max_abs_response_dB": max_response,
+            "max_abs_limiter_detent_error_dB": max_error,
+            "passed": ok,
+        }
+        print(f"Factory checks | response {max_response:.3f} dB | limiter detent error {max_error:.3f} dB"
+              f" | passed: {ok}", flush=True)
     return audit
 
 
@@ -109,7 +125,7 @@ def main():
     parser.add_argument("--spice-reference", type=Path)
     args = parser.parse_args()
     document = measure(args.model, args.executable.resolve(), args.rate)
-    passed = True
+    passed = document.get("release_checks", {}).get("passed", True)
     if args.spice_reference:
         reference = json.loads(args.spice_reference.read_text())["response"]
         for point, target in zip(document["response"], reference, strict=True):
@@ -121,11 +137,12 @@ def main():
             point["error_phase_deg"] = (point["phase_deg"] - target["phase_deg"] + 180) % 360 - 180
         amplitude_error = max(abs(p["error_dB"]) for p in document["response"])
         phase_error = max(abs(p["error_phase_deg"]) for p in document["response"])
-        passed = amplitude_error <= .65 and phase_error <= 10
-        passed &= all(p["failures"] == 0 for p in document["response"])
+        parity_passed = (amplitude_error <= .65 and phase_error <= 10
+                         and all(p["failures"] == 0 for p in document["response"]))
+        passed &= parity_passed
         document["spice_parity"] = {"max_error_dB": amplitude_error,
-                                    "max_error_deg": phase_error, "passed": passed}
-        print(f"SPICE parity | {amplitude_error:.3f} dB | {phase_error:.2f} deg | passed: {passed}")
+                                    "max_error_deg": phase_error, "passed": parity_passed}
+        print(f"SPICE parity | {amplitude_error:.3f} dB | {phase_error:.2f} deg | passed: {parity_passed}")
     args.output.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     return 0 if passed else 1
 

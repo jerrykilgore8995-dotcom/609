@@ -8,6 +8,9 @@
 .model BD123 NPN(IS=55f BF=75 NF=1 VAF=60 IKF=.8 BR=4 RB=6 RC=.18 RE=.08 CJE=180p CJC=60p TF=11n TR=300n)
 .model BAX16 D(IS=2.4n N=1.74 RS=.6 CJO=4p VJ=.74 M=.4 TT=4n BV=75 IBV=.1u)
 .model HBX31 D(IS=8n N=1.95 RS=1.1 CJO=3p VJ=.73 M=.39 TT=4n BV=60 IBV=.1u)
-.model BAX52 D(IS=8n N=1.85 RS=.8 CJO=4p VJ=.74 M=.4 TT=4n BV=60 IBV=.1u)
+* BA337 matched bridge: effective IS fitted at +9 dBu loaded output.
+.model BAX52 D(IS=5.2n N=1.85 RS=.8 CJO=4p VJ=.74 M=.4 TT=4n BV=60 IBV=.1u)
 .model HS2027 D(IS=1.2n N=1.52 RS=15 CJO=290p VJ=.64 M=.34 BV=2.7 IBV=5m)
 .model E413 NJF(VTO=-2 BETA=.001 IS=1p LAMBDA=.01 RD=18 RS=18 CGS=4p CGD=4p PB=1 FC=.5)
+* BA337 TR6: high-gain sample of the BC184C grade for the limiter rectifier.
+.model QBC184C_RECTIFIER NPN(IS=7f BF=720 NF=1 VAF=75 IKF=0.11 ISE=18f NE=1.55 BR=6 VAR=20 CJE=11p VJE=.7 MJE=.33 CJC=4p VJC=.6 MJC=.33 TF=.45n TR=50n RB=45 RC=.8 RE=.2)

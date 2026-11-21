@@ -24,13 +24,15 @@ KPL LP LSL .999755
 KSS LSH LSL .999756
 .ends L31267_CT
 
-* 10468: series windings, from CJ 32 H / 125.6 H and 6 mH shorted.
+* 2264 10468 series equivalent: CJ measured 32 H / 125.6 H open
+* and 17.6 mH with the primary shorted. Reflect the secondary test
+* through the measured inductance ratio for this loaded audio path.
 .subckt L10468 P N S T
 RP P PP 47.7
 LP PP N 32
 RS S SS 275.5
 LS SS T 125.6
-KPS LP LS .999906245605
+KPS LP LS 0.999929935045451
 CP P N 106p
 CS S T 142p
 * CJ measured about 110 pF between the two winding groups. Distribute
@@ -78,14 +80,15 @@ LS SS T 1.93
 KPS LP LS .9997
 .ends LO1166
 
-* LO1173: VTB9056 family DCR, nominal +8 dB rated voltage gain.
-* Magnetizing inductance, leakage and capacitances are equivalent-model values.
+* 2264 LO1173 equivalent. Primary-referred effective leakage is 40 uH.
+* 3.5/23 ohm DCR and the reactive values are provisional, fitted for the
+* BA440A drive, 1.2k board shunt and external 600-ohm termination.
 .subckt LO1173 P N S T
-RP P PP 3
+RP P PP 3.5
 LP PP N 2.2
-RS S SS 30
+RS S SS 23
 LS SS T 15.57
-KPS LP LS .9999
+KPS LP LS 0.9999909090495864
 CP P N 110p
 CS S T 180p
 .ends LO1173
