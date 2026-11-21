@@ -1,0 +1,42 @@
+name: 609 transformer and Zobel contribution diagnostic
+on:
+  push:
+    branches: [609-stage-hf-diagnostic]
+    paths: ['.github/workflows/609-stage-sensitivity.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  isolate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Non-destructive transformer and Zobel stage probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p sensitivity-results
+          for model in baseline no-zobel no-T2-winding-cap ideal-T2-coupling no-T1-winding-cap ideal-T1-coupling; do
+            echo "COMPILING $model test-only deck"
+            python native/StageSensitivity.py build/deck/Deck.hpp "build/variant/$model/Deck.hpp" "$model"
+            g++ -O3 -std=c++20 -I"build/variant/$model" -Inative native/StageHFProbe.cpp -o "/tmp/probe-$model"
+            for freq in 1000 20000; do
+              "/tmp/probe-$model" "$freq" 44100 4 > "sensitivity-results/$model-$freq.txt" 2> "sensitivity-results/$model-$freq.err"
+              echo "RESULT $model $freq Hz"
+              cat "sensitivity-results/$model-$freq.txt"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-T2-T1-zobel-isolation
+          path: sensitivity-results/
+          if-no-files-found: warn
