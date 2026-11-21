@@ -1,0 +1,44 @@
+name: 2264 full-band nodal verification
+on:
+  push:
+    branches: [classic-2254-2264]
+    paths: ['.github/workflows/2264-fullband.yml','classics/Bench.cpp','classics/measure_fullband.py']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fullband:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Classic-SPICE-operating-points
+          path: decks
+          github-token: ${{ github.token }}
+          run-id: '44869934887'
+      - name: Build 2264 nodal measurement executable
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path decks).Path
+          cmake -S classics -B build -A x64 "-DDECK_DIR=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build --config Release --target Bench2264 --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure 20 Hz to 20 kHz in all operating modes
+        shell: pwsh
+        run: |
+          python -m pip install numpy
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          python classics/measure_fullband.py build/Release/Bench2264.exe
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 2264-fullband-phase-thd-report
+          path: 2264-fullband-report.json
+          if-no-files-found: warn
