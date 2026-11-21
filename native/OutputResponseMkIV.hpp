@@ -26,9 +26,11 @@ class OutputResponseMkIV {
   };
   std::array<std::array<Section,2>,5> paths{};
   double squared=0,follow=0;
+  bool calibratedRate=false;
 public:
   void prepare(double rate) {
     squared=0;
+    calibratedRate=std::abs(rate-44100.)<1.;
     follow=1-std::exp(-1/(std::max(1.,rate)*.035));
     for(int i=0;i<5;++i) for(int j=0;j<2;++j) {
       const auto& p=coefficients[i][j];
@@ -36,6 +38,7 @@ public:
     }
   }
   double process(double input,double wet,const Controls& c,int lane) {
+    if(!calibratedRate) return wet;
     squared+=follow*(input*input-squared);
     const double dbu=24+20*std::log10(std::max(1.e-8,std::sqrt(2*squared)));
     double y[5];
