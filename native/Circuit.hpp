@@ -276,7 +276,10 @@ public:
     unsigned refinedSamples() const { return subdivisions; }
     double rawOutput() const { return v(deck.output[0])-v(deck.output[1]); }
     // Standalone diagnostic only; not included in packaged plugin DSP.
-    double diagnosticNode(int nodeIndex) const {return v(nodeIndex);}
+    double diagnosticNode(int originalIndex) const {
+        const int index=lane<0?originalIndex:diagnosticMap.at(static_cast<std::size_t>(originalIndex));
+        return index==unusedNode?0.0:v(index);
+    }
 
 
 private:
@@ -292,6 +295,7 @@ private:
             bias.push_back(deck.bias[n]);
             if (n<originalNodes) ++deck.nodes;
         }
+        diagnosticMap=map;
         const auto node=[&](int n) {return n<0 ? n : map[n];};
         const auto remap=[&](auto& part,auto... member) {
             const bool here=(((part.*member)>=0 && node(part.*member)!=unusedNode)||...);
@@ -948,6 +952,7 @@ private:
     double peerLinkVoltage=0;
     bool partitionValid=true;
     Circuit deck;
+    std::vector<int> diagnosticMap;
     std::vector<Term> terms;
     struct KnownTerm {int row,column;double g;};
     struct LinearRow {int row,begin,end;};
