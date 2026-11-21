@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.22)
+project(Nodal550AEditor LANGUAGES C CXX)
+add_subdirectory(../../550a 550a)
+add_executable(Snapshot550A Snapshot.cpp)
+target_compile_features(Snapshot550A PRIVATE cxx_std_20)
+target_compile_definitions(Snapshot550A PRIVATE NOMINMAX JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(Snapshot550A PRIVATE Nodal550A juce::juce_audio_processors)

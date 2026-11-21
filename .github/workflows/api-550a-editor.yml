@@ -1,0 +1,37 @@
+name: 550A Windows editor capture
+on:
+  push:
+    branches: [api-550a-nodal]
+    paths: ["tools/api550a-editor/**", ".github/workflows/api-550a-editor.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  capture:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 550A-SPICE-reference
+          run-id: 44881793355
+          github-token: ${{ github.token }}
+          path: decks
+      - name: Render the plugin editor
+        shell: pwsh
+        run: |
+          $deck = (Resolve-Path decks).Path
+          cmake -S tools/api550a-editor -B build -A x64 "-DDECK_DIR=$deck"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --target Snapshot550A --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build/Release/Snapshot550A.exe 550a-faceplate.png
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 550A-Faceplate
+          path: 550a-faceplate.png
+          if-no-files-found: error
