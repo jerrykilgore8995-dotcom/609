@@ -68,8 +68,16 @@ public:
     void processBlockBypassed(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {process(audio,true);}
     void getStateInformation(juce::MemoryBlock& data) override {copyXmlToBinary(*state.copyState().createXml(),data);}
     void setStateInformation(const void* data,int size) override {
-        if (auto xml=getXmlFromBinary(data,size);xml && xml->hasTagName(state.state.getType()))
-            state.replaceState(juce::ValueTree::fromXml(*xml));
+        if (auto xml=getXmlFromBinary(data,size);xml && xml->hasTagName(state.state.getType())) {
+            auto saved=juce::ValueTree::fromXml(*xml);
+            if (!saved.getChildWithProperty("id","comp_attack").isValid()) {
+                juce::ValueTree attack("PARAM");
+                attack.setProperty("id","comp_attack",nullptr);
+                attack.setProperty("value",0,nullptr);
+                saved.appendChild(attack,nullptr);
+            }
+            state.replaceState(saved);
+        }
     }
     juce::AudioProcessorValueTreeState state;
     std::array<std::atomic<float>,2> meters{};
@@ -87,7 +95,7 @@ private:
         for (int i=0;i<6;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{modes[i],1},modeTitles[i],i==0 || i==2 || i==4));
         layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"noise",1},"PSU Noise",false));
-        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"comp_attack",1},"Compressor Attack",juce::StringArray{"FAST","MED","SLOW"},1));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"comp_attack",1},"Compressor Attack",juce::StringArray{"JD (3 ms)","7.5 ms","15 ms"},0));
         return layout;
     }
     void process(juce::AudioBuffer<float>& audio,bool dry) {
@@ -214,9 +222,9 @@ public:
             label(g,"COMPRESS "+String(ch+1),445,y+83,154,15,11);
         }
         label(g,"COMP ATTACK L/R",580,238,120,20,10);
-        label(g,"SLOW",732,230,42,10,9);
-        label(g,"MED",732,244,42,10,9);
-        label(g,"FAST",732,258,42,10,9);
+        label(g,"15 ms",732,230,55,10,9);
+        label(g,"7.5 ms",732,244,55,10,9);
+        label(g,"JD 3 ms",732,258,55,10,9);
         meter(g,792,26,displayedReduction[0],1);
         meter(g,914,88,displayedReduction[1],2);
         g.setColour(juce::Colour(0xfff1f3f5));

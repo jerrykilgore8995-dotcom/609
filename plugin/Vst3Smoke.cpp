@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../native/Realtime.hpp"
+#include "../native/DynamicsProbe.hpp"
 #include "../native/PlaybackClock.hpp"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <complex>
 #include <iostream>
+#include <iomanip>
 #include <cmath>
 #include <numbers>
 #include <string_view>
@@ -24,6 +26,41 @@ bool setControl(juce::AudioProcessor& plugin,const juce::String& name,float valu
     }
     std::cerr<<"VST3 parameter not found: "<<name<<'\n';
     return false;
+}
+
+bool traceDynamics(juce::AudioProcessor& plugin, const mkii::native::DynamicsProbe& probe) {
+    const auto positions = probe.controls();
+    if (!setControl(plugin, "Channel 1 Compress Threshold", (positions[0]-1)/15.f) ||
+        !setControl(plugin, "Channel 1 Compress Ratio", (positions[1]-1)/4.f) ||
+        !setControl(plugin, "Channel 1 Compress Recovery", (positions[2]-1)/5.f) ||
+        !setControl(plugin, "Channel 1 Limit Threshold", (positions[4]-1)/22.f) ||
+        !setControl(plugin, "Channel 1 Limit Recovery", (positions[5]-1)/5.f) ||
+        !setControl(plugin, "Channel 1 Compress In", float(positions[6])) ||
+        !setControl(plugin, "Channel 1 Limit In", float(positions[7])) ||
+        !setControl(plugin, "Channel 1 Fast Attack", float(positions[8])) ||
+        !setControl(plugin, "Compressor Attack", probe.limiter ? 0.0f : probe.attack/2.f)) return false;
+    juce::AudioProcessor::BusesLayout stereo;
+    stereo.inputBuses.add(juce::AudioChannelSet::stereo());
+    stereo.outputBuses.add(juce::AudioChannelSet::stereo());
+    if (!plugin.setBusesLayout(stereo)) return false;
+
+    constexpr int block=512;
+    plugin.setNonRealtime(true);
+    plugin.prepareToPlay(probe.rate,block);
+    juce::AudioBuffer<float> audio(2,block);
+    juce::MidiBuffer midi;
+    const int frames=int(std::ceil(probe.stop*probe.rate))+1;
+    std::cout << std::setprecision(12);
+    for (int offset=0;offset<frames;offset+=block) {
+        audio.clear();
+        for (int n=0;n<block;++n)
+            audio.setSample(0,n,float(probe.input(double(offset+n)/probe.rate)));
+        plugin.processBlock(audio,midi);
+        for (int n=0;n<std::min(block,frames-offset);++n)
+            std::cout << double(offset+n)/probe.rate << ' ' << audio.getSample(0,n) << '\n';
+    }
+    plugin.releaseResources();
+    return true;
 }
 
 bool checkSupplyNoise(juce::AudioProcessor& plugin) {
@@ -203,7 +240,8 @@ bool checkLimiterEven(juce::AudioProcessor& plugin) {
 int main(int argc,char** argv) {
     std::cerr<<std::unitbuf;
     const bool offline=argc==3 && std::string_view(argv[2])=="--offline";
-    if (argc!=2 && !offline) {
+    const bool dynamics=argc==11 && std::string_view(argv[2])=="--jd-timing";
+    if (argc!=2 && !offline && !dynamics) {
         std::cerr<<"Expected one VST3 bundle argument\n";
         return 2;
     }
@@ -226,6 +264,15 @@ int main(int argc,char** argv) {
     if (!vst) {
         std::cerr<<error<<'\n';
         return 4;
+    }
+    if (dynamics) {
+        for (const auto* parameter : vst->getParameters()) {
+            if (parameter->getName(100) == "Compressor Attack" && parameter->getValue() != 0.f) {
+                std::cerr << "The VST3 did not default to the JD attack detent\n";
+                return 16;
+            }
+        }
+        return traceDynamics(*vst, mkii::native::DynamicsProbe(argv+3)) ? 0 : 17;
     }
     {
         std::cerr<<"Rendering the editor\n";

@@ -49,11 +49,10 @@ public:
         transientQuick=-std::expm1(-1/(rate*.00175));
         transientSlow=-std::expm1(-1/(rate*.026));
         initialized=false;
-        for (auto& ch:channels) ch.charge=.582;
         control(defaults);
     }
 
-    void control(const Controls& controls, int attackMode=1) {
+    void control(const Controls& controls, int attackMode=0) {
         if (initialized && controls==previousControls && attackMode==previousAttackMode) return;
         initialized=true;
         previousControls=controls;
@@ -79,18 +78,24 @@ public:
             ch.makeupDb=ch.compress?measured::makeup[cg]:0;
             const auto& compressor=measured::compressor[cr][ct];
             ch.limiter=measured::limiter[fast][lt];
-            constexpr std::array compRelease{.190,.744,1.480,2.785,.35,.69};
-            constexpr std::array limRelease{.022,.047,.0965,.396,.25,.44};
-            ch.voltRelease=1/(rate*compRelease[cm]);
-            ch.autoRelease=cm>=4;
-            ch.chargeDeco=1/(rate*(cm==4?1.28:2.55));
-            ch.attack=1/(rate*pulseAttack);
-            ch.attackSpeed=1.;
-            ch.fixedAttack=-std::expm1(-1/(rate*(attackMode==0?.003:attackMode==2?.015:.0075)));
+            // The compressor RC constants are in control volts. The bridge
+            // converts them to the shorter front-panel recovery times in dB.
+            constexpr std::array compRelease{.182,.596,1.102,1.958};
+            constexpr std::array compAuto{.090,.046};
+            constexpr std::array limRelease{.022,.047,.0965,.396,.085,.036};
+            constexpr std::array compAttack{.003,.0075,.015};
+            constexpr std::array compTail{2.,5.};
+            // The limiter is measured in output dB. The live feedback loop
+            // settles the output earlier than its timing capacitor settles.
+            constexpr std::array limiterGainTail{.33,1.80};
             std::copy_n(compressor,ch.staticReduction.size(),ch.staticReduction.begin());
-            ch.autoFast=-std::expm1(-1/(rate*(cm==4?.100:.050)));
-            ch.autoSlow=-std::expm1(-1/(rate*(cm==4?2.0:5.0)));
-            ch.memoryRise=-std::expm1(-1/(rate*.19));
+            const double attackSeconds=compAttack[std::clamp(attackMode,0,2)];
+            ch.fixedAttack=-std::expm1(-1/(rate*attackSeconds));
+            if (cm>=4 && !ch.autoRelease) ch.comp.memory=voltsForGain(ch.compSmooth)-states.front();
+            ch.autoRelease=cm>=4;
+            ch.voltRelease=1/(rate*compRelease[std::min(cm,3)]);
+            ch.attack=1/(rate*pulseAttack);
+            if (ch.autoRelease) ch.comp.setup(rate,attackSeconds,compAuto[cm-4],compTail[cm-4],cm==4?.80:.91);
             for (std::size_t k=0;k<ch.chargeCurve.size();++k) {
                 const double reduction=std::max(0.0f,compressor[k]);
                 const auto voltage=voltsForGain(reduction);
@@ -114,7 +119,8 @@ public:
                 ch.chargeCurve[k][0]=std::max(ch.chargeCurve[k][0],ch.chargeCurve[k-1][0]+1e-6);
                 ch.chargeCurve[k][1]=std::max(ch.chargeCurve[k][1],ch.chargeCurve[k-1][1]);
             }
-            ch.lim.setup(rate,fast?.00065:.00142,limRelease[lr],lr>=4?(lr==4?.88:1.29):0);
+            ch.lim.setup(rate,fast?.00065:.00142,limRelease[lr],
+                         lr>=4?limiterGainTail[lr-4]:0.,lr==4?.60:.78);
         }
     }
 
@@ -139,12 +145,10 @@ public:
             const double level=24+20*std::log10(std::max(amplitude,1e-6));
             const auto squared=x*x;
             ch.limPower+=limitAverage*(squared-ch.limPower);
-            ch.slowPower+=slowAverage*(squared-ch.slowPower);
             const auto rms=[](double power){return 24+10*std::log10(std::max(2*power,1e-12));};
-            measured::Point l{};
+            ch.slowPower+=slowAverage*(squared-ch.slowPower);
             const auto crest=std::clamp(level-rms(ch.slowPower),0.,12.);
-            // The C12/Q2 and C7/Q5 detector stages are sensitive to the low-band
-            // envelope and the signed peak history before the C13 charging path.
+            measured::Point l{};
             ch.lowAudio+=detectorLow*(x-ch.lowAudio);
             ch.lowPower+=transientQuick*(ch.lowAudio*ch.lowAudio-ch.lowPower);
             ch.transientPower+=transientQuick*(squared-ch.transientPower);
@@ -172,48 +176,28 @@ public:
                 auto [threshold,width]=pulseThreshold(ch.chargeCurve,ch.charge);
                 pulse=std::clamp((detector-threshold)/std::max(width,1e-7),0.,1.);
             }
-            const double baseline=ch.autoRelease?std::max(.582,ch.tailCharge):.582;
-            ch.charge+= (pulse>0 && (pulse*(24-ch.charge)*ch.attack*pulseScale*std::max(.2,1-.15925579*transient+0.0523322195*weight*bias)>(ch.charge-baseline)*ch.voltRelease) ? ch.attackSpeed : 1.) * (pulse*(24-ch.charge)*ch.attack*pulseScale*std::max(.2,1-.15925579*transient+0.0523322195*weight*bias)-(ch.charge-baseline)*ch.voltRelease);
-            ch.charge=std::clamp(ch.charge,.582,18.);
-            if (ch.autoRelease) {
-                const double target=.582+.61*(ch.charge-.582);
-                ch.tailCharge+=(target-ch.tailCharge)*(target>ch.tailCharge?1/(rate*.19):ch.chargeDeco);
-            } else ch.tailCharge=.582;
-            const auto desired=ch.compress?gainForVolts(ch.charge):0.0;
+            const double current=pulse*(24-ch.charge)*ch.attack*pulseScale*
+                std::max(.2,1-.15925579*transient+0.0523322195*weight*bias);
+            ch.charge=std::clamp(ch.charge+current-(ch.charge-.582)*ch.voltRelease,.582,18.);
             const double relative=level-ch.ct;
             const auto& axis=measured::compLevels;
             const auto& curve=ch.staticReduction;
-            auto upper=std::upper_bound(std::begin(axis),std::end(axis),relative);
-            std::size_t k=std::clamp<std::size_t>(upper-std::begin(axis),1,curve.size()-1);
-            const double fraction=std::clamp((relative-axis[k-1])/(axis[k]-axis[k-1]),0.,2.);
-            const double attackTarget=ch.compress?std::max(0.,std::lerp(double(curve[k-1]),double(curve[k]),fraction)):0.;
-            const bool rising=attackTarget>ch.compSmooth;
-            const double attackStep=ch.fixedAttack*(attackTarget-ch.compSmooth);
-            if (ch.autoRelease) {
-                // Detect the end of the driven burst separately from the old
-                // capacitor tail; recover in dB with two independent poles.
-                const double target=ch.compress?desired:0.;
-                const bool driven=pulse>0.0001;
-                ch.recoveryHold=driven?int(rate*.003):std::max(0,ch.recoveryHold-1);
-                if (rising) {
-                    ch.compSmooth+=attackStep;
-                    ch.fastEnvelope=ch.slowEnvelope=ch.compSmooth;
-                    ch.programMemory+=(1-ch.programMemory)*ch.memoryRise;
-                    ch.releaseWeight=std::clamp(.10+.65*ch.programMemory,.10,.75);
-                } else if (ch.recoveryHold>0) {
-                    ch.compSmooth+=pulseFollow*(std::min(target,ch.compSmooth)-ch.compSmooth);
-                    ch.fastEnvelope=ch.slowEnvelope=ch.compSmooth;
-                } else {
-                    ch.fastEnvelope*=1-ch.autoFast;
-                    ch.slowEnvelope*=1-ch.autoSlow;
-                    ch.compSmooth=std::lerp(ch.fastEnvelope,ch.slowEnvelope,ch.releaseWeight);
-                    ch.programMemory*=1-ch.autoSlow;
-                }
-            } else {
-                ch.compSmooth+=rising?attackStep:pulseFollow*(std::min(desired,ch.compSmooth)-ch.compSmooth);
-                ch.fastEnvelope=ch.slowEnvelope=ch.compSmooth;
+            double wanted=0.;
+            if (ch.compress) {
+                const auto upper=std::upper_bound(std::begin(axis),std::end(axis),relative);
+                const auto k=std::clamp<std::size_t>(upper-std::begin(axis),1,curve.size()-1);
+                const double fraction=std::clamp((relative-axis[k-1])/(axis[k]-axis[k-1]),0.,2.);
+                wanted=std::max(0.,std::lerp(double(curve[k-1]),double(curve[k]),fraction));
             }
-            const auto comp=ch.compSmooth;
+            if (ch.autoRelease) {
+                ch.comp.gain=ch.compSmooth;
+                ch.compSmooth=ch.comp.update(wanted,true);
+            } else {
+                const double physical=ch.compress?gainForVolts(ch.charge):0.;
+                if (wanted>ch.compSmooth) ch.compSmooth+=ch.fixedAttack*(wanted-ch.compSmooth);
+                else ch.compSmooth+=pulseFollow*(std::min(physical,ch.compSmooth)-ch.compSmooth);
+            }
+            const double comp=ch.compSmooth;
             if (ch.limit) {
                 // Blend the peak and smoothed detector depending on bass content.
                 const double sensitivity=(-.57770876)*lowFraction*(std::clamp(ch.period*2/rate,.001,.028)-.001)*100;
@@ -221,7 +205,6 @@ public:
                 l=lookup(ch.limiter,measured::limitLevels,term+.01444734+ch.makeupDb-ch.lt+sensitivity-.27890904*transient);
             }
             const double limit=ch.lim.update(ch.limit?std::max(0.f,l.reduction):0);
-            ch.limiterReduction=limit;
             compressor[i]=comp;
             limiter[i]=limit;
             compressEnabled[i]=ch.compress;
@@ -261,7 +244,7 @@ public:
             ch.previous=audio[i];
             const double drive=wet+harmonics-ch.harmonicMemory;
             double evenCorrection=0;
-            const double correction=ch.spectral.step(audio[i],drive,ch.compSmooth,ch.limiterReduction,ch.compress,ch.limit,
+            const double correction=ch.spectral.step(audio[i],drive,compressor[i],limiter[i],ch.compress,ch.limit,
                 !linked || std::abs(limiter[0]-limiter[1])<.15,evenCorrection);
             const auto correctedWet=highFrequency.apply(wet,ch.highFrequencyHistory);
             double output=drive+correction+(correctedWet-wet);
@@ -404,34 +387,45 @@ private:
     }
 
     struct Ballistics {
-        double gain=0,memory=0,rise=0,fall=0,tailRise=0,tailFall=0;
-        void setup(double rate,double attack,double recovery,double automatic) {
+        double gain=0, memory=0, rise=0, fall=0, memoryRise=0, memoryFall=0, coupling=0;
+        void setup(double rate,double attack,double recovery,double tail,double weight) {
             const auto coefficient=[rate](double seconds) {return -std::expm1(-1/(rate*seconds));};
             rise=coefficient(attack);
             fall=coefficient(recovery);
-            tailRise=coefficient(.22);
-            tailFall=automatic>0?coefficient(automatic):1;
+            memoryRise=coefficient(.24);
+            memoryFall=tail>0?coefficient(tail):1.;
+            coupling=tail>0?weight:0.;
+            if (coupling==0.) memory=0.;
         }
-        double update(double wanted) {
-            if (tailFall<1) {
-                memory+=(wanted-memory)*(wanted>memory?tailRise:tailFall);
-                wanted=std::max(wanted,.72*memory);
+        double update(double wanted,bool voltageMemory=false) {
+            if (coupling>0. && !voltageMemory)
+                memory+=(wanted-memory)*(wanted>memory?memoryRise:memoryFall);
+            if (wanted>=gain) {
+                gain+=rise*(wanted-gain);
+                if (coupling>0. && voltageMemory)
+                    memory+=memoryRise*(voltsForGain(gain)-states.front()-memory);
+            } else if (coupling>0.) {
+                // The second capacitor holds up the main envelope during
+                // recovery. Compressor memory uses the measured bridge law
+                // to convert between capacitor voltage and attenuation.
+                const double target=voltageMemory?voltsForGain(wanted)-states.front():wanted;
+                if (voltageMemory) memory+=memoryFall*(target-memory);
+                const double held=target+coupling*std::max(0.,memory-target);
+                const double floor=voltageMemory?gainForVolts(held+states.front()):held;
+                gain+=fall*(std::min(floor,gain)-gain);
+            } else {
+                gain+=fall*(wanted-gain);
             }
-            gain+=(wanted-gain)*(wanted>gain?rise:fall);
             return gain;
         }
     };
 
     struct Channel {
-        Ballistics lim;
+        Ballistics comp,lim;
         SpectralCorrection spectral;
-        double limiterReduction=0;
-        std::array<std::array<double,3>,14> chargeCurve{};
         std::array<float,14> staticReduction{};
-        double fixedAttack=0;
-        double attackSpeed=1.,autoFast=0,autoSlow=0,memoryRise=0,fastEnvelope=0,slowEnvelope=0,programMemory=0,releaseWeight=.1;
-        int recoveryHold=0;
-        double charge=.582,tailCharge=.582,voltRelease=0,attack=0,compSmooth=0,chargeDeco=0;
+        std::array<std::array<double,3>,14> chargeCurve{};
+        double charge=.582,voltRelease=0,attack=0,fixedAttack=0,compSmooth=0;
         bool autoRelease=false;
         std::array<double,4> dcHistory{};
         std::array<std::array<double,2>,2> history{};
@@ -474,8 +468,8 @@ private:
     Biquad highFrequency;
     std::array<Channel,2> channels{};
     BassTransient bassTransient;
-    Frame previousGain{};
     int previousAttackMode=1;
+    Frame previousGain{};
     Controls previousControls{};
     double rate=44100,detectorDrop=0,limitAverage=0,slowAverage=0,pulseFollow=0;
     double detectorLow=0,transientQuick=0,transientSlow=0;
