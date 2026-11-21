@@ -32,8 +32,11 @@ public:
         if (inputChannels<1 || inputChannels>2 || hostBlock<1 || hostBlock>4096) return false;
         delay=playbackLatency(hostBlock);
         channels=inputChannels;
+        // At 88.2 kHz and above the solver already has the bandwidth needed
+        // for the 20 kHz audio passband.
+        oversample=rate<88200.0;
         for (int ch=0;ch<channels;++ch)
-            if (!laneSolvers[ch].prepare(2*rate)) return false;
+            if (!laneSolvers[ch].prepare(oversample?2*rate:rate)) return false;
 #ifdef _WIN32
         if (!event) event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
         if (!event) return false;
@@ -160,25 +163,33 @@ private:
             if (linked) lane.setPeerLinkVoltage(peer.volts[index]);
             auto settings=sample.settings;
             settings[19]=linked;
-            // Hold the peer link and switch positions over both solves on
-            // this host frame, as the link exchanges voltage on the host grid.
-            const auto midpoint=[&](int ch) {
-                return BandlimitedHalf::interpolate(frame,[&](std::uint64_t t) {
-                    const auto& tap=input[t&mask];
-                    return double(tap.values[ch]);
-                });
-            };
-            const auto half=lane.step({midpoint(0),channels==2?midpoint(1):0.0},settings);
-            const auto full=lane.step({sample.values[0],sample.values[1]},settings);
-            history[frame%filterHistorySize]={half[channel],full[channel],
-                float(std::max(0.0,lane.meterVolts()[channel]*6.9))};
-            if (frame>=BandlimitedHalf::past) {
-                const auto source=frame-BandlimitedHalf::past;
-                const auto& center=history[source%filterHistorySize];
-                auto& out=output[source&mask];
-                out.values[channel]=float(BandlimitedHalf::decimate(source,center.endpoint,
-                    [&](std::uint64_t t){return history[t%filterHistorySize].midpoint;}));
-                out.meter[channel]=center.meter;
+            double half=0;
+            if (oversample) {
+                // Both solves share the peer voltage and switch positions
+                // for this host frame.
+                const auto midpoint=[&](int ch) {
+                    return BandlimitedHalf::interpolate(frame,[&](std::uint64_t t) {
+                        return double(input[t&mask].values[ch]);
+                    });
+                };
+                half=lane.step({midpoint(0),channels==2?midpoint(1):0.0},settings)[channel];
+            }
+            const auto full=lane.step({sample.values[0],sample.values[1]},settings)[channel];
+            const auto meter=float(std::max(0.0,lane.meterVolts()[channel]*6.9));
+            if (oversample) {
+                history[frame%filterHistorySize]={half,full,meter};
+                if (frame>=BandlimitedHalf::past) {
+                    const auto source=frame-BandlimitedHalf::past;
+                    const auto& center=history[source%filterHistorySize];
+                    auto& out=output[source&mask];
+                    out.values[channel]=float(BandlimitedHalf::decimate(source,center.endpoint,
+                        [&](std::uint64_t t){return history[t%filterHistorySize].midpoint;}));
+                    out.meter[channel]=center.meter;
+                }
+            } else {
+                auto& out=output[frame&mask];
+                out.values[channel]=float(full);
+                out.meter[channel]=meter;
             }
             if (linked) {
                 local.volts[1-index]=lane.linkVoltage();
@@ -209,11 +220,13 @@ private:
             }
         });
 
+        const std::uint64_t lookahead=oversample?BandlimitedHalf::future:0;
+        const std::uint64_t filterDelay=oversample?BandlimitedHalf::past:0;
         std::uint64_t next=0;
         for (;;) {
             const auto available=written.load(std::memory_order_acquire);
             if (available==stopSignal) break;
-            const auto ready=available>BandlimitedHalf::future ? available-BandlimitedHalf::future : 0;
+            const auto ready=available>lookahead ? available-lookahead : 0;
             if (ready==next) {wait(available);continue;}
             const auto wantsLink=[&](std::uint64_t frame) {
                 const auto& settings=input[frame&mask].settings;
@@ -238,7 +251,7 @@ private:
             if (right.joinable()) done.acquire();
             failures.store(laneSolvers[0].failures()+
                 (channels==2 ? laneSolvers[1].failures():0),std::memory_order_relaxed);
-            const auto filtered=end>BandlimitedHalf::past ? end-BandlimitedHalf::past : 0;
+            const auto filtered=end>filterDelay ? end-filterDelay : 0;
             rendered.store(filtered,std::memory_order_release);
             next=end;
         }
@@ -263,6 +276,7 @@ private:
     std::uint64_t submitted=0,returned=0;
     MeterReadings meters{};
     bool started=false;
+    bool oversample=false;
     int channels=2;
 #ifdef _WIN32
     HANDLE event=nullptr;
