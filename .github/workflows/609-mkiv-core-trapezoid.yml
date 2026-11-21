@@ -1,0 +1,82 @@
+name: 609 MK IV core trapezoidal DLL verification
+on:
+  push:
+    branches: [609-mkiv-core-trapezoid]
+    paths: ['.github/workflows/609-mkiv-core-trapezoid.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Compile real core-trapezoidal VST3 and DLL test host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-MK-IV-CORE-Trapezoid-Windows-VST3
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure core trapezoidal DLL complex frequency transfer and harmonics
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results | Out-Null
+          foreach ($mode in @('through','comp','limit','both')) {
+            $ci=if ($mode -in @('comp','both')) {1} else {0}
+            $li=if ($mode -in @('limit','both')) {1} else {0}
+            foreach ($level in @(4,10,20)) {
+              foreach ($hz in @(20,100,1000,5000,8000,10000,12000,15000,16000,18000,20000)) {
+                $values=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9)
+                $name="$mode-$level-$hz"
+                & $tester $bundle --jd-case @values 2> "results/$name.stderr.txt" |
+                  Out-File -Encoding utf8 "results/$name.txt"
+                if ($LASTEXITCODE) {exit $LASTEXITCODE}
+                Write-Host "MEASURED $name"
+              }
+            }
+          }
+      - name: Compute DLL frequency response and flag ±1 dB exceptions
+        shell: pwsh
+        run: |
+          $table=@()
+          foreach($f in Get-ChildItem results -Filter '*.txt' | Where-Object {$_.Name -notlike '*.stderr*'}) {
+            $m=[regex]::Match($f.BaseName,'^(through|comp|limit|both)-(\d+)-(\d+)$')
+            if(!$m.Success) {continue}
+            $bin=(Get-Content $f.FullName -TotalCount 1).Trim() -split '\s+'
+            $re=[double]$bin[0]; $im=[double]$bin[1]
+            $table+=[pscustomobject]@{Mode=$m.Groups[1].Value;Input=[int]$m.Groups[2].Value;Hz=[int]$m.Groups[3].Value;Mag=[math]::Sqrt($re*$re+$im*$im);PhaseRad=[math]::Atan2($im,$re)}
+          }
+          $out=@()
+          foreach($row in $table) {
+            $ref=$table | Where-Object {$_.Mode -eq $row.Mode -and $_.Input -eq $row.Input -and $_.Hz -eq 1000} | Select-Object -First 1
+            if(!$ref -or $row.Mag -le 0 -or $ref.Mag -le 0){continue}
+            $db=20*[math]::Log10($row.Mag/$ref.Mag)
+            $out+=[pscustomobject]@{Mode=$row.Mode;Input_dBu=$row.Input;Hz=$row.Hz;Response_dB=[math]::Round($db,4);Phase_deg=[math]::Round(180*$row.PhaseRad/[math]::PI,4);InSpec=[math]::Abs($db) -le 1.0}
+          }
+          $out | Sort-Object Mode,Input_dBu,Hz | Export-Csv results/summary.csv -NoTypeInformation
+          $out | Where-Object {$_.Hz -ge 10000} | Sort-Object Mode,Input_dBu,Hz | Format-Table -AutoSize
+          $fail=@($out | Where-Object {-not $_.InSpec})
+          Write-Host "DLL_MEASURED_FR_FAILURES $($fail.Count) of $($out.Count) sample points"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MK-IV-CORE-Trapezoid-DLL-fullband
+          path: results/
+          if-no-files-found: warn
