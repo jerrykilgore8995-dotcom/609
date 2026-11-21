@@ -1,0 +1,82 @@
+name: 33609JD 2x bandlimited trapezoidal Windows VST3 build and DLL verification
+on:
+  push:
+    branches: [609-33609jd-2x]
+    paths: ['.github/workflows/609-33609jd-2x.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Compile packaged 33609JD 2x VST3 and DLL test host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 33609JD-2x-Windows-x64-VST3
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure packaged 2x DLL at 44.1 kHz and 48 kHz
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/33609JD 2x.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force dll-results | Out-Null
+          foreach($rate in @(44100,48000)) {
+            foreach($mode in @('through','comp','limit','both')) {
+              $ci=if($mode -in @('comp','both')) {1} else {0}
+              $li=if($mode -in @('limit','both')) {1} else {0}
+              foreach($level in @(4,20)) {
+                foreach($hz in @(100,1000,5000,10000,15000,18000,20000)) {
+                  $values=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9,$rate)
+                  $name="$rate-$mode-$level-$hz"
+                  & $tester $bundle --jd-case @values 2> "dll-results/$name.stderr.txt" |
+                    Out-File -Encoding utf8 "dll-results/$name.txt"
+                  if ($LASTEXITCODE) {exit $LASTEXITCODE}
+                  Write-Host "MEASURED $name"
+                }
+              }
+            }
+          }
+      - name: Summarize frequency magnitude and complex phase from DLL
+        shell: pwsh
+        run: |
+          $table=@()
+          foreach($file in Get-ChildItem dll-results -Filter '*.txt' | Where-Object {$_.Name -notlike '*.stderr*'}) {
+            $match=[regex]::Match($file.BaseName,'^(\d+)-(through|comp|limit|both)-(\d+)-(\d+)$')
+            if(!$match.Success) {continue}
+            $parts=(Get-Content $file.FullName -TotalCount 1).Trim() -split '\s+'
+            $re=[double]$parts[0]; $im=[double]$parts[1]
+            $table+=[pscustomobject]@{Rate=[int]$match.Groups[1].Value;Mode=$match.Groups[2].Value;Level=[int]$match.Groups[3].Value;Hz=[int]$match.Groups[4].Value;Mag=[math]::Sqrt($re*$re+$im*$im);Phase=[math]::Atan2($im,$re)*180/[math]::PI}
+          }
+          $out=@()
+          foreach($row in $table) {
+            $ref=$table | Where-Object {$_.Rate -eq $row.Rate -and $_.Mode -eq $row.Mode -and $_.Level -eq $row.Level -and $_.Hz -eq 1000} | Select-Object -First 1
+            if(!$ref -or $ref.Mag -le 0 -or $row.Mag -le 0) {continue}
+            $db=20*[math]::Log10($row.Mag/$ref.Mag)
+            $out+=[pscustomobject]@{Rate=$row.Rate;Mode=$row.Mode;Level_dBu=$row.Level;Hz=$row.Hz;Response_dB=[math]::Round($db,4);Phase_deg=[math]::Round($row.Phase,4);Within_1dB=[math]::Abs($db) -le 1.0}
+          }
+          $out | Sort-Object Rate,Mode,Level_dBu,Hz | Export-Csv dll-results/frequency-summary.csv -NoTypeInformation
+          $out | Where-Object {$_.Hz -eq 20000} | Sort-Object Rate,Mode,Level_dBu | Format-Table -AutoSize
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 33609JD-2x-DLL-FR-Phase-Harmonics
+          path: dll-results/
+          if-no-files-found: warn
