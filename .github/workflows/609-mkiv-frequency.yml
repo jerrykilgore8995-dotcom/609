@@ -1,0 +1,83 @@
+name: 609 MK IV frequency-response-only VST3 build and DLL measurement
+on:
+  push:
+    branches: [609-mkiv-frequency-only]
+    paths: ['.github/workflows/609-mkiv-frequency.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  mkiv:
+    runs-on: windows-2022
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Build MK IV based on original MK II BDF2 solver
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-MK-IV-Frequency-Only-Windows-x64-VST3
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure actual MK IV DLL response and 1 kHz THD
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results | Out-Null
+          foreach ($mode in @('through','comp','limit','both')) {
+            $levels=if ($mode -eq 'through') {@(4)} elseif($mode -eq 'limit') {@(4,20)} else {@(4,10,20)}
+            foreach ($level in @($levels)) {
+              foreach ($hz in @(100,1000,5000,8000,10000,12000,15000,18000,20000)) {
+                $ci=if($mode -in @('comp','both')) {1} else {0}
+                $li=if($mode -in @('limit','both')) {1} else {0}
+                $values=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9)
+                $name="$mode-$level-$hz"
+                & $tester $bundle --jd-case @values 2> "results/$name.stderr.txt" |
+                  Out-File -Encoding utf8 "results/$name.txt"
+                if($LASTEXITCODE) {exit $LASTEXITCODE}
+                Write-Host "MEASURED $name"
+              }
+            }
+          }
+      - name: Summarize frequency response from DLL fundamental spectra
+        shell: pwsh
+        run: |
+          $table=@()
+          foreach($file in Get-ChildItem results -Filter '*.txt' | Where-Object { $_.Name -notlike '*.stderr*' }) {
+            $match=[regex]::Match($file.BaseName,'^(through|comp|limit|both)-(\d+)-(\d+)$')
+            if(!$match.Success) {continue}
+            $first=(Get-Content $file.FullName -TotalCount 1).Trim() -split '\s+'
+            $mag=[math]::Sqrt(([double]$first[0])*([double]$first[0])+([double]$first[1])*([double]$first[1]))
+            $table+=[pscustomobject]@{Mode=$match.Groups[1].Value;Level=[int]$match.Groups[2].Value;Hz=[int]$match.Groups[3].Value;Mag=$mag}
+          }
+          $out=@()
+          foreach($row in $table) {
+            $base=$table | Where-Object {$_.Mode -eq $row.Mode -and $_.Level -eq $row.Level -and $_.Hz -eq 1000} | Select-Object -First 1
+            if(!$base -or $base.Mag -le 0 -or $row.Mag -le 0) {continue}
+            $db=20*[math]::Log10($row.Mag/$base.Mag)
+            $out+=[pscustomobject]@{Mode=$row.Mode;Input_dBu=$row.Level;Frequency_Hz=$row.Hz;Response_dB=[math]::Round($db,4)}
+          }
+          $out | Sort-Object Mode,Input_dBu,Frequency_Hz | Export-Csv results/frequency-summary.csv -NoTypeInformation
+          $out | Where-Object {$_.Frequency_Hz -ge 10000} | Sort-Object Mode,Input_dBu,Frequency_Hz | Format-Table -AutoSize
+          $worst=$out | Sort-Object @{Expression={ [math]::Abs($_.Response_dB) };Descending=$true} | Select-Object -First 1
+          Write-Host "MKIV_WORST_ABS_RESPONSE_DB $($worst.Response_dB) at $($worst.Frequency_Hz) Hz ($($worst.Mode), +$($worst.Input_dBu)dBu)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MK-IV-actual-DLL-fullband-FR-THD
+          path: results/
+          if-no-files-found: warn
