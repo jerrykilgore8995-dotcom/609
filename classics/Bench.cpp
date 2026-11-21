@@ -60,6 +60,24 @@ bool run(int channels, bool linked) {
         std::sqrt(outputPower/(channels*blocks*block)));
     return fails==0 && outputPower>1e-8;
 }
+
+bool checkDryLatency() {
+    auto engine=std::make_unique<Pipeline>();
+    if (!engine->prepare(rate,1,block)) return false;
+    const int latency=engine->latencySamples();
+    std::array<float,block> audio{};
+    float* buffers[]{audio.data()};
+    for (int start=0;start<=latency;start+=block) {
+        audio.fill(0);
+        if (start==0) audio.front()=0.125f;
+        if (!engine->process(buffers,block,defaults,true,true)) return false;
+        for (int i=0;i<block;++i)
+            if (audio[i]!=(start+i==latency ? 0.125f : 0.0f)) return false;
+    }
+    std::printf("%d | dry impulse aligned at %d samples\n",CLASSIC_MODEL,latency);
+    return true;
+}
+
 // Emit the solved waveform before host buffering. The analysis uses a centred
 // single-cycle fundamental envelope and excludes wall clock scheduling.
 int trace(int argc, char** argv) {
@@ -88,16 +106,18 @@ int trace(int argc, char** argv) {
     settings[limiter ? 5 : 2] = recovery;
     settings[1] = ratio;
     settings[3] = makeup;
-    Solver solver(0);
+    ClassicLane solver(0);
     if (!solver.prepare(sampleRate)) return 3;
     const double lowAmplitude = std::pow(10.,(low-24)/20.);
     const double highAmplitude = std::pow(10.,(high-24)/20.);
     const double phaseIncrement = 2*std::numbers::pi*frequency/sampleRate;
     std::vector<double> samples(static_cast<std::size_t>((.3+duration+tail)*sampleRate));
-    for (std::size_t i=0; i<samples.size(); ++i) {
+    const auto latency = static_cast<std::size_t>(ClassicLane::latencyFor(sampleRate));
+    for (std::size_t i=0; i<samples.size()+latency; ++i) {
         const double time = double(i)/sampleRate;
         const auto amplitude = time >= .3 && time < .3+duration ? highAmplitude : lowAmplitude;
-        samples[i] = solver.step({amplitude*std::sin(phaseIncrement*i),0},settings)[0];
+        const auto value = solver.step({amplitude*std::sin(phaseIncrement*i),0},settings)[0];
+        if (i>=latency) samples[i-latency]=value;
     }
     for (auto sample:samples) std::printf("%.12g\n",sample);
     std::fprintf(stderr,"%u\n",solver.failures());
@@ -110,5 +130,6 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "--trace") return trace(argc,argv);
     const bool mono=run(1,false);
     const bool stereo=run(2,true);
-    return mono && stereo ? 0 : 1;
+    const bool latency=checkDryLatency();
+    return mono && stereo && latency ? 0 : 1;
 }

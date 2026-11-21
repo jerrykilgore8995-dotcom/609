@@ -1,5 +1,6 @@
 """Measure calibrated ratio and transients on the generated 44.1 kHz solver."""
 import argparse
+import json
 import math
 from pathlib import Path
 import subprocess
@@ -13,7 +14,11 @@ def measurement(executable, limiter, ratio, recovery, threshold, fast, low, high
     values = (int(limiter), ratio, recovery, threshold, int(fast), low, high, burst, tail, frequency)
     result = subprocess.run([str(executable), "--trace", *map(str, values)], text=True,
                             capture_output=True, check=True, timeout=180)
-    y = np.fromstring(result.stdout, sep=" ")
+    return analyze(np.fromstring(result.stdout, sep=" "), frequency, low, high, burst,
+                   int(result.stderr.strip()))
+
+
+def analyze(y, frequency, low, high, burst, failures):
     n = round(RATE / frequency)
     phase = 2 * math.pi * frequency * np.arange(n) / RATE
     sine = np.correlate(y, np.sin(phase), "valid")
@@ -35,9 +40,9 @@ def measurement(executable, limiter, ratio, recovery, threshold, fast, low, high
     attack = first((time >= .3 + .5 / frequency) & (time < stop) & (envelope <= after + 1), .3)
     release = first((time >= stop + .0005) & (envelope >= release_band), stop)
     gain_change = high - low + before - after
-    if gain_change <= 1 or int(result.stderr.strip()):
+    if gain_change <= 1 or failures:
         attack = release = math.nan
-    return before, after, attack, release, peak, int(result.stderr.strip())
+    return before, after, attack, release, peak, failures
 
 
 def main():
@@ -45,12 +50,14 @@ def main():
     parser.add_argument("model", choices=("2254", "2264"))
     parser.add_argument("executable", type=Path)
     parser.add_argument("--require-close", action="store_true")
+    parser.add_argument("--spice-reference", type=Path)
     args = parser.parse_args()
     old = args.model == "2254"
     exe = args.executable.resolve()
     fixed_limit = (100, 200, 800) if old else (50, 100, 200, 800)
     fixed_comp = (400, 800, 1500) if old else (100, 400, 800, 1500)
     checks = []
+    reference = json.loads(args.spice_reference.read_text()) if args.spice_reference else {}
 
     def check(label, actual, expected, failures, *, minimum=False):
         error = (expected - actual) / expected if minimum else abs(actual - expected) / expected
@@ -75,8 +82,10 @@ def main():
             # carrier period for the attack gate, keeping the 1 kHz ratio test.
             _, _, fast_probe, _, _, fast_probe_failures = measurement(
                 exe, True, 4, 1, 9, False, 10, 20, .65, .1, frequency=2000)
-            check("limit attack at 2 kHz", fast_probe, 1, fast_probe_failures)
-            print(f"LIMIT NORMAL ATTACK 2 kHz | {fast_probe:.2f} ms | {fast_probe_failures} fails", flush=True)
+            expected = reference.get("normal_limiter_attack_ms", 1.0)
+            check("limit attack at 2 kHz", fast_probe, expected, fast_probe_failures)
+            print(f"LIMIT NORMAL ATTACK 2 kHz | {fast_probe:.2f} ms | "
+                  f"reference {expected:.2f} ms | {fast_probe_failures} fails", flush=True)
         print(f"LIMIT {'FAST' if fast else 'NORMAL'} | {limit_ratio:.0f}:1 | attack {att:.2f} ms | "
               f"output {lo:+.2f}/{hi:+.2f} dBu | burst minimum {peak:+.2f} dBu | {failures} fails", flush=True)
     for lim, positions in ((False, fixed_comp), (True, fixed_limit)):

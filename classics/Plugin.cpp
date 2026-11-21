@@ -100,7 +100,7 @@ public:
 
     void prepareToPlay(double rate, int frames) override {
         ready = engine.prepare(rate, getTotalNumInputChannels(), frames);
-        setLatencySamples(ready ? mkii::native::playbackLatency(frames) : 0);
+        setLatencySamples(ready ? engine.latencySamples() : 0);
     }
     void releaseResources() override { engine.stop(); ready=false; }
 

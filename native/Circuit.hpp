@@ -163,10 +163,8 @@ public:
         for (auto& c : deck.contact) selectContact(c,defaults);
         matrix.resize(deck.size);
         // Include the transient structure in the symbolic factorization.
-        // The actual initial solve below uses zero integration conductance.
-        inverse = 1.5*rate;
-        history1 = -2.0*rate;
-        history2 = 0.5*rate;
+        // Start the history from the DC voltages provided by SPICE.
+        prepareSampleGrid();
         diodeStorage.clear();
         bjtStorage.clear();
         stampLinear();
@@ -186,9 +184,7 @@ public:
         generatedResidual=findGeneratedResidual(rate,lane);
 #endif
         accept(true);
-        inverse = 1.5*rate;
-        history1 = -2.0*rate;
-        history2 = 0.5*rate;
+        prepareSampleGrid();
         savedNodes.resize(deck.size);
         savedHistory.resize(deck.capacitors.size()+deck.inductance.size()+deck.diodes.size()+2*deck.bjts.size());
         misses = 0;
@@ -429,7 +425,7 @@ private:
         };
         bool solved=false;
         // Advance physical time with backward Euler on the shorter steps.
-        // The next host sample resumes BDF2 with history on the host grid.
+        // The next sample resumes the main integration method on its grid.
         std::swap(matrix,retryMatrix);
         for (int count : {2,4,8,16,32,64,128}) {
             restore();
@@ -447,11 +443,16 @@ private:
             if (solved) break;
         }
         std::swap(matrix,retryMatrix);
-        if (solved) visitHistory([](const History& save,double&,double& q2){q2=save.previous;});
-        else restore();
-        inverse=1.5*hostRate;
-        history1=-2.0*hostRate;
-        history2=0.5*hostRate;
+        if (solved) {
+#ifdef CLASSIC_MODEL
+            // Convert the final Euler derivative to host-grid charge units.
+            const double scale=inverse/gridInverse();
+            visitHistory([scale](const History&,double&,double& q2){q2*=scale;});
+#else
+            visitHistory([](const History& save,double&,double& q2){q2=save.previous;});
+#endif
+        } else restore();
+        prepareSampleGrid();
         return solved;
     }
 
@@ -688,7 +689,7 @@ private:
                 sum+=terms[j].g*x[terms[j].column];
             matrix.rhs[row.row]=sum;
         }
-        const double delta=inverse-1.5*hostRate;
+        const double delta=inverse-gridInverse();
         if (delta!=0)
             for (const auto& d : deck.capacitors) conduct(d.a,d.b,delta*d.value);
         if (delta!=0) for (const auto& d : deck.inductance) {
@@ -902,27 +903,56 @@ private:
         return residual<(fastConvergence?1e-10:1e-12);
     }
 
+    double gridInverse() const {
+#ifdef CLASSIC_MODEL
+        return 2.0*hostRate;
+#else
+        return 1.5*hostRate;
+#endif
+    }
+
+    void prepareSampleGrid() {
+        inverse=gridInverse();
+        history1=-2.0*hostRate;
+#ifdef CLASSIC_MODEL
+        history2=-inverse;
+#else
+        history2=0.5*hostRate;
+#endif
+    }
+
+    double nextHistory(double value,double previous,double history,bool dc) const {
+#ifdef CLASSIC_MODEL
+        // Store the last derivative divided by the companion conductance
+        // coefficient. A DC seed has zero derivative.
+        return dc ? 0.0 : value-previous+(history2/inverse)*history;
+#else
+        static_cast<void>(history);
+        return dc ? value : previous;
+#endif
+    }
+
     void accept(bool dc) {
         for (auto& d : deck.inductance) {
             const double q=d.value*v(d.column);
-            d.q2=dc?q:d.q1;
+            d.q2=nextHistory(q,d.q1,d.q2,dc);
             d.q1=q;
         }
         for (auto& d : deck.capacitors) {
             d.q=(v(d.a)-v(d.b))*d.value;
-            d.q2=dc?d.q:d.q1;
+            d.q2=nextHistory(d.q,d.q1,d.q2,dc);
             d.q1=d.q;
         }
         for (const int i : diodeStorage) {
             auto& d=deck.diodes[i];
-            d.q2=dc?d.q:d.q1;
+            d.q2=nextHistory(d.q,d.q1,d.q2,dc);
             d.q1=d.q;
         }
         for (const int i : bjtStorage) {
             auto& d=deck.bjts[i];
-            d.f2=dc?d.f:d.f1;
+            d.f2=nextHistory(d.f,d.f1,d.f2,dc);
             d.f1=d.f;
-            d.r2=dc?d.r:d.r1;
+            d.r2=nextHistory(d.r,d.r1,d.r2,dc);
             d.r1=d.r;
         }
         std::copy(x.begin(), x.end(), previous.begin());

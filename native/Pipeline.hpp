@@ -1,6 +1,10 @@
 #pragma once
 #include "Api.hpp"
+#ifdef CLASSIC_MODEL
+#include "ClassicLane.hpp"
+#else
 #include "Circuit.hpp"
+#endif
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -30,6 +34,10 @@ public:
         stop();
         if (inputChannels<1 || inputChannels>2 || hostBlock<1 || hostBlock>4096) return false;
         delay=playbackLatency(hostBlock);
+#ifdef CLASSIC_MODEL
+        audioLatency=ClassicLane::latencyFor(rate);
+        controlHistory.fill(defaults);
+#endif
         channels=inputChannels;
         for (int ch=0;ch<channels;++ch)
             if (!laneSolvers[ch].prepare(rate)) return false;
@@ -70,6 +78,13 @@ public:
                 const auto time=position+i;
                 const std::array<float,2> values{buffers[0][offset+i],channels>1?buffers[1][offset+i]:0.0f};
                 dryInput[time&mask]=values;
+#ifdef CLASSIC_MODEL
+                if (audioLatency) {
+                    auto& past=controlHistory[time%controlHistory.size()];
+                    if (canSubmit) input[(submitted+i)&mask]={values,past,time};
+                    past=controls;
+                } else
+#endif
                 if (canSubmit) input[(submitted+i)&mask]={values,controls,time};
             }
             if (canSubmit) {
@@ -98,7 +113,8 @@ public:
                 if (ready) meters=output[index].meter;
                 if (!ready && !dry) complete=false;
                 for (int ch=0;ch<channels;++ch)
-                    buffers[ch][offset+i]=(ready && !dry)?output[index].values[ch]:dryInput[source&mask][ch];
+                    buffers[ch][offset+i]=(ready && !dry) ? output[index].values[ch]
+                        : source>=audioLatency ? dryInput[(source-audioLatency)&mask][ch] : 0.0f;
                 if (ready) ++returned;
             }
             position=end;
@@ -106,6 +122,7 @@ public:
         }
         return complete;
     }
+    int latencySamples() const { return static_cast<int>(delay+audioLatency); }
     unsigned failedSolves() const {return failures.load(std::memory_order_relaxed);}
     MeterReadings readMeters() const {return meters;}
 
@@ -226,7 +243,12 @@ private:
         }
     }
     std::array<LinkState,2> linkState{};
+#ifdef CLASSIC_MODEL
+    std::array<ClassicLane,2> laneSolvers{ClassicLane(0),ClassicLane(1)};
+    std::array<Controls,ClassicLane::filterRadius> controlHistory{};
+#else
     std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
+#endif
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};
     std::array<Input,capacity> input{};
@@ -236,6 +258,11 @@ private:
     std::atomic<unsigned> failures{0};
     std::thread worker;
     std::uint64_t position=0,delay=1536;
+#ifdef CLASSIC_MODEL
+    std::uint64_t audioLatency=0;
+#else
+    static constexpr std::uint64_t audioLatency=0;
+#endif
     std::uint64_t submitted=0,returned=0;
     MeterReadings meters{};
     bool started=false;

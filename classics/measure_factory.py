@@ -7,8 +7,9 @@ import subprocess
 
 import numpy as np
 
+from spice_response import BANDS
+
 RATE = 44100
-BANDS = (20, 40, 80, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 18000, 20000)
 
 
 def tone(executable, mode, frequency, level, *, rate=RATE, threshold=11, recovery=1, makeup=1):
@@ -105,10 +106,29 @@ def main():
     parser.add_argument("executable", type=Path)
     parser.add_argument("--rate", type=int, choices=(44100, 88200, 176400), default=RATE)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--spice-reference", type=Path)
     args = parser.parse_args()
     document = measure(args.model, args.executable.resolve(), args.rate)
+    passed = True
+    if args.spice_reference:
+        reference = json.loads(args.spice_reference.read_text())["response"]
+        for point, target in zip(document["response"], reference, strict=True):
+            if point["frequency_hz"] != target["frequency_hz"]:
+                raise ValueError("SPICE and nodal frequency grids do not match")
+            point["spice_relative_dB"] = target["relative_dB"]
+            point["spice_phase_deg"] = target["phase_deg"]
+            point["error_dB"] = point["relative_dB"] - target["relative_dB"]
+            point["error_phase_deg"] = (point["phase_deg"] - target["phase_deg"] + 180) % 360 - 180
+        amplitude_error = max(abs(p["error_dB"]) for p in document["response"])
+        phase_error = max(abs(p["error_phase_deg"]) for p in document["response"])
+        passed = amplitude_error <= .65 and phase_error <= 10
+        passed &= all(p["failures"] == 0 for p in document["response"])
+        document["spice_parity"] = {"max_error_dB": amplitude_error,
+                                    "max_error_deg": phase_error, "passed": passed}
+        print(f"SPICE parity | {amplitude_error:.3f} dB | {phase_error:.2f} deg | passed: {passed}")
     args.output.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

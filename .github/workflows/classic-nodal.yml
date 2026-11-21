@@ -16,7 +16,7 @@ jobs:
       - name: Install ngspice
         run: |
           sudo apt-get update
-          sudo apt-get install -y ngspice
+          sudo apt-get install -y ngspice python3-numpy
       - name: Validate the candidate SPICE circuit
         run: python3 classics/verify_spice.py
       - name: Generate nodal decks from SPICE
@@ -24,6 +24,7 @@ jobs:
           for model in 2254 2264; do
             python3 classics/seed.py "classics/circuit/$model.cir" "build/$model/seed.raw"
             python3 native/compile_deck.py "classics/circuit/$model.cir" "build/$model/seed.raw" "build/$model/Deck.hpp"
+            python3 classics/spice_response.py "classics/circuit/$model.cir" "build/$model/spice.json"
           done
       - uses: actions/upload-artifact@v4
         with:
@@ -59,7 +60,7 @@ jobs:
         run: |
           python -m pip install numpy
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -u classics/read_dynamics.py ${{ matrix.model }} build/Release/Bench${{ matrix.model }}.exe --require-close | Tee-Object -FilePath classic-benchmark.txt
+          python -u classics/read_dynamics.py ${{ matrix.model }} build/Release/Bench${{ matrix.model }}.exe --require-close --spice-reference "decks/${{ matrix.model }}/spice.json" | Tee-Object -FilePath classic-benchmark.txt
           $dynamics = $LASTEXITCODE
           & build/Release/Bench${{ matrix.model }}.exe | Tee-Object -FilePath classic-benchmark.txt -Append
           if ($LASTEXITCODE -ne 0 -or $dynamics -ne 0) { exit 1 }
@@ -68,17 +69,18 @@ jobs:
         with:
           name: ${{ matrix.model }}-Dynamics-and-44k1-512
           path: classic-benchmark.txt
+      - name: Measure frequency response and factory distortion conditions
+        run: python -u classics/measure_factory.py ${{ matrix.model }} build/Release/Bench${{ matrix.model }}.exe --output factory.json --spice-reference "decks/${{ matrix.model }}/spice.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.model }}-Factory-Audit
+          path: factory.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.model }}-Nodal-Windows-x64-VST3
           path: build/Classic${{ matrix.model }}_artefacts/Release/VST3/
-          if-no-files-found: error
-      - name: Measure frequency response and factory distortion conditions
-        run: python -u classics/measure_factory.py ${{ matrix.model }} build/Release/Bench${{ matrix.model }}.exe --output factory.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.model }}-Factory-Audit
-          path: factory.json
           if-no-files-found: error
       - name: Capture the mono editor
         shell: pwsh
