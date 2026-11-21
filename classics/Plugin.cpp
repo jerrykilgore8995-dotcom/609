@@ -323,7 +323,7 @@ private:
         label(g,"OUT",150,264,30,20,14);
         label(g,"METER",103,327,64,20,14);
         label(g,"LIMIT\nATTACK",228,221,84,38,14);
-        label(g,"100µS",191,277,55,20,13);
+        label(g,String("100")+String::charToString(0x00b5)+"S",191,277,55,20,13);
         label(g,"1mS",294,277,41,20,13);
         label(g,"DE-ESS",408,317,84,20,14);
         label(g,"LIMIT LEVEL",29,473,116,21,14);
@@ -341,9 +341,10 @@ private:
         label(g,"AUTO",312,352,46,17,12);
         label(g,"400\nmS",371,352,37,31,12);
         label(g,"800mS",395,338,46,17,12);
-        label(g,"1·5 S",450,338,34,17,12);
+        const auto onePointFive=String("1")+String::charToString(0x00b7)+"5";
+        label(g,onePointFive+" S",450,338,34,17,12);
         label(g,"AUTO",494,352,42,17,12);
-        marks(g,453,157,64,ratio2254.first,ratio2254.last,{"1·5:1","2:1","3:1","4:1","6:1"});
+        marks(g,453,157,64,ratio2254.first,ratio2254.last,{onePointFive+":1","2:1","3:1","4:1","6:1"});
         const FloatRect frame{19,73,72,270};
         g.setColour(Colour{0xff111210});
         g.fillRect(frame);
@@ -426,7 +427,7 @@ private:
         label(g,"RECOVERY",88,421,80,14,10);
         label(g,"(mS)",100,433,55,12,9);
         marks(g,85,507,56,compressLevel2264.first,compressLevel2264.last,
-            {"−20","","16","","12","","8","","4","","0","","4","","8","+10"},orange,9);
+            {String::charToString(0x2212)+"20","","16","","12","","8","","4","","0","","4","","8","+10"},orange,9);
         marks(g,85,507,56,recovery2264.first,recovery2264.last,{"100","400","800","1500","A1","A2"},ink,10);
         label(g,"COMPRESS",1,574,76,15,10);
         label(g,"GAIN",3,589,43,13,10,orange);
