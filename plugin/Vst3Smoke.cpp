@@ -3,6 +3,7 @@
 
 #include "Presets.hpp"
 #include "../native/Api.hpp"
+#include "../native/BandlimitedHalf.hpp"
 #include "../native/Circuit.hpp"
 #include "../native/DynamicsProbe.hpp"
 #include "../native/PlaybackClock.hpp"
