@@ -41,7 +41,7 @@ public:
         noiseParam=state.getRawParameterValue("noise");
         attackParam=state.getRawParameterValue("comp_attack");
     }
-    const String getName() const override {return "609 MK IV";}
+    const String getName() const override {return "33609JD 2x";}
     bool acceptsMidi() const override {return false;}
     bool producesMidi() const override {return false;}
     bool isMidiEffect() const override {return false;}
