@@ -51,3 +51,8 @@ target_compile_features(Host550A PRIVATE cxx_std_20)
 target_compile_definitions(Host550A PRIVATE NOMINMAX JUCE_PLUGINHOST_VST3=1
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(Host550A PRIVATE juce::juce_audio_processors juce::juce_gui_basics)
+
+add_executable(Capture550A ../tools/api550a-editor/Snapshot.cpp)
+target_compile_features(Capture550A PRIVATE cxx_std_20)
+target_compile_definitions(Capture550A PRIVATE NOMINMAX JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(Capture550A PRIVATE Nodal550A juce::juce_audio_processors)

@@ -49,7 +49,7 @@ jobs:
           $deck = (Resolve-Path decks).Path
           cmake -S 550a -B build -A x64 "-DDECK_DIR=$deck"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build --config Release --target Nodal550A_VST3 Host550A Bench550A --parallel 4
+          cmake --build build --config Release --target Nodal550A_VST3 Host550A Bench550A Capture550A --parallel 4
           exit $LASTEXITCODE
       - name: Verify the engine and the Windows VST3
         shell: pwsh
@@ -64,7 +64,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python -u 550a/verify.py nodal build/Release/Host550A.exe vst3.json --reference decks/spice.json --workers 2
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & build/Release/Host550A.exe --snapshot 550a-faceplate.png
+          & build/Release/Capture550A.exe 550a-faceplate.png
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()

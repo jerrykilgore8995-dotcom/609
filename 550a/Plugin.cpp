@@ -8,7 +8,7 @@ constexpr std::array names{"LF Gain", "MF Gain", "HF Gain", "LF Frequency",
                            "MF Frequency", "HF Frequency", "LF Shelf",
                            "HF Shelf", "Filter", "EQ In"};
 const std::array<juce::StringArray, 4> choices{{
-    {"−12", "−9", "−6", "−4", "−2", "0", "+2", "+4", "+6", "+9", "+12"},
+    {"-12", "-9", "-6", "-4", "-2", "0", "+2", "+4", "+6", "+9", "+12"},
     {"50 Hz", "100 Hz", "200 Hz", "300 Hz", "400 Hz"},
     {"400 Hz", "800 Hz", "1.5 kHz", "3 kHz", "5 kHz"},
     {"5 kHz", "7 kHz", "10 kHz", "12.5 kHz", "15 kHz"}
@@ -229,7 +229,7 @@ public:
         }};
         for (std::size_t row = 0; row < base.size(); ++row) {
             const int y = base[row];
-            print("−", 20, y-59, 30, ink, 19);
+            print("-", 20, y-59, 30, ink, 19);
             print("+", 157, y-59, 30, ink, 19);
             print("0", 93, y-58, 20, ink);
             for (std::size_t i=0; i<gain.size(); ++i) {
@@ -244,9 +244,22 @@ public:
             print(row == 2 ? "Hz" : "kHz", 174, y+84, 30, blue, 14);
         }
         print("FLTR", 76, 582, 46, ink);
-        print("L⌣F", 17, 681, 60, ink);
-        print("H⌢F", 73, 681, 60, ink);
+        print("L   F", 17, 681, 60, ink);
+        print("H   F", 73, 681, 60, ink);
         print("IN", 137, 681, 44, ink);
+        g.setColour(ink);
+        Path lowShelf;
+        lowShelf.startNewSubPath(24, 680);
+        lowShelf.lineTo(37, 680);
+        lowShelf.cubicTo(50, 680, 50, 699, 58, 699);
+        lowShelf.lineTo(73, 699);
+        Path highShelf;
+        highShelf.startNewSubPath(81, 699);
+        highShelf.lineTo(92, 699);
+        highShelf.cubicTo(102, 699, 105, 680, 117, 680);
+        highShelf.lineTo(128, 680);
+        g.strokePath(lowShelf, PathStrokeType(1.4f));
+        g.strokePath(highShelf, PathStrokeType(1.4f));
         g.setColour(buttons.back().getToggleState() ? Colour(0xfff14c41) : Colour(0xff451516));
         g.fillEllipse(152, 585, 16, 16);
         g.setColour(Colour(0xff9e5d59));
