@@ -684,7 +684,7 @@ private:
                 sum+=terms[j].g*x[terms[j].column];
             matrix.rhs[row.row]=sum;
         }
-        const double delta=inverse-1.5*hostRate;
+        const double delta=inverse-2.0*hostRate;
         if (delta!=0)
             for (const auto& d : deck.capacitors) conduct(d.a,d.b,delta*d.value);
         if (delta!=0) for (const auto& d : deck.inductance) {
