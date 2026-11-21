@@ -206,13 +206,14 @@ private:
             }
             if (!lane.prepare(sr)) {workerReady.store(-1,std::memory_order_release);return;}
         }
-        workerReady.store(1,std::memory_order_release);
         std::binary_semaphore begin(0),done(0);
         std::uint64_t first=0,last=0;
         bool linked=false;
+        std::atomic<bool> rightReady{false};
         std::thread right;
         if (channels==2) right=std::thread([&] {
             prepareWorker();
+            rightReady.store(true,std::memory_order_release);
             for (;;) {
                 begin.acquire();
                 if (last==stopSignal) return;
@@ -220,6 +221,12 @@ private:
                 done.release();
             }
         });
+
+        // Confirm the stereo helper really entered its worker thread before
+        // allowing the DAW to issue the first audio block.
+        if (right.joinable()) while (!rightReady.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        workerReady.store(1,std::memory_order_release);
 
         std::uint64_t next=0;
         for (;;) {
