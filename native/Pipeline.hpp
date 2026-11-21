@@ -33,9 +33,10 @@ public:
         if (inputChannels<1 || inputChannels>2 || hostBlock<1 || hostBlock>4096) return false;
         delay=playbackLatency(hostBlock);
         sampleRate=rate;
+        for(auto& value:lastSubstepInput)value={};
         channels=inputChannels;
         for (int ch=0;ch<channels;++ch)
-            if (!laneSolvers[ch].prepare(rate)) return false;
+            if (!laneSolvers[ch].prepare(rate*internalFactor)) return false;
 #ifdef _WIN32
         if (!event) event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
         if (!event) return false;
@@ -167,7 +168,14 @@ private:
             if (linked) lane.setPeerLinkVoltage(peer.volts[index]);
             auto settings=sample.settings;
             settings[19]=linked;
-            const auto result=lane.step({sample.values[0],sample.values[1]},settings);
+            const auto now=sample.values;
+            const auto& previousInput=lastSubstepInput[channel];
+            const Solver::Frame midpoint{
+                (double(previousInput[0])+now[0])*.5,
+                (double(previousInput[1])+now[1])*.5};
+            lane.step(midpoint,settings);
+            const auto result=lane.step({now[0],now[1]},settings);
+            lastSubstepInput[channel]=now;
             auto& out=output[frame&mask];
             out.values[channel]=float(result[channel]);
             out.meter[channel]=float(std::max(0.0,lane.meterVolts()[channel]*6.9));
@@ -188,7 +196,7 @@ private:
         prepareWorker();
         // Prime the nonlinear circuit and solver on its real worker, then
         // restore the canonical settled starting state (160 warm-start fix).
-        const double sr=sampleRate;
+        const double sr=sampleRate*internalFactor;
         const auto warmControls=defaults;
         for (int ch=0;ch<channels;++ch) {
             auto& lane=laneSolvers[ch];
@@ -253,6 +261,8 @@ private:
         }
     }
     std::array<LinkState,2> linkState{};
+    static constexpr int internalFactor=2;
+    std::array<std::array<float,2>,2> lastSubstepInput{};
     std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};
