@@ -1,4 +1,4 @@
-name: 609 MKII trapezoid 1024 warm-start candidate build and DLL validation
+name: 609 MK III trapezoid 1024 warm-start build and DLL validation
 on:
   push:
     branches: [609-mkii-trap-1024-warmstart]
@@ -28,13 +28,13 @@ jobs:
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         with:
-          name: 609-MKII-Trap-1024-WarmStart-Windows-VST3
+          name: 609-MK-III-Trap-1024-WarmStart-Windows-VST3
           path: build-plugin/Compressor609_artefacts/Release/VST3/
           if-no-files-found: error
       - name: Measure DLL spectral response, K2-K20, THD
         shell: pwsh
         run: |
-          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MKII.vst3').Path
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
           $test=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
           New-Item -ItemType Directory -Force candidate-results/spectra | Out-Null
           foreach ($mode in @('through','compressor','limiter','both')) {
@@ -54,7 +54,7 @@ jobs:
       - name: Measure actual DLL ratio, attack and recovery traces
         shell: pwsh
         run: |
-          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MKII.vst3').Path
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
           $test=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
           New-Item -ItemType Directory -Force candidate-results/dynamics | Out-Null
           # Ratio slopes from +0 to +10 dBu, all five ratios, compressor 100 ms recovery.
@@ -90,6 +90,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: 609-MKII-Trap-1024-packaged-DLL-validation
+          name: 609-MK-III-Trap-1024-packaged-DLL-validation
           path: candidate-results/
           if-no-files-found: warn
