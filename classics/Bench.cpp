@@ -63,7 +63,7 @@ bool run(int channels, bool linked) {
 // Emit the solved waveform before host buffering. The analysis uses a centred
 // single-cycle fundamental envelope and excludes wall clock scheduling.
 int trace(int argc, char** argv) {
-    if (argc != 12) return 2;
+    if (argc != 12 && argc != 14) return 2;
     const bool limiter = std::atoi(argv[2]) == 1;
     const int ratio = std::atoi(argv[3]), recovery = std::atoi(argv[4]);
     const int threshold = std::atoi(argv[5]), fast = std::atoi(argv[6]);
@@ -73,12 +73,12 @@ int trace(int argc, char** argv) {
     if (ratio < 1 || ratio > 5 || recovery < 1 || recovery > 6 ||
         threshold < 1 || threshold > (limiter ? 23 : 16) ||
         !(duration > .05 && duration <= 8 && tail > .05 && tail <= 16 &&
-          frequency >= 100 && frequency <= 10000 && low >= -100 && high <= 26 && high > low))
+          frequency >= 20 && frequency <= 20000 && low >= -100 && high <= 26 && high > low))
         return 2;
     auto settings = defaults;
     settings[19] = 0;
-    settings[6] = !limiter;
-    settings[7] = limiter;
+    settings[6] = argc == 14 ? (std::atoi(argv[12]) != 0) : !limiter;
+    settings[7] = argc == 14 ? (std::atoi(argv[13]) != 0) : limiter;
     settings[8] = fast != 0;
     settings[limiter ? 4 : 0] = threshold;
     settings[limiter ? 5 : 2] = recovery;
