@@ -1,6 +1,7 @@
 #pragma once
 #include "Api.hpp"
 #include "Circuit.hpp"
+#include "BandlimitedHalf.hpp"
 #include <atomic>
 #include <chrono>
 #include <numbers>
@@ -33,7 +34,6 @@ public:
         if (inputChannels<1 || inputChannels>2 || hostBlock<1 || hostBlock>4096) return false;
         delay=playbackLatency(hostBlock);
         sampleRate=rate;
-        for(auto& value:lastSubstepInput)value={};
         channels=inputChannels;
         for (int ch=0;ch<channels;++ch)
             if (!laneSolvers[ch].prepare(rate*internalFactor)) return false;
@@ -169,13 +169,11 @@ private:
             auto settings=sample.settings;
             settings[19]=linked;
             const auto now=sample.values;
-            const auto& previousInput=lastSubstepInput[channel];
             const Solver::Frame midpoint{
-                (double(previousInput[0])+now[0])*.5,
-                (double(previousInput[1])+now[1])*.5};
+                BandlimitedHalf::interpolate(frame,[this](std::uint64_t t) {return double(input[t&mask].values[0]);}),
+                BandlimitedHalf::interpolate(frame,[this](std::uint64_t t) {return double(input[t&mask].values[1]);})};
             lane.step(midpoint,settings);
             const auto result=lane.step({now[0],now[1]},settings);
-            lastSubstepInput[channel]=now;
             auto& out=output[frame&mask];
             out.values[channel]=float(result[channel]);
             out.meter[channel]=float(std::max(0.0,lane.meterVolts()[channel]*6.9));
@@ -227,13 +225,14 @@ private:
         for (;;) {
             const auto available=written.load(std::memory_order_acquire);
             if (available==stopSignal) break;
-            if (available==next) {wait(available);continue;}
+            const auto ready=available>BandlimitedHalf::future ? available-BandlimitedHalf::future : 0;
+            if (ready==next) {wait(available);continue;}
             const auto wantsLink=[&](std::uint64_t frame) {
                 const auto& settings=input[frame&mask].settings;
                 return channels==2 && settings[19] && settings[20];
             };
             linked=wantsLink(next);
-            const auto limit=std::min(available,next+512);
+            const auto limit=std::min(ready,next+512);
             auto end=next+1;
             while (end<limit && wantsLink(end)==linked) ++end;
             if (linked) {
@@ -262,7 +261,6 @@ private:
     }
     std::array<LinkState,2> linkState{};
     static constexpr int internalFactor=2;
-    std::array<std::array<float,2>,2> lastSubstepInput{};
     std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};
