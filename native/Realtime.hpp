@@ -34,6 +34,7 @@ public:
         sections[0]=retune({.87855588,-.20367940,-.04843757,-.12000398,.04963765},rate/baseRate);
         sections[1]=retune({1.,-.22176785,.05458820,-.48687517,.04769670},rate/baseRate);
         highFrequency=fitAudioShelf();
+        presence=fitPresence();
         const double initPeriod=rate/(2*1000);
         for (auto& ch:channels) {
             ch.spectral.prepare(rate);
@@ -76,26 +77,37 @@ public:
             ch.spectral.configure(static_cast<int>(ch.ct),cr+1,ch.lt,lr,fast);
             bassTransient.configure(i,cr+1,ct+1,cm+1);
             ch.makeupDb=ch.compress?measured::makeup[cg]:0;
-            const auto& compressor=measured::compressor[cr][ct];
+            const auto& compressor=measured::compressor[cr];
+            constexpr std::array ratios{1.5,2.,3.,4.,6.};
             ch.limiter=measured::limiter[fast][lt];
             // The compressor RC constants are in control volts. The bridge
             // converts them to the shorter front-panel recovery times in dB.
-            constexpr std::array compRelease{.182,.596,1.102,1.958};
-            constexpr std::array compAuto{.090,.046};
-            constexpr std::array limRelease{.022,.047,.0965,.396,.085,.036};
-            constexpr std::array compAttack{.003,.0075,.015};
-            constexpr std::array compTail{2.,5.};
+            constexpr std::array compRelease{.180,.631,1.199,2.162};
+            constexpr std::array compAuto{.132,.062};
+            constexpr std::array limRelease{.022,.047,.0965,.396,.156,.057};
+            constexpr std::array compAttack{.00278,.00693,.0138};
+            constexpr std::array compTail{1.855,4.417};
+            constexpr std::array compHold{.598,.858};
+            constexpr std::array compCharge{.245,.281};
             // The limiter is measured in output dB. The live feedback loop
             // settles the output earlier than its timing capacitor settles.
-            constexpr std::array limiterGainTail{.33,1.80};
+            constexpr std::array limiterGainTail{1.117,3.431};
             std::copy_n(compressor,ch.staticReduction.size(),ch.staticReduction.begin());
+            ch.reductionSlopes.front()=0.;
+            for (std::size_t k=1;k+1<ch.reductionSlopes.size();++k) {
+                const auto left=(compressor[k]-compressor[k-1])/(measured::compLevels[k]-measured::compLevels[k-1]);
+                const auto right=(compressor[k+1]-compressor[k])/(measured::compLevels[k+1]-measured::compLevels[k]);
+                ch.reductionSlopes[k]=(left>0. && right>0.)?2.*left*right/(left+right):0.;
+            }
+            ch.reductionSlopes.back()=1.-1./ratios[cr];
             const double attackSeconds=compAttack[std::clamp(attackMode,0,2)];
             ch.fixedAttack=-std::expm1(-1/(rate*attackSeconds));
-            if (cm>=4 && !ch.autoRelease) ch.comp.memory=voltsForGain(ch.compSmooth)-states.front();
+            if (cm>=4 && !ch.autoRelease) ch.comp.memory=ch.compSmooth;
             ch.autoRelease=cm>=4;
             ch.voltRelease=1/(rate*compRelease[std::min(cm,3)]);
             ch.attack=1/(rate*pulseAttack);
-            if (ch.autoRelease) ch.comp.setup(rate,attackSeconds,compAuto[cm-4],compTail[cm-4],cm==4?.80:.91);
+            if (ch.autoRelease) ch.comp.setup(rate,attackSeconds,compAuto[cm-4],compTail[cm-4],
+                                             compHold[cm-4],compCharge[cm-4]);
             for (std::size_t k=0;k<ch.chargeCurve.size();++k) {
                 const double reduction=std::max(0.0f,compressor[k]);
                 const auto voltage=voltsForGain(reduction);
@@ -119,8 +131,8 @@ public:
                 ch.chargeCurve[k][0]=std::max(ch.chargeCurve[k][0],ch.chargeCurve[k-1][0]+1e-6);
                 ch.chargeCurve[k][1]=std::max(ch.chargeCurve[k][1],ch.chargeCurve[k-1][1]);
             }
-            ch.lim.setup(rate,fast?.00065:.00142,limRelease[lr],
-                         lr>=4?limiterGainTail[lr-4]:0.,lr==4?.60:.78);
+            ch.lim.setup(rate,fast?.00060:.00140,limRelease[lr],
+                         lr>=4?limiterGainTail[lr-4]:0.,lr==4?.451:.819,lr==4?.172:.214);
         }
     }
 
@@ -179,22 +191,34 @@ public:
             const double current=pulse*(24-ch.charge)*ch.attack*pulseScale*
                 std::max(.2,1-.15925579*transient+0.0523322195*weight*bias);
             ch.charge=std::clamp(ch.charge+current-(ch.charge-.582)*ch.voltRelease,.582,18.);
-            const double relative=level-ch.ct;
+            // Align the bounded peak detector with the SPICE input reference.
+            const double relative=level-ch.ct+.25;
             const auto& axis=measured::compLevels;
             const auto& curve=ch.staticReduction;
             double wanted=0.;
             if (ch.compress) {
                 const auto upper=std::upper_bound(std::begin(axis),std::end(axis),relative);
                 const auto k=std::clamp<std::size_t>(upper-std::begin(axis),1,curve.size()-1);
-                const double fraction=std::clamp((relative-axis[k-1])/(axis[k]-axis[k-1]),0.,2.);
-                wanted=std::max(0.,std::lerp(double(curve[k-1]),double(curve[k]),fraction));
+                const double width=axis[k]-axis[k-1];
+                const double t=std::clamp((relative-axis[k-1])/width,0.,1.);
+                const double slope=(curve[k]-curve[k-1])/width;
+                // Cubic Hermite interpolation preserves the four measurements.
+                // The slope grows smoothly from unity to the marked ratio.
+                wanted=std::lerp(double(curve[k-1]),double(curve[k]),t)
+                    +width*t*(1.-t)*((1.-t)*(ch.reductionSlopes[k-1]-slope)
+                                     -t*(ch.reductionSlopes[k]-slope));
+                wanted=std::clamp(wanted+std::max(0.,relative-axis[ch.staticReduction.size()-1])
+                                  *ch.reductionSlopes.back(),0.,48.);
             }
+            // The JD's attack stretches at lighter compression. The stock
+            // and optional attack positions share that measured taper.
+            const double riseScale=std::lerp(.39,1.,std::clamp((wanted-5.)/12.,0.,1.));
             if (ch.autoRelease) {
                 ch.comp.gain=ch.compSmooth;
-                ch.compSmooth=ch.comp.update(wanted,true);
+                ch.compSmooth=ch.comp.update(wanted,riseScale);
             } else {
                 const double physical=ch.compress?gainForVolts(ch.charge):0.;
-                if (wanted>ch.compSmooth) ch.compSmooth+=ch.fixedAttack*(wanted-ch.compSmooth);
+                if (wanted>ch.compSmooth) ch.compSmooth+=riseScale*ch.fixedAttack*(wanted-ch.compSmooth);
                 else ch.compSmooth+=pulseFollow*(std::min(physical,ch.compSmooth)-ch.compSmooth);
             }
             const double comp=ch.compSmooth;
@@ -243,10 +267,10 @@ public:
             ch.evenMemory+=ch.harmonicDc*(evenHarmonics-ch.evenMemory);
             ch.previous=audio[i];
             const double drive=wet+harmonics-ch.harmonicMemory;
-            double evenCorrection=0;
+            double evenCorrection=0,jdCorrection=0;
             const double correction=ch.spectral.step(audio[i],drive,compressor[i],limiter[i],ch.compress,ch.limit,
-                !linked || std::abs(limiter[0]-limiter[1])<.15,evenCorrection);
-            const auto correctedWet=highFrequency.apply(wet,ch.highFrequencyHistory);
+                !linked || std::abs(limiter[0]-limiter[1])<.15,evenCorrection,jdCorrection);
+            const auto correctedWet=presence.apply(highFrequency.apply(wet,ch.highFrequencyHistory),ch.presenceHistory);
             double output=drive+correction+(correctedWet-wet);
             ch.averagedLimiterGain+=limitGainAverage*(levelGain-ch.averagedLimiterGain);
             const double referencePreamp=ch.preampSignal*ch.averagedLimiterGain;
@@ -269,7 +293,7 @@ public:
                 const double evenResidual=evenHarmonics-ch.evenMemory+evenCorrection;
                 output+=ch.limiterTrimMix*((1-odd)*(reference-drive-correction)+(even-odd)*evenResidual);
             } else ch.limiterTrimMix=0;
-            result[i]=active?output*std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
+            result[i]=active?(output+jdCorrection)*std::exp(bassCorrection[i]*.11512925464970228):input[i]*600/640.02;
         }
         return result;
     }
@@ -302,7 +326,7 @@ private:
         const double phase=std::acos(threshold);
         return (std::sin(phase)-threshold*phase)/std::numbers::pi;
     }
-    static Frame pulseThreshold(const std::array<std::array<double,3>,14>& a,double v) {
+    static Frame pulseThreshold(const std::array<std::array<double,3>,measured::compLevelCount>& a,double v) {
         if (v<=a.front()[0]) return {a.front()[1],a.front()[2]};
         for (std::size_t j=1;j<a.size();++j) {
             if (v<a[j][0]) {
@@ -322,10 +346,22 @@ private:
             return y;
         }
     };
+    Biquad fitPresence() const {
+        // The 10/20 kHz shelf passes through its anchor points. Flatten
+        // the intervening overshoot against the measured transformer's sweep.
+        const double centre=std::min(14500.,.39*rate);
+        const double omega=2*std::numbers::pi*centre/rate;
+        const double alpha=std::sin(omega)/(2*1.55);
+        const double gain=std::lerp(-.50,-.19,std::clamp((rate-44100)/51900,0.,1.));
+        const double peak=std::pow(10.,gain/40.);
+        const double a0=1+alpha/peak;
+        const double a1=-2*std::cos(omega)/a0;
+        return {(1+alpha*peak)/a0,a1,(1-alpha*peak)/a0,a1,(1-alpha/peak)/a0};
+    }
     Biquad fitAudioShelf() const {
         // The legacy filter fits the nodal solver at audio rate, where the
-        // integration step rolls off too early. Match the original circuit's
-        // SPICE transfer at 10 and 20 kHz in the audio path.
+        // integration step rolls off too early. Match the loaded JD SPICE response
+        // at 10 and 20 kHz in the audio path.
         const auto amplitude=[this](double frequency) {
             const auto z=std::polar(1.,-2*std::numbers::pi*frequency/rate);
             const auto z2=z*z;
@@ -341,8 +377,8 @@ private:
             const double gain=reference/amplitude(frequency)*std::pow(10.,spiceDb/20);
             return gain*gain;
         };
-        const double lowPower=desiredPower(low,-.24*high/20000);
-        const double highPower=desiredPower(high,-.44*high/20000);
+        const double lowPower=desiredPower(low,.205*high/20000);
+        const double highPower=desiredPower(high,.144*high/20000);
         const double lowTan=std::tan(std::numbers::pi*low/rate);
         const double highTan=std::tan(std::numbers::pi*high/rate);
         const double lowTan4=std::pow(lowTan,4),highTan4=std::pow(highTan,4);
@@ -388,33 +424,22 @@ private:
 
     struct Ballistics {
         double gain=0, memory=0, rise=0, fall=0, memoryRise=0, memoryFall=0, coupling=0;
-        void setup(double rate,double attack,double recovery,double tail,double weight) {
+        void setup(double rate,double attack,double recovery,double tail,double weight,double chargeTime) {
             const auto coefficient=[rate](double seconds) {return -std::expm1(-1/(rate*seconds));};
             rise=coefficient(attack);
             fall=coefficient(recovery);
-            memoryRise=coefficient(.24);
+            memoryRise=coefficient(chargeTime);
             memoryFall=tail>0?coefficient(tail):1.;
             coupling=tail>0?weight:0.;
             if (coupling==0.) memory=0.;
         }
-        double update(double wanted,bool voltageMemory=false) {
-            if (coupling>0. && !voltageMemory)
+        double update(double wanted,double riseScale=1.) {
+            if (coupling>0.)
                 memory+=(wanted-memory)*(wanted>memory?memoryRise:memoryFall);
-            if (wanted>=gain) {
-                gain+=rise*(wanted-gain);
-                if (coupling>0. && voltageMemory)
-                    memory+=memoryRise*(voltsForGain(gain)-states.front()-memory);
-            } else if (coupling>0.) {
-                // The second capacitor holds up the main envelope during
-                // recovery. Compressor memory uses the measured bridge law
-                // to convert between capacitor voltage and attenuation.
-                const double target=voltageMemory?voltsForGain(wanted)-states.front():wanted;
-                if (voltageMemory) memory+=memoryFall*(target-memory);
-                const double held=target+coupling*std::max(0.,memory-target);
-                const double floor=voltageMemory?gainForVolts(held+states.front()):held;
-                gain+=fall*(std::min(floor,gain)-gain);
-            } else {
-                gain+=fall*(wanted-gain);
+            if (wanted>=gain) gain+=riseScale*rise*(wanted-gain);
+            else {
+                const double held=wanted+coupling*std::max(0.,memory-wanted);
+                gain+=fall*(std::min(held,gain)-gain);
             }
             return gain;
         }
@@ -423,13 +448,14 @@ private:
     struct Channel {
         Ballistics comp,lim;
         SpectralCorrection spectral;
-        std::array<float,14> staticReduction{};
-        std::array<std::array<double,3>,14> chargeCurve{};
+        std::array<float,measured::compLevelCount> staticReduction{};
+        std::array<double,measured::compLevelCount> reductionSlopes{};
+        std::array<std::array<double,3>,measured::compLevelCount> chargeCurve{};
         double charge=.582,voltRelease=0,attack=0,fixedAttack=0,compSmooth=0;
         bool autoRelease=false;
         std::array<double,4> dcHistory{};
         std::array<std::array<double,2>,2> history{};
-        std::array<double,2> highFrequencyHistory{};
+        std::array<double,2> highFrequencyHistory{},presenceHistory{};
         double dc=0,harmonicDc=0,harmonicMemory=0,evenMemory=0,previous=0;
         double averagedLimiterGain=1,referenceTransformerMemory=0,limiterTrimMix=0;
         double preampSignal=0,preampMemory=0,transformerMemory=0,bassMemory=0;
@@ -465,7 +491,7 @@ private:
     };
 
     std::array<Biquad,2> sections{};
-    Biquad highFrequency;
+    Biquad highFrequency,presence;
     std::array<Channel,2> channels{};
     BassTransient bassTransient;
     int previousAttackMode=1;

@@ -27,6 +27,17 @@ hum amplitudes are −78 and −86 dBFS.
 
 ## Windows evaluation
 
-This branch evaluates a bounded model at 44.1 kHz and 512 samples. It adds zero samples of host latency. The compressor models the charging and recovery of the timing capacitor. The limiter uses a peak and smoothed detector, and the audio path uses measured harmonic residuals for coherent cycles.
+The VST3 embeds the component-level nodal solver. The build derives its circuit and operating point from the SPICE deck, and generates the sparse solve schedule at 44.1, 48 and 96 kHz. Host-rate integration and numerical device approximations can differ from ngspice's adaptive transient results.
 
-The [Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/native.yml) checks the VST3 in a paced test host against an 11.61 ms callback budget. The Timing Evaluation artifact includes the candidate plug-in and its stepped-sine results. The Real World Audio Test artifact requires the additional packaged smoke and harmonic parity checks. See [bounded parity results](docs/bounded-parity.md) for the remaining differences and the conflicting reference measurements.
+The VST3 runs independent 231-equation solvers for the left and right channels. A stereo track uses two workers and a mono track uses one. The plugin uses a three-block delay. At 44.1 kHz and 512 samples the host compensates 1,536 samples (34.8 ms). If the worker misses its deadline, the affected samples fall back to delay-aligned dry audio. Offline renders wait for the solved samples. The [nodal Windows workflow](https://github.com/jerrykilgore8995-dotcom/609/actions/workflows/nodal.yml) publishes the build and verifies offline renders against the native channel solvers.
+
+To build locally, install Python 3, NumPy and ngspice, then run:
+
+```sh
+cmake -S plugin -B build-plugin -DCMAKE_BUILD_TYPE=Release
+cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke
+```
+
+## Presets and JD conformance
+
+The VST3 footer includes a [30-preset bank](docs/presets.md) with documented 33609 applications and 609 starting points. The [JD measurement notes](docs/jd-stock-bounded.md) describe the stock ratio ladder, measured confidence, and how to run a resumable comparison between live SPICE and the loaded VST3.

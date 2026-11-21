@@ -12,7 +12,7 @@ import numpy as np
 from measure import CIRCUIT
 
 
-def simulate(settings, stop, signals, step=None, *, burst_ms=800):
+def simulate(settings, stop, signals, step=None, *, burst_ms=800, ngspice='ngspice'):
     deck = (CIRCUIT / '609.cir').read_text().rsplit('.end', 1)[0]
     for key, value in settings.items():
         deck, count = re.subn(r'(?<=\s)' + key + r'=[^\s{}]+(?=\s)', f'{key}={value}', deck, count=1)
@@ -42,7 +42,7 @@ quit
 .end
 '''
         (work / 'deck.cir').write_text(fixture)
-        run = subprocess.run(['ngspice', '-b', 'deck.cir'], cwd=work,
+        run = subprocess.run([ngspice, '-b', 'deck.cir'], cwd=work,
                              capture_output=True, text=True, timeout=600)
         if run.returncode or 'aborted' in run.stdout + run.stderr or not (work / 'trace.dat').is_file():
             raise RuntimeError(f'ngspice exit {run.returncode}: {run.stderr[-2000:]}\n{run.stdout[-500:]}')

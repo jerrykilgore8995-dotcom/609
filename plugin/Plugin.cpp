@@ -1,6 +1,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
-#include "../native/Realtime.hpp"
+#include "Presets.hpp"
+#include "../native/Pipeline.hpp"
 #include "../native/SupplyNoise.hpp"
 
 #include <algorithm>
@@ -25,8 +26,8 @@ const std::array<Parameter,9> controls{{
     {"lr","Limit Recovery",{"50","100","200","800","a1","a2"},3.3f},
     {"ce","Compress In",{}},{"le","Limit In",{}},{"fast","Fast Attack",{}}
 }};
-const std::array<const char*,6> modes{"in","stereo","power","external","remote_in","remote_stereo"};
-const std::array<const char*,6> modeTitles{"Bypass In","Stereo Link","Power","External Control","Remote Bypass In","Remote Stereo Link"};
+const std::array<const char*,4> modes{"in","power","external","remote_in"};
+const std::array<const char*,4> modeTitles{"Bypass In","Power","External Control","Remote Bypass In"};
 String parameterId(int channel,const char* name) {return String(channel+1)+"_"+name;}
 
 class Compressor final : public juce::AudioProcessor {
@@ -36,7 +37,7 @@ public:
                  state(*this,nullptr,"Settings",parameters()) {
         for (int ch=0;ch<2;++ch) for (int i=0;i<9;++i)
             channelParams[ch][i]=state.getRawParameterValue(parameterId(ch,controls[i].id));
-        for (int i=0;i<6;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
+        for (int i=0;i<4;++i) modeParams[i]=state.getRawParameterValue(modes[i]);
         noiseParam=state.getRawParameterValue("noise");
         attackParam=state.getRawParameterValue("comp_attack");
     }
@@ -57,19 +58,22 @@ public:
         return input==layout.getMainOutputChannelSet() &&
                (input==juce::AudioChannelSet::mono() || input==juce::AudioChannelSet::stereo());
     }
-    void prepareToPlay(double rate,int) override {
-        engine.prepare(rate);
-        ready=true;
+    void prepareToPlay(double rate,int blockSize) override {
+        ready=engine.prepare(rate,getTotalNumInputChannels(),blockSize);
         supplyNoise.prepare(rate);
-        setLatencySamples(0);
+        setLatencySamples(ready?mkii::native::playbackLatency(blockSize):0);
     }
-    void releaseResources() override {ready=false;}
+    void releaseResources() override {engine.stop();ready=false;}
     void processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {process(audio,false);}
     void processBlockBypassed(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {process(audio,true);}
     void getStateInformation(juce::MemoryBlock& data) override {copyXmlToBinary(*state.copyState().createXml(),data);}
     void setStateInformation(const void* data,int size) override {
         if (auto xml=getXmlFromBinary(data,size);xml && xml->hasTagName(state.state.getType())) {
             auto saved=juce::ValueTree::fromXml(*xml);
+            for (const auto* removed:{"stereo","remote_stereo"}) {
+                auto entry=saved.getChildWithProperty("id",removed);
+                if (entry.isValid()) saved.removeChild(entry,nullptr);
+            }
             if (!saved.getChildWithProperty("id","comp_attack").isValid()) {
                 juce::ValueTree attack("PARAM");
                 attack.setProperty("id","comp_attack",nullptr);
@@ -78,6 +82,43 @@ public:
             }
             state.replaceState(saved);
         }
+    }
+    void applyPreset(const mkii::presets::Setting& preset) {
+        const auto write = [this](const String& id, int value) {
+            auto* parameter = state.getParameter(id);
+            const auto normalized = parameter->convertTo0to1(static_cast<float>(value));
+            if (parameter->getValue() == normalized) return;
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost(normalized);
+            parameter->endChangeGesture();
+        };
+        const auto values = mkii::presets::detents(preset);
+        for (int ch=0; ch<2; ++ch)
+            for (std::size_t i=0; i<values.size(); ++i)
+                write(parameterId(ch,controls[i].id), values[i]);
+        write("in",1);
+        write("power",1);
+        write("external",0);
+        write("comp_attack",preset.attack);
+    }
+    int matchingPreset(int preferred) const {
+        if (modeParams[0]->load()==0 || modeParams[1]->load()==0 || modeParams[2]->load()!=0)
+            return 0;
+        const auto matches = [this](const mkii::presets::Setting& preset) {
+            if (attackParam->load()!=preset.attack)
+                return false;
+            const auto values = mkii::presets::detents(preset);
+            for (const auto& channel : channelParams)
+                for (std::size_t i=0; i<values.size(); ++i)
+                    if (channel[i]->load()!=values[i]) return false;
+            return true;
+        };
+        const auto& bank = mkii::presets::bank;
+        if (preferred>0 && preferred<=static_cast<int>(bank.size()) && matches(bank[preferred-1]))
+            return preferred;
+        for (std::size_t i=0; i<bank.size(); ++i)
+            if (matches(bank[i])) return static_cast<int>(i)+1;
+        return 0;
     }
     juce::AudioProcessorValueTreeState state;
     std::array<std::atomic<float>,2> meters{};
@@ -92,8 +133,8 @@ private:
             else layout.add(std::make_unique<juce::AudioParameterChoice>(id,title,setting.values,
                 mkii::native::defaults[ch*9+i]-1));
         }
-        for (int i=0;i<6;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
-            juce::ParameterID{modes[i],1},modeTitles[i],i==0 || i==2 || i==4));
+        for (int i=0;i<4;++i) layout.add(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{modes[i],1},modeTitles[i],i!=2));
         layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"noise",1},"PSU Noise",false));
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"comp_attack",1},"Compressor Attack",juce::StringArray{"JD (3 ms)","7.5 ms","15 ms"},0));
         return layout;
@@ -104,31 +145,24 @@ private:
         mkii::native::Controls positions;
         for (int ch=0;ch<2;++ch) for (int i=0;i<9;++i)
             positions[ch*9+i]=static_cast<int>(channelParams[ch][i]->load())+(i<6?1:0);
-        const bool remote=modeParams[3]->load()>0.5f;
-        positions[18]=modeParams[remote?4:0]->load()>0.5f;
-        positions[19]=modeParams[remote?5:1]->load()>0.5f;
-        positions[20]=modeParams[2]->load()>0.5f;
-        engine.control(positions,static_cast<int>(attackParam->load()));
-        auto* const left=audio.getWritePointer(0);
-        auto* const right=audio.getNumChannels()==2?audio.getWritePointer(1):nullptr;
-        for (int frame=0;frame<audio.getNumSamples();++frame) {
-            const auto wet=engine.step({left[frame],right?right[frame]:0.0});
-            if (dry) continue;
-            left[frame]=static_cast<float>(wet[0]);
-            if (right) right[frame]=static_cast<float>(wet[1]);
-        }
+        const bool remote=modeParams[2]->load()>0.5f;
+        positions[18]=modeParams[remote?3:0]->load()>0.5f;
+        positions[19]=0;
+        positions[20]=modeParams[1]->load()>0.5f;
+        positions[mkii::native::compressorAttackControl]=static_cast<int>(attackParam->load());
+        engine.process(audio.getArrayOfWritePointers(),audio.getNumSamples(),positions,isNonRealtime(),dry);
         if (dry || !positions[18] || !positions[20]) supplyNoise.silence();
         else supplyNoise.process(audio.getArrayOfWritePointers(),audio.getNumChannels(),audio.getNumSamples(),
                                  noiseParam->load()>0.5f);
-        const auto current=engine.gainReduction();
+        const auto current=engine.readMeters();
         for (int i=0;i<2;++i) meters[i].store(dry?0.0f:static_cast<float>(current[i]));
     }
-    mkii::native::Realtime engine;
+    mkii::native::Pipeline engine;
     mkii::native::SupplyNoise supplyNoise;
     const std::atomic<float>* attackParam=nullptr;
     const std::atomic<float>* noiseParam=nullptr;
     std::array<std::array<const std::atomic<float>*,9>,2> channelParams{};
-    std::array<const std::atomic<float>*,6> modeParams{};
+    std::array<const std::atomic<float>*,4> modeParams{};
     bool ready=false;
 };
 
@@ -151,7 +185,7 @@ public:
                 dialBindings.push_back(std::make_unique<DialBinding>(processor.state,id,knob));
             } else bindToggle(switches[ch][i-6],id,controls[i].title);
         }
-        for (int i=0;i<4;++i) bindToggle(chassis[i],modes[i],modeTitles[i]);
+        for (int i=0;i<3;++i) bindToggle(chassis[i],modes[i],modeTitles[i]);
         noise.setButtonText("PSU NOISE");
         addAndMakeVisible(noise);
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,"noise",noise));
@@ -162,6 +196,25 @@ public:
         attackSwitch.setName("Compressor Attack");
         addAndMakeVisible(attackSwitch);
         dialBindings.push_back(std::make_unique<DialBinding>(processor.state,"comp_attack",attackSwitch));
+        presetBox.setName("33609 presets");
+        presetBox.setTextWhenNothingSelected("Choose a preset");
+        presetBox.setColour(juce::ComboBox::backgroundColourId,juce::Colour(0xff20252b));
+        presetBox.setColour(juce::ComboBox::outlineColourId,juce::Colour(0xff4d5158));
+        const auto& bank = mkii::presets::bank;
+        String group;
+        for (std::size_t i=0; i<bank.size(); ++i) {
+            if (group!=bank[i].group) {
+                group=bank[i].group;
+                presetBox.addSectionHeading(group);
+            }
+            presetBox.addItem(bank[i].name,static_cast<int>(i)+1);
+        }
+        presetBox.onChange = [this] {
+            const int selected=presetBox.getSelectedId();
+            if (selected>0) processor.applyPreset(mkii::presets::bank[selected-1]);
+        };
+        presetBox.setSelectedId(processor.matchingPreset(0),juce::dontSendNotification);
+        addAndMakeVisible(presetBox);
         setSize(1200,275);
         startTimerHz(30);
     }
@@ -179,9 +232,12 @@ public:
             for (int i=0;i<6;++i) knobs[ch][i].setBounds(x[i]-24,y-24,48,48);
             for (int i=0;i<3;++i) switches[ch][i].setBounds(sx[i]-10,y-17,20,34);
         }
+        presetBox.setBounds(106,232,252,30);
         noise.setBounds(1045,221,112,24);
         attackSwitch.setBounds(710,230,20,38);
-        for (int i=0;i<4;++i) chassis[i].setBounds(i<2?707:1049,35+91*(i<2?i%2:1-i%2),60,61);
+        chassis[0].setBounds(707,35,60,61);
+        chassis[1].setBounds(1049,126,60,61);
+        chassis[2].setBounds(1049,35,60,61);
     }
     void paint(juce::Graphics& g) override {
         const auto dark=juce::Colour(0xff202d42), light=juce::Colour(0xff33445f);
@@ -221,6 +277,7 @@ public:
             label(g,"LIMIT "+String(ch+1),148,y+83,130,15,11);
             label(g,"COMPRESS "+String(ch+1),445,y+83,154,15,11);
         }
+        label(g,"PRESET",45,232,59,30,10);
         label(g,"COMP ATTACK L/R",580,238,120,20,10);
         label(g,"15 ms",732,230,55,10,9);
         label(g,"7.5 ms",732,244,55,10,9);
@@ -366,8 +423,8 @@ private:
                 label(g,"POWER",0,20,button.getWidth(),21,10,juce::Colour(0xff25251c));
                 return;
             }
-            const String top=name=="Bypass In"?"BYPASS":name=="Stereo Link"?"MONO":"EXT";
-            const String bottom=name=="Bypass In"?"IN":name=="Stereo Link"?"STEREO":"INT";
+            const String top=name=="Bypass In"?"BYPASS":"EXT";
+            const String bottom=name=="Bypass In"?"IN":"INT";
             const bool topActive=name=="External Control"?active:!active;
             const auto topFace=interior.withTrimmedBottom(interior.getHeight()/2+.5f);
             const auto bottomFace=interior.withTrimmedTop(interior.getHeight()/2+.5f);
@@ -391,6 +448,9 @@ private:
         toggleBindings.push_back(std::make_unique<ToggleBinding>(processor.state,id,button));
     }
     void timerCallback() override {
+        const int selected=presetBox.getSelectedId();
+        const int match=processor.matchingPreset(selected);
+        if (selected!=match) presetBox.setSelectedId(match,juce::dontSendNotification);
         static const std::array<juce::Rectangle<int>,2> meterBounds{{
             {792,26,113,101}, {914,88,113,101}
         }};
@@ -406,8 +466,9 @@ private:
     Face face;
     std::array<std::array<juce::Slider,6>,2> knobs;
     std::array<std::array<juce::ToggleButton,3>,2> switches;
-    std::array<juce::ToggleButton,4> chassis;
+    std::array<juce::ToggleButton,3> chassis;
     juce::ToggleButton noise;
+    juce::ComboBox presetBox;
     juce::Slider attackSwitch;
     std::vector<std::unique_ptr<DialBinding>> dialBindings;
     std::vector<std::unique_ptr<ToggleBinding>> toggleBindings;

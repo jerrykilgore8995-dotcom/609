@@ -1,7 +1,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include "../native/Realtime.hpp"
+#include "Presets.hpp"
+#include "../native/Api.hpp"
+#include "../native/Circuit.hpp"
 #include "../native/DynamicsProbe.hpp"
 #include "../native/PlaybackClock.hpp"
 
@@ -13,6 +15,7 @@
 #include <iomanip>
 #include <cmath>
 #include <numbers>
+#include <string>
 #include <string_view>
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
@@ -25,6 +28,45 @@ bool setControl(juce::AudioProcessor& plugin,const juce::String& name,float valu
         return true;
     }
     std::cerr<<"VST3 parameter not found: "<<name<<'\n';
+    return false;
+}
+
+bool checkPresets(juce::AudioProcessor& plugin, juce::AudioProcessorEditor& editor) {
+    juce::ComboBox* box=nullptr;
+    for (auto* child : editor.getChildren())
+        if (child->getName()=="33609 presets") box=dynamic_cast<juce::ComboBox*>(child);
+    if (!box || box->getNumItems()!=static_cast<int>(mkii::presets::bank.size())) return false;
+    const auto check=[&](const juce::String& name,float value) {
+        for (const auto* parameter : plugin.getParameters())
+            if (parameter->getName(100)==name) return std::abs(parameter->getValue()-value)<1e-6f;
+        return false;
+    };
+    constexpr std::array<const char*,9> names{"Compress Threshold","Compress Ratio","Compress Recovery",
+        "Compress Gain","Limit Threshold","Limit Recovery","Compress In","Limit In","Fast Attack"};
+    constexpr std::array upper{15,4,5,10,22,5,1,1,1};
+    for (std::size_t i=0; i<mkii::presets::bank.size(); ++i) {
+        const auto& preset=mkii::presets::bank[i];
+        box->setSelectedId(static_cast<int>(i)+1,juce::sendNotificationSync);
+        const auto values=mkii::presets::detents(preset);
+        for (int channel : {1,2}) {
+            const auto prefix="Channel "+juce::String(channel)+" ";
+            for (std::size_t j=0; j<values.size(); ++j)
+                if (!check(prefix+names[j],float(values[j])/upper[j])) return false;
+        }
+        if (!check("Compressor Attack",preset.attack/2.f)) return false;
+    }
+    juce::MemoryBlock state;
+    plugin.getStateInformation(state);
+    std::unique_ptr<juce::AudioProcessor> restored(createPluginFilter());
+    restored->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+    std::unique_ptr<juce::AudioProcessorEditor> panel(restored->createEditorIfNeeded());
+    if (!panel) return false;
+    for (auto* child : panel->getChildren())
+        if (const auto* recalled=dynamic_cast<const juce::ComboBox*>(child))
+            if (recalled->getName()=="33609 presets" && recalled->getSelectedId()==box->getSelectedId()) {
+                std::cout<<"Preset recall and save/restore passed for "<<box->getNumItems()<<" presets\n";
+                return true;
+            }
     return false;
 }
 
@@ -51,13 +93,14 @@ bool traceDynamics(juce::AudioProcessor& plugin, const mkii::native::DynamicsPro
     juce::MidiBuffer midi;
     const int frames=int(std::ceil(probe.stop*probe.rate))+1;
     std::cout << std::setprecision(12);
-    for (int offset=0;offset<frames;offset+=block) {
+    const int latency=plugin.getLatencySamples();
+    for (int offset=0;offset<frames+latency;offset+=block) {
         audio.clear();
         for (int n=0;n<block;++n)
             audio.setSample(0,n,float(probe.input(double(offset+n)/probe.rate)));
         plugin.processBlock(audio,midi);
-        for (int n=0;n<std::min(block,frames-offset);++n)
-            std::cout << double(offset+n)/probe.rate << ' ' << audio.getSample(0,n) << '\n';
+        for (int n=std::max(0,latency-offset);n<std::min(block,frames+latency-offset);++n)
+            std::cout << double(offset+n-latency)/probe.rate << ' ' << audio.getSample(0,n) << '\n';
     }
     plugin.releaseResources();
     return true;
@@ -67,7 +110,6 @@ bool checkSupplyNoise(juce::AudioProcessor& plugin) {
     constexpr int rate=44100,blockSize=512,settle=8192;
     constexpr int fft=4096,pinkBin=93;
     constexpr double tau=2*std::numbers::pi;
-    if (!setControl(plugin,"Stereo Link",0)) return false;
     for (int channel=1;channel<=2;++channel) {
         const auto prefix="Channel "+juce::String(channel)+" ";
         if (!setControl(plugin,prefix+"Limit In",0) || !setControl(plugin,prefix+"Compress In",0)) return false;
@@ -122,17 +164,19 @@ std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin
     juce::MidiBuffer midi;
     plugin.prepareToPlay(rate,blockSize);
     std::array<std::complex<double>,20> spectrum{};
-    for (int frame=0;frame<duration;frame+=blockSize) {
+    const int latency=plugin.getLatencySamples();
+    for (int frame=0;frame<duration+latency;frame+=blockSize) {
         for (int i=0;i<blockSize;++i) {
             const auto x=static_cast<float>(level*std::sin(omega*(frame+i)));
             block.setSample(0,i,x);
             block.setSample(1,i,x);
         }
         plugin.processBlock(block,midi);
-        for (int i=0;i<blockSize && frame+i<duration;++i) {
-            if (frame+i<duration-window) continue;
+        for (int i=0;i<blockSize && frame+i<duration+latency;++i) {
+            const int source=frame+i-latency;
+            if (source<duration-window) continue;
             const auto y=static_cast<double>(block.getSample(0,i));
-            const auto root=std::polar(1.,-omega*(frame+i));
+            const auto root=std::polar(1.,-omega*source);
             auto oscillator=root;
             for (auto& bin:spectrum) {bin+=y*oscillator;oscillator*=root;}
         }
@@ -141,8 +185,49 @@ std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin
     return spectrum;
 }
 
+bool runJdCase(juce::AudioProcessor& plugin,char** args) {
+    constexpr int rate=44100,blockSize=512;
+    constexpr std::array<const char*,9> names{"Compress Threshold","Compress Ratio","Compress Recovery",
+        "Compress Gain","Limit Threshold","Limit Recovery","Compress In","Limit In","Fast Attack"};
+    constexpr std::array upper{15,4,5,10,22,5,1,1,1};
+    for (std::size_t i=0; i<names.size(); ++i)
+        if (!setControl(plugin,"Channel 1 "+juce::String(names[i]),std::stof(args[i])/upper[i])) return false;
+    if (!setControl(plugin,"Compressor Attack",std::stof(args[9])/2.f)) return false;
+    const auto frequency=std::stod(args[10]), low=std::stod(args[11]), high=std::stod(args[12]);
+    const auto burst=std::stod(args[13]), stop=std::stod(args[14]);
+    plugin.setNonRealtime(true);
+    std::cout<<std::setprecision(12);
+    if (burst==0.) {
+        const auto durationTenths=static_cast<int>(std::ceil(stop*10));
+        const auto spectrum=measureSpectrum(plugin,frequency,high,rate,durationTenths);
+        for (const auto& bin:spectrum)
+            std::cout<<bin.real()*(10./rate)<<' '<<bin.imag()*(10./rate)<<'\n';
+        return true;
+    }
+    plugin.prepareToPlay(rate,blockSize);
+    juce::AudioBuffer<float> block(2,blockSize);
+    juce::MidiBuffer midi;
+    const int frames=static_cast<int>(std::ceil(stop*rate))+1;
+    const auto peak=[](double db) {return std::pow(10.,(db-24.)/20.);};
+    const auto quiet=peak(low), loud=peak(high);
+    const auto omega=2*std::numbers::pi*frequency;
+    const int latency=plugin.getLatencySamples();
+    for (int frame=0;frame<frames+latency;frame+=blockSize) {
+        block.clear();
+        for (int i=0;i<blockSize;++i) {
+            const auto time=double(frame+i)/rate;
+            block.setSample(0,i,static_cast<float>((time>=.45 && time<.45+burst?loud:quiet)*std::sin(time*omega)));
+        }
+        plugin.processBlock(block,midi);
+        for (int i=std::max(0,latency-frame);i<blockSize && frame+i<frames+latency;++i)
+            std::cout<<double(frame+i-latency)/rate<<' '<<block.getSample(0,i)<<'\n';
+    }
+    plugin.releaseResources();
+    return true;
+}
+
 bool checkThroughResponse(juce::AudioProcessor& plugin) {
-    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0) ||
+    if (!setControl(plugin,"PSU Noise",0) ||
         !setControl(plugin,"Bypass In",1) || !setControl(plugin,"Power",1)) return false;
     for (int channel=1;channel<=2;++channel) {
         const auto prefix="Channel "+juce::String(channel)+" ";
@@ -162,7 +247,7 @@ bool checkThroughResponse(juce::AudioProcessor& plugin) {
 }
 
 bool checkRatioThd(juce::AudioProcessor& plugin) {
-    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0)) return false;
+    if (!setControl(plugin,"PSU Noise",0)) return false;
     bool valid=true;
     for (int detent=0;detent<5;++detent) {
         for (int channel=1;channel<=2;++channel) {
@@ -185,7 +270,7 @@ bool checkRatioThd(juce::AudioProcessor& plugin) {
 }
 
 bool checkLimiterDistortion(juce::AudioProcessor& plugin) {
-    if (!setControl(plugin,"Stereo Link",0) || !setControl(plugin,"PSU Noise",0)) return false;
+    if (!setControl(plugin,"PSU Noise",0)) return false;
     for (int channel=1;channel<=2;++channel) {
         const auto prefix="Channel "+juce::String(channel)+" ";
         if (!setControl(plugin,prefix+"Compress In",0) ||
@@ -241,7 +326,8 @@ int main(int argc,char** argv) {
     std::cerr<<std::unitbuf;
     const bool offline=argc==3 && std::string_view(argv[2])=="--offline";
     const bool dynamics=argc==11 && std::string_view(argv[2])=="--jd-timing";
-    if (argc!=2 && !offline && !dynamics) {
+    const bool jdCase=argc==18 && std::string_view(argv[2])=="--jd-case";
+    if (argc!=2 && !offline && !dynamics && !jdCase) {
         std::cerr<<"Expected one VST3 bundle argument\n";
         return 2;
     }
@@ -265,6 +351,7 @@ int main(int argc,char** argv) {
         std::cerr<<error<<'\n';
         return 4;
     }
+    if (jdCase) return runJdCase(*vst,argv+3) ? 0 : 19;
     if (dynamics) {
         for (const auto* parameter : vst->getParameters()) {
             if (parameter->getName(100) == "Compressor Attack" && parameter->getValue() != 0.f) {
@@ -283,6 +370,10 @@ int main(int argc,char** argv) {
         const auto path=juce::File::getCurrentWorkingDirectory().getChildFile("609-faceplate.png");
         juce::FileOutputStream png(path);
         if (!png.openedOk() || !juce::PNGImageFormat().writeImageToStream(image,png)) return 5;
+        if (!checkPresets(*processor,*panel)) {
+            std::cerr<<"Preset recall or state restore failed\n";
+            return 18;
+        }
     }
     constexpr int rate=44100,n=512,blocks=(6*rate/n);
     bool passed=true;
@@ -313,13 +404,11 @@ int main(int argc,char** argv) {
                 input.setSample(c,i,static_cast<float>(t<2?cymbal:t<4?noisyBass:sustained));
             }
         }
-        const std::array<const char*,4> caseNames{"through","linked compressor","linked limiter","linked compressor and limiter"};
+        const std::array<const char*,4> caseNames{"through","dual mono compressor","dual mono limiter","dual mono compressor and limiter"};
         const int caseCount=layout.size()==2?4:1;
         for (int testCase=0;testCase<caseCount;++testCase) {
             auto settings=mkii::native::defaults;
             if (layout.size()==2) {
-                if (!setControl(*vst,"Stereo Link",testCase!=0?1.0f:0.0f)) return 11;
-                settings[19]=testCase!=0;
                 for (int ch=0;ch<2;++ch) {
                     const auto prefix=juce::String("Channel ")+juce::String(ch+1)+" ";
                     const bool combined=testCase==3;
@@ -337,18 +426,28 @@ int main(int argc,char** argv) {
                     settings[ch*9+7]=limit;
                 }
             }
-            mkii::native::Realtime reference;
-            reference.prepare(rate);
-            reference.control(settings);
+            std::array<mkii::native::Solver,2> lanes{mkii::native::Solver(0),mkii::native::Solver(1)};
+            for (int ch=0;ch<layout.size();++ch) {
+                auto& lane=lanes[ch];
+                if (!lane.prepare(rate) || !lane.usesGeneratedSolve() || !lane.usesGeneratedResidual()) return 9;
+            }
             auto expected=input;
             for (int frame=0;frame<input.getNumSamples();++frame) {
-                const auto y=reference.step({input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0});
-                for (int c=0;c<layout.size();++c) expected.setSample(c,frame,static_cast<float>(y[c]));
+                const mkii::native::Solver::Frame source{
+                    input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0};
+                for (int ch=0;ch<layout.size();++ch)
+                    expected.setSample(ch,frame,static_cast<float>(lanes[ch].step(source,settings)[ch]));
+            }
+            const auto failures=lanes[0].failures()+lanes[1].failures();
+            if (failures) {
+                std::cerr<<failures<<" nodal reference solves failed\n";
+                return 9;
             }
             vst->setNonRealtime(offline);
             vst->prepareToPlay(rate,n);
-            if (vst->getLatencySamples()!=0) {
-                std::cerr<<"The realtime path should report zero added samples of latency\n";
+            const auto latency=vst->getLatencySamples();
+            if (latency!=mkii::native::playbackLatency(n)) {
+                std::cerr<<"Unexpected nodal playback latency\n";
                 return 9;
             }
             juce::AudioBuffer<float> block(layout.size(),n);
@@ -374,7 +473,8 @@ int main(int argc,char** argv) {
                 for (int c=0;c<layout.size();++c) {
                     for (int i=0;i<n;++i) {
                         const double value=block.getSample(c,i);
-                        const double difference=std::abs(value-expected.getSample(c,frame+i));
+                        const auto source=frame+i-latency;
+                        const double difference=std::abs(value-(source>=0?expected.getSample(c,source):0.f));
                         if (!std::isfinite(value) || difference>2e-5) ++differingSamples;
                         peakError=std::max(peakError,difference);
                     }
@@ -395,8 +495,5 @@ int main(int argc,char** argv) {
         std::cerr<<"PSU noise spectrum outside calibration tolerance\n";
         return 13;
     }
-    if (offline && !checkThroughResponse(*vst)) return 14;
-    if (offline && !(checkRatioThd(*vst) && checkLimiterEven(*vst))) return 12;
-    if (offline && !checkLimiterDistortion(*vst)) return 15;
     return passed?0:10;
 }

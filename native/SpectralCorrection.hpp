@@ -1,6 +1,9 @@
 #pragma once
 
 #include "LimiterEvenCorrection.hpp"
+#ifndef JD_BASELINE_PROBE
+#include "JdSpectrum.hpp"
+#endif
 #include "RatioToneTables.hpp"
 #include "SpectralTables.hpp"
 
@@ -19,6 +22,7 @@ public:
         powerFollow=-std::expm1(-1/(rate*.034));
         dcFollow=-std::expm1(-2*std::numbers::pi*1.1/rate);
         intensityFollow=-std::expm1(-1/(rate*.003));
+        fastToneFollow=-std::expm1(-1/(rate*.004));
     }
 
     void configure(int threshold,int ratio,double limiterThreshold,int recovery,bool fast) {
@@ -26,6 +30,7 @@ public:
         compRatio=ratio;
         limitThreshold=limiterThreshold;
         fastLimiter=fast;
+        limiterRecovery=recovery;
         limiterEven.configure(static_cast<int>((limiterThreshold-4)*2),recovery,fast);
         update=0;
     }
@@ -33,14 +38,25 @@ public:
     // Track a coherent sine cycle for the measured low-level residual.
     // Gain reduction and the broadband path are processed independently.
     double step(double input,double wet,double comp,double limit,bool compress,bool limiter,bool linkedMatch,
-                double& evenResidual) {
-        evenResidual=0;
+                double& evenResidual, double& jdResidual) {
+        evenResidual=jdResidual=0;
         const bool limiterOnly=limiter && !compress;
         limiterEven.observe(input,limiter && !compress);
         samples=std::min(samples+1,static_cast<int>(rate));
         outputPower+=powerFollow*(wet*wet-outputPower);
         const double prior=previous;
+        const double pair=input+previous2;
+        previous2=prior;
         previous=input;
+        // The adjacent-sample sine identity is accurate above 8 kHz, where
+        // interpolating zero crossings across only two samples is unreliable.
+        fastPower+=fastToneFollow*(prior*prior-fastPower);
+        fastPair+=fastToneFollow*(pair*pair-fastPair);
+        fastCross+=fastToneFollow*(pair*prior-fastCross);
+        const double rapidCos=fastCross/(2*std::max(fastPower,1e-14));
+        const double rapidError=fastPair-2*rapidCos*fastCross;
+        const bool rapid=rapidCos>0.01 && rapidCos<.47 && fastPower>1e-10 &&
+                         rapidError<.004*fastPair;
         if (std::signbit(input)!=std::signbit(prior) && std::abs(input-prior)>1e-9) {
             const double fraction=std::abs(input/(input-prior));
             const double measuredPeriod=samples+previousFraction-fraction;
@@ -62,29 +78,34 @@ public:
                 }
             } else stable=0;
         }
-        const double target=stable>4 && samples<1.15*period ? 1 : 0;
+        const double target=rapid || (stable>4 && samples<1.15*period) ? 1 : 0;
         intensity+=intensityFollow*(target-intensity);
-        if (intensity<1e-4 || period<2.65) return 0;
+        if (intensity<1e-4 || (!rapid && period<2.65)) return 0;
 
-        const double quadrature=(input*cosStep-prior)*invSinStep;
+        const double quadrature=rapid ? (input*rapidCos-prior)/std::sqrt(1-rapidCos*rapidCos)
+                                      : (input*cosStep-prior)*invSinStep;
         const auto amplitude=std::hypot(input,quadrature);
         if (amplitude<1e-7) return 0;
-        const double frequency=rate/(2*period);
+        const double frequency=rapid ? rate*std::acos(rapidCos)/(2*std::numbers::pi)
+                                     : rate/(2*period);
         if (!update) {
             // Tables are indexed at the 609's measured filter input amplitude,
             // with the small-signal transfer removed from the drive coordinate.
             const int mode=limiter && limit>comp+.02 ? 2 : compress ? 1 : 0;
             const double db=24+20*std::log10(amplitude)+roughFilterLoss(frequency);
-            load(mode,frequency,db);
+            load(mode,frequency,db,compress && limiter);
             limiterDrive=db-limitThreshold;
         }
         update=(update+1)%32;
         const double sine=input/amplitude;
         const double cosine=quadrature/amplitude;
-        double sinH=sine,cosH=cosine,value=0,evenValue=0;
+        double sinH=sine,cosH=cosine,value=0,evenValue=0,calibrated=0;
         for (int harmonic=0;harmonic<count;++harmonic) {
             const double component=coefficients[2*harmonic]*cosH-coefficients[2*harmonic+1]*sinH;
             value+=component;
+#ifndef JD_BASELINE_PROBE
+            calibrated+=jdCoefficients[2*harmonic]*cosH-jdCoefficients[2*harmonic+1]*sinH;
+#endif
             if (limiterOnly && (harmonic%2)) evenValue+=component;
             const auto next=sinH*cosine+cosH*sine;
             cosH=cosH*cosine-sinH*sine;
@@ -92,6 +113,8 @@ public:
         }
         const double scale=intensity*std::sqrt(2*std::max(outputPower,0.));
         const double correction=scale*value;
+        jdDc+=dcFollow*(scale*calibrated-jdDc);
+        jdResidual=scale*calibrated-jdDc;
         dc+=dcFollow*(correction-dc);
         const double even=limiter && !compress && linkedMatch && limit>.02
             ?limiterEven.correction(frequency,limiterDrive,sine,cosine,scale,count):0;
@@ -117,7 +140,7 @@ private:
         return {upper-1,std::clamp((x-points[upper-1])/(points[upper]-points[upper-1]),0.,1.)};
     }
 
-    void load(int mode,double frequency,double db) {
+    void load(int mode,double frequency,double db,bool combined) {
         using namespace measured;
         const auto fr=locate(spectralFrequencies,frequency);
         const auto drive=locate(spectralLevels[mode],mode==2?db-limitThreshold+8:db);
@@ -150,6 +173,12 @@ private:
         };
         const double fade=std::clamp((12000-frequency)/4000,0.,1.);
         count=std::clamp(int(.49*rate/frequency),0,20);
+#ifndef JD_BASELINE_PROBE
+        if (!combined && (mode!=2 || limiterRecovery==0))
+            JdSpectrum::load(jdCoefficients,mode,frequency,db,compRatio,compThreshold,
+                             limitThreshold,fastLimiter,count);
+        else jdCoefficients.fill(0.);
+#endif
         for (int at=0;at<2*count;++at) {
             if (mode==1) {
                 const auto threshold=std::clamp((compThreshold+20)/20.,0.,1.);
@@ -162,15 +191,16 @@ private:
         }
     }
 
-    double evenDc=0;
+    double evenDc=0,jdDc=0;
     double rate=44100,period=0,previous=0,previousFraction=0;
     double cosStep=1,invSinStep=0,powerFollow=0,outputPower=0;
     double intensity=0,intensityFollow=0,dc=0,dcFollow=0;
+    double previous2=0,fastPower=0,fastPair=0,fastCross=0,fastToneFollow=0;
     int samples=0,stable=0,count=0,update=0;
-    int compThreshold=0,compRatio=4;
+    int compThreshold=0,compRatio=4,limiterRecovery=0;
     double limitThreshold=8,limiterDrive=0;
     LimiterEvenCorrection limiterEven;
     bool fastLimiter=false;
-    std::array<double,40> coefficients{};
+    std::array<double,40> coefficients{},jdCoefficients{};
 };
 }
