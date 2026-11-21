@@ -1,6 +1,7 @@
 #pragma once
 #include "Api.hpp"
 #include "Circuit.hpp"
+#include "BandlimitedHalf.hpp"
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -32,7 +33,7 @@ public:
         delay=playbackLatency(hostBlock);
         channels=inputChannels;
         for (int ch=0;ch<channels;++ch)
-            if (!laneSolvers[ch].prepare(rate)) return false;
+            if (!laneSolvers[ch].prepare(rate*internalFactor)) return false;
 #ifdef _WIN32
         if (!event) event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
         if (!event) return false;
@@ -155,6 +156,10 @@ private:
             if (linked) lane.setPeerLinkVoltage(peer.volts[index]);
             auto settings=sample.settings;
             settings[19]=linked;
+            const auto midpoint=Solver::Frame{
+                BandlimitedHalf::interpolate(frame,[this](std::uint64_t t) {return double(input[t&mask].values[0]);}),
+                BandlimitedHalf::interpolate(frame,[this](std::uint64_t t) {return double(input[t&mask].values[1]);})};
+            lane.step(midpoint,settings);
             const auto result=lane.step({sample.values[0],sample.values[1]},settings);
             auto& out=output[frame&mask];
             out.values[channel]=float(result[channel]);
@@ -192,13 +197,14 @@ private:
         for (;;) {
             const auto available=written.load(std::memory_order_acquire);
             if (available==stopSignal) break;
-            if (available==next) {wait(available);continue;}
+            const auto ready=available>BandlimitedHalf::future ? available-BandlimitedHalf::future : 0;
+            if (ready==next) {wait(available);continue;}
             const auto wantsLink=[&](std::uint64_t frame) {
                 const auto& settings=input[frame&mask].settings;
                 return channels==2 && settings[19] && settings[20];
             };
             linked=wantsLink(next);
-            const auto limit=std::min(available,next+512);
+            const auto limit=std::min(ready,next+512);
             auto end=next+1;
             while (end<limit && wantsLink(end)==linked) ++end;
             if (linked) {
@@ -226,6 +232,7 @@ private:
         }
     }
     std::array<LinkState,2> linkState{};
+    static constexpr int internalFactor=2;
     std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};
