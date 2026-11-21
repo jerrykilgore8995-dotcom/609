@@ -1,0 +1,70 @@
+name: 609 MKII latest packaged DLL full-band operating-point measurements
+on:
+  push:
+    branches: [609-mkii-windows]
+    paths: ['.github/workflows/mkii-dll-fullband.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dll:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-MKII-Windows-x64-VST3
+          path: build/target
+          github-token: ${{ github.token }}
+          run-id: '44834500643'
+      - name: Build VST3 measurement host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure latest packaged DLL with both dynamics engaged
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build/target/609 MKII.vst3').Path
+          $test=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -Type Directory -Force dll-results | Out-Null
+          # Both compressor and limiter engaged. 3:1 compression, 8 dBu limiter detent.
+          # Burst=0 selects steady-state complex spectrum; stop=0.9s.
+          $freqs=@(20,30,50,100,200,500,1000,2000,5000,8000,10000,12000,15000,16000,18000,20000)
+          foreach ($level in @(4,10,20)) {
+            foreach ($hz in $freqs) {
+              $values=@(10,2,2,0,8,3,1,1,0,0,$hz,0,$level,0,0.9)
+              $label="both-$level-dBu-$hz-Hz"
+              Write-Host "Measuring $label on packaged DLL"
+              & $test $bundle --jd-case @values 2> "dll-results/$label.stderr.txt" |
+                Out-File -Encoding utf8 "dll-results/$label.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+          # Additional operating points at 1 kHz to expose threshold/gain-reduction dependence.
+          foreach ($point in @(
+            @{name='both-1k-4dBu'; values=@(10,2,2,0,8,3,1,1,0,0,1000,0,4,0,0.9)},
+            @{name='both-1k-10dBu'; values=@(10,2,2,0,8,3,1,1,0,0,1000,0,10,0,0.9)},
+            @{name='both-1k-20dBu'; values=@(10,2,2,0,8,3,1,1,0,0,1000,0,20,0,0.9)}
+          )) {
+            $label=$point.name
+            & $test $bundle --jd-case @($point.values) 2> "dll-results/$label.stderr.txt" |
+              Out-File -Encoding utf8 "dll-results/$label.txt"
+            if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MKII-latest-DLL-fullband-spectra
+          path: dll-results/
+          if-no-files-found: warn
