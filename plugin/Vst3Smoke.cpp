@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <array>
+#include <vector>
+#include <thread>
 #include <chrono>
 #include <complex>
 #include <iostream>
@@ -322,14 +324,93 @@ bool checkLimiterEven(juce::AudioProcessor& plugin) {
 }
 
 
+bool firstBeatProbe(juce::AudioProcessor& plugin) {
+    constexpr int rate=44100,blockSize=512,seconds=1,frames=rate*seconds;
+    juce::AudioProcessor::BusesLayout stereo;
+    stereo.inputBuses.add(juce::AudioChannelSet::stereo());
+    stereo.outputBuses.add(juce::AudioChannelSet::stereo());
+    if (!plugin.setBusesLayout(stereo)) return false;
+    for (int ch=1;ch<=2;++ch) {
+        const auto p="Channel "+juce::String(ch)+" ";
+        if (!setControl(plugin,p+"Compress In",1.0f) ||
+            !setControl(plugin,p+"Limit In",1.0f) ||
+            !setControl(plugin,p+"Compress Ratio",.75f) ||
+            !setControl(plugin,p+"Compress Threshold",10.f/15.f) ||
+            !setControl(plugin,p+"Limit Threshold",8.f/22.f)) return false;
+    }
+    if (!setControl(plugin,"PSU Noise",0) || !setControl(plugin,"Compressor Attack",0)) return false;
+    std::array<std::vector<float>,2> input,offline,realtime;
+    for (auto* stream:{&input,&offline,&realtime}) for(auto& lane:*stream) lane.resize(frames);
+    for (int n=0;n<frames;++n) {
+        const double t=double(n)/rate;
+        // Starts immediately on beat one, with a sharp kick, a quieter sustain
+        // and another kick at 250 ms. No leading silence to hide a late worker.
+        const double envelope=(.48*std::exp(-80*std::fmod(t,.25)) + .03);
+        input[0][n]=float(envelope*std::sin(2*std::numbers::pi*150*t));
+        input[1][n]=float(envelope*std::sin(2*std::numbers::pi*150*t+.35));
+    }
+    auto render=[&](bool nonRealtime,std::array<std::vector<float>,2>& dst) {
+        plugin.setNonRealtime(nonRealtime);
+        plugin.prepareToPlay(rate,blockSize);
+        const int latency=plugin.getLatencySamples();
+        if(latency!=1024) {std::cerr<<"Unexpected latency: "<<latency<<'\\n';return false;}
+        juce::AudioBuffer<float> block(2,blockSize);
+        juce::MidiBuffer midi;
+        using Clock=std::chrono::steady_clock;
+        const auto begin=Clock::now();
+        for(int offset=0;offset<frames+latency;offset+=blockSize) {
+            for(int i=0;i<blockSize;++i)
+                for(int ch=0;ch<2;++ch)
+                    block.setSample(ch,i,offset+i<frames?input[ch][offset+i]:0);
+            if(!nonRealtime) std::this_thread::sleep_until(begin+
+                std::chrono::duration_cast<Clock::duration>(
+                   std::chrono::duration<double>(double(offset)/rate)));
+            plugin.processBlock(block,midi);
+            for(int i=0;i<blockSize;++i) {
+                const int source=offset+i-latency;
+                if(source>=0 && source<frames)
+                    for(int ch=0;ch<2;++ch) dst[ch][source]=block.getSample(ch,i);
+            }
+        }
+        plugin.releaseResources();
+        return true;
+    };
+    if(!render(true,offline) || !render(false,realtime)) return false;
+    unsigned mismatches=0,dryFallbacks=0,firstMismatches=0;
+    double maxDifference=0;
+    for(int ch=0;ch<2;++ch) for(int n=0;n<frames;++n) {
+        const double delta=std::abs(double(realtime[ch][n])-offline[ch][n]);
+        maxDifference=std::max(maxDifference,delta);
+        if(delta>2e-5) {
+            ++mismatches;
+            if(n<blockSize) ++firstMismatches;
+            if(std::abs(realtime[ch][n]-input[ch][n])<2e-5f)++dryFallbacks;
+        }
+    }
+    double firstWindowOffline=0,firstWindowRealtime=0;
+    for(int n=0;n<blockSize;++n) for(int ch=0;ch<2;++ch) {
+       firstWindowOffline=std::max(firstWindowOffline,std::abs(double(offline[ch][n])));
+       firstWindowRealtime=std::max(firstWindowRealtime,std::abs(double(realtime[ch][n])));
+    }
+    std::cout<<"ONSET 44.1k/512 latency 1024; first 512-sample wet reference peak "
+             <<firstWindowOffline<<", realtime peak "<<firstWindowRealtime
+             <<", first-window mismatches "<<firstMismatches
+             <<", total sample mismatches "<<mismatches
+             <<", dry fallback matches "<<dryFallbacks
+             <<", maximum difference "<<maxDifference<<'\\n';
+    return firstWindowOffline>0.0001;
+}
+
+
 }
 
 int main(int argc,char** argv) {
     std::cerr<<std::unitbuf;
     const bool offline=argc==3 && std::string_view(argv[2])=="--offline";
+    const bool firstBeat=argc==3 && std::string_view(argv[2])=="--first-beat";
     const bool dynamics=argc==11 && std::string_view(argv[2])=="--jd-timing";
     const bool jdCase=(argc==18 || argc==19) && std::string_view(argv[2])=="--jd-case";
-    if (argc!=2 && !offline && !dynamics && !jdCase) {
+    if (argc!=2 && !offline && !dynamics && !jdCase && !firstBeat) {
         std::cerr<<"Expected one VST3 bundle argument\n";
         return 2;
     }
@@ -354,6 +435,7 @@ int main(int argc,char** argv) {
         return 4;
     }
     if (jdCase) return runJdCase(*vst,argv+3,argc) ? 0 : 19;
+    if (firstBeat) return firstBeatProbe(*vst) ? 0 : 20;
     if (dynamics) {
         for (const auto* parameter : vst->getParameters()) {
             if (parameter->getName(100) == "Compressor Attack" && parameter->getValue() != 0.f) {
