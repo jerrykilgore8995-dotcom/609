@@ -1,0 +1,66 @@
+name: 609 MK III 2x bandlimited trapezoidal packaged DLL verification
+on:
+  push:
+    branches: [609-mkiii-trap2x-bandlimited]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Compile independently identified MK III VST3 and host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-MK-III-2x-Bandlimited-Candidate
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure packaged 2x solver across frequency and operating modes
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
+          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force trial-results | Out-Null
+          foreach ($mode in @('through','comp','limit','both')) {
+            foreach ($level in @(4,20)) {
+              foreach ($hz in @(1000,10000,15000,20000)) {
+                $ci=if ($mode -in @('comp','both')) {1} else {0}
+                $li=if ($mode -in @('limit','both')) {1} else {0}
+                $values=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9)
+                $label="$mode-$level-$hz"
+                & $host $bundle --jd-case @values 2> "trial-results/$label.stderr.txt" |
+                   Out-File -Encoding utf8 "trial-results/$label.txt"
+                if ($LASTEXITCODE) {exit $LASTEXITCODE}
+                Write-Host "MEASURED $label"
+              }
+            }
+          }
+      - name: Verify first-beat parity and 1024-sample real-time pipeline
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
+          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          & $host $bundle > trial-results/realtime-smoke.txt 2> trial-results/realtime-smoke.stderr.txt
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MK-III-2x-Bandlimited-DLL-Verification
+          path: trial-results/
+          if-no-files-found: warn
