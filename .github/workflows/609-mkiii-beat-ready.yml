@@ -1,0 +1,62 @@
+name: 609 MK III stereo beat-one ready-handshake DLL proof
+on:
+  push:
+    branches: [609-mkiii-stereo-beat1-ready]
+    paths: ['.github/workflows/609-mkiii-beat-ready.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Compile stereo-ready MK III packaged VST3 and test host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-MK-III-stereo-beat1-ready-VST3
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Loaded VST3 first-beat wet reference versus VM fallback
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force beat1-results | Out-Null
+          & $tester $bundle --first-beat > beat1-results/onset.txt 2> beat1-results/onset.stderr.txt
+          exit $LASTEXITCODE
+      - name: Loaded VST3 1 kHz and 20 kHz response regression (both engaged)
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          foreach ($level in @(4,20)) {
+            foreach ($freq in @(1000,20000)) {
+              $values=@(10,3,0,0,8,3,1,1,0,0,$freq,0,$level,0,0.9)
+              $name="both-$level-$freq"
+              & $tester $bundle --jd-case @values 2> "beat1-results/$name.stderr.txt" |
+                Out-File -Encoding utf8 "beat1-results/$name.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MK-III-stereo-beat1-loaded-DLL-results
+          path: beat1-results/
+          if-no-files-found: warn
