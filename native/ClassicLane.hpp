@@ -11,7 +11,11 @@ public:
     explicit ClassicLane(int channelIndex):solver(channelIndex),channel(channelIndex) {}
 
     static int factorFor(double rate) {
+#ifdef NATIVE550A
+        return rate>=132300 ? 3 : rate<=48000 ? 3 : 2;
+#else
         return rate<=48000 ? 3 : rate<132300 ? 2 : 1;
+#endif
     }
 
     static constexpr int filterRadius=48;

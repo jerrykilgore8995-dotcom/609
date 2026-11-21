@@ -23,11 +23,11 @@ def evaluate(value, scope):
         (v for k, v in scales.items() if m[2].startswith(k)), 1)), value.strip().strip("{}").strip())
     tree = ast.parse(value, mode="eval")
     allowed = (ast.Expression, ast.Load, ast.Constant, ast.Name, ast.BinOp,
-               ast.BoolOp, ast.And, ast.Or, ast.Compare, ast.Eq, ast.Gt, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.USub, ast.UAdd, ast.Call)
+               ast.BoolOp, ast.And, ast.Or, ast.Compare, ast.Eq, ast.Gt, ast.Lt, ast.LtE, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.USub, ast.UAdd, ast.Call)
     if any(not isinstance(node, allowed) for node in ast.walk(tree)):
         raise ValueError(f"unsupported parameter expression {value!r}")
     return float(eval(compile(tree, "<circuit-parameter>", "eval"), {"__builtins__": {}},
-                      dict(log10=math.log10, max=max, min=min, wiper=lambda x:min(.99999,max(.00001,x)), **scope)))
+                      dict(abs=abs, log10=math.log10, max=max, min=min, wiper=lambda x:min(.99999,max(.00001,x)), **scope)))
 
 def read(path, title=False):
     lines = []
@@ -186,6 +186,11 @@ controls = {**{key+side: positions for side in "lr" for key, positions in face.i
             "catkl": range(3)}
 if entry.stem in {"2254", "2264"}:
     controls.update({name: range(2) for name in ("deessl", "deessr", "panelinl", "panelinr")})
+equalizer = entry.stem == "550a"
+if equalizer:
+    controls = {**{key: range(-5, 6) for key in ("lg", "mg", "hg")},
+                **{key: range(1, 6) for key in ("lf", "mf", "hf")},
+                **{key: range(2) for key in ("ls", "hs", "bp", "eq")}}
 contact_values = {}
 for control_index, (control, positions) in enumerate(controls.items()):
     variants = []
@@ -270,14 +275,14 @@ cpp = ["// Generated from 609.cir and the schematic transcriptions.",
        "inline void loadDeck(Circuit& c) {", f"    c.nodes = {len(nodes)};",
        f"    c.size = {len(variables)};",
        f"    c.output = {{{ix('olh')},{ix('oll')},{ix('orh')},{ix('orl')}}};",
-       f"    c.meter = {{{ix('meterl')},{ix('meterr')}}};",
+       ("    c.meter = {-1,-1};" if equalizer else f"    c.meter = {{{ix('meterl')},{ix('meterr')}}};"),
        "    c.channel = {" + ", ".join(str(channel_owner(k)) for k in variables) + "};",
        "    c.bias = {" + ", ".join(fmt(bias(k)) for k in variables) + "};"]
 for kind,value in known.values():
     cpp.append(f"    c.constants.push_back({{{kind}, {fmt(value)}}});")
 sets = {"d":("is n rs cjo vj m tt fc bv ibv",[1e-14,1,0,0,1,.5,0,.5,0,0]),
-        "q":("is bf nf vaf ikf ise ne br nr var ikr isc nc rb rc re cje vje mje cjc vjc mjc tf tr fc",
-             [1e-16,100,1,0,0,0,1.5,1,1,0,0,0,2,0,0,0,0,.75,.33,0,.75,.33,0,0,.5]),
+        "q":("is bf nf vaf ikf ise ne br nr var ikr isc nc rb rc re cje vje mje cjc vjc mjc tf tr fc itf vtf xtf",
+             [1e-16,100,1,0,0,0,1.5,1,1,0,0,0,2,0,0,0,0,.75,.33,0,.75,.33,0,0,.5,0,0,0]),
         "j":("vto beta is lambda rd rs cgs cgd pb fc",[-2,1e-4,1e-14,0,0,0,0,0,1,.5])}
 types = {"d":{"d"},"q":{"npn","pnp"},"j":{"njf","pjf"}}
 groups = defaultdict(list)
@@ -339,6 +344,9 @@ for kind,name,pins,data in filtered:
                 add("controlled",f"{a}, {b}, {p}, {m}, {fmt(gain*multiplier)}")
     else:
         model,md=models[data]
+        # The nodal laboratory fixture is fixed at the SPICE nominal 27 °C.
+        if kind == "q" and "xtb" in md:
+            md = {key:value for key,value in md.items() if key != "xtb"}
         keys,defaults=sets[kind]
         keys=keys.split()
         assert model in types[kind] and set(md)<=set(keys),(name,model,set(md)-set(keys))

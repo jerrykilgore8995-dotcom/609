@@ -1,0 +1,81 @@
+name: 550A Windows nodal
+on:
+  push:
+    branches: [api-550a-nodal]
+    paths: ["550a/**", "native/**", ".github/workflows/api-550a-nodal.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the SPICE reference tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ngspice python3-numpy
+      - name: Generate the nodal deck
+        run: |
+          python3 classics/seed.py 550a/spice/550a.cir decks/seed.raw
+          python3 native/compile_deck.py 550a/spice/550a.cir decks/seed.raw decks/Deck.hpp
+      - name: Measure circuit response in ngspice
+        env:
+          OPENBLAS_NUM_THREADS: 1
+        run: python3 -u 550a/verify.py spice ngspice decks/spice.json --workers 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 550A-SPICE-reference
+          path: decks/
+          if-no-files-found: error
+  windows:
+    needs: reference
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: 550A-SPICE-reference
+          path: decks
+      - name: Compile the VST3 and test host
+        shell: pwsh
+        run: |
+          $deck = (Resolve-Path decks).Path
+          cmake -S 550a -B build -A x64 "-DDECK_DIR=$deck"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --target Nodal550A_VST3 Host550A Bench550A --parallel 4
+          exit $LASTEXITCODE
+      - name: Verify the engine and the Windows VST3
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: 1
+        run: |
+          $env:API550A_VST3_PATH=(Get-ChildItem build/Nodal550A_artefacts/Release/VST3 -Directory -Filter "*.vst3" | Select-Object -First 1).FullName
+          if (-not $env:API550A_VST3_PATH) { exit 1 }
+          python -m pip install numpy
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -u 550a/verify.py nodal build/Release/Bench550A.exe nodal.json --reference decks/spice.json --workers 3 --curves-only
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -u 550a/verify.py nodal build/Release/Host550A.exe vst3.json --reference decks/spice.json --workers 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build/Release/Host550A.exe --snapshot 550a-faceplate.png
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 550A-Windows-measurements
+          path: |
+            nodal.json
+            vst3.json
+            550a-faceplate.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 550A-Nodal-Windows-x64-VST3
+          path: build/Nodal550A_artefacts/Release/VST3/
+          if-no-files-found: error

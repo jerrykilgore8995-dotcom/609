@@ -6,7 +6,10 @@ namespace mkii::native {
 // Control positions transmitted across the DLL ABI. Nine detents or switches
 // per channel, followed by the chassis bypass, link, power and attack selector.
 // The classics append per-channel De-Ess and bypass contacts.
-#ifdef CLASSIC_MODEL
+#if defined(NATIVE550A)
+using Controls = std::array<int,26>;
+inline constexpr Controls defaults{0,0,0,1,1,1,0,0,0,1};
+#elif defined(CLASSIC_MODEL)
 using Controls = std::array<int,26>;
 inline constexpr Controls defaults{1,1,1,1,9,1,0,0,0, 1,1,1,1,9,1,0,0,0, 1,1,1,0,0,0,1,1};
 #else

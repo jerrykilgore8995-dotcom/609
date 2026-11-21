@@ -110,7 +110,7 @@ struct Cubic {int a,b,control;double gain;};
 enum class Behavior {detector,comparator,positiveRegulator,negativeRegulator};
 struct Behavioral {Behavior kind;int a,b;std::array<int,4> input;std::array<double,4> param;};
 struct QModel {
-    double is,bf,nf,vaf,ikf,ise,ne,br,nr,var,ikr,isc,nc,cje,vje,mje,cjc,vjc,mjc,tf,tr,fc;
+    double is,bf,nf,vaf,ikf,ise,ne,br,nr,var,ikr,isc,nc,cje,vje,mje,cjc,vjc,mjc,tf,tr,fc,itf,vtf,xtf;
 };
 struct JModel { double vto,beta,is,lambda,cgs,cgd,pb,fc; };
 struct D { int a,b; double q1=0,q2=0,q=0,slope=0,knee=0; std::array<int,4> slots{}; };
@@ -320,8 +320,12 @@ private:
             }
             return remap(part,&Contact::a,&Contact::b);
         });
+#ifdef NATIVE550A
+        if (linkContacts!=0) partitionValid=false;
+#else
         if (linkContacts!=1) partitionValid=false;
-        if (partitionValid) {
+#endif
+        if (partitionValid && linkContacts==1) {
             deck.resistors.push_back({linkNode,-1,linkConductance,0});
             // The linked path uses the benchmarked, fixed 10 ohm shunt.
             // Cancel it when the relay opens, without resetting circuit state.
@@ -765,7 +769,24 @@ private:
                 }
                 if constexpr (m.cje!=0 || m.tf!=0) {
                     Jet qf=capacitance<m.mje>(be,m.cje,m.vje,m.fc);
-                    if (m.tf && be.value>0) qf=qf+f*baseCharge*m.tf;
+                    if (m.tf && be.value>0) {
+                        Jet transit{m.tf};
+                        if constexpr (m.xtf!=0) {
+                            Jet scale{m.xtf};
+                            if constexpr (m.vtf!=0) {
+                                const double coefficient=1/(1.44*m.vtf);
+                                const double exponent=coefficient*bc.value;
+                                const double exponential=std::exp(std::min(70.0,exponent));
+                                scale=scale*Jet{exponential,0,coefficient*exponential};
+                            }
+                            if constexpr (m.itf!=0) {
+                                const Jet ratio=f/(f+Jet{m.itf});
+                                scale=scale*ratio*ratio;
+                            }
+                            transit=transit*(Jet{1}+scale);
+                        }
+                        qf=qf+f*baseCharge*transit;
+                    }
                     d.f=qf.value;
                     d.fq=qf;
                     ibf=ibf+qf*inverse;

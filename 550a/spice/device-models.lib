@@ -1,0 +1,27 @@
+* 2N5087 and 2N5210 cards transcribed from the Fairchild-labelled library
+* entries in mpkopec/ltspice-lib/cmp/standard.bjt. Unsupported metadata removed.
+.model A525_2N5087 PNP(Is=6.734f Vaf=45.7 Bf=254.1 Ne=1.741 Ise=6.734f
++ Ikf=.1962 Xtb=1.5 Br=2.683 Rc=1.67 Cjc=6.2p Mjc=.301 Vjc=.75 Fc=.5
++ Cje=7.5p Mje=.2861 Vje=.75 Tr=10.1n Tf=467.8p Itf=.17 Vtf=5 Xtf=8 Rb=10)
+* Matched high-beta SKA4693 position: 2N5210 card used as the stated surrogate.
+.model A525_MATCH_N NPN(Is=5.911f Vaf=62.37 Bf=809.9 Ne=1.358 Ise=5.911f
++ Ikf=14.26m Xtb=1.5 Br=1.287 Rc=1.61 Cjc=4.017p Mjc=.3174 Vjc=.75 Fc=.5
++ Cje=4.973p Mje=.4146 Vje=.75 Tr=4.68n Tf=820.9p Itf=.35 Vtf=4 Xtf=7 Rb=10)
+* First-pass electrical estimates. These named cards do not establish physical
+* equivalence to obsolete devices. Component roles and all pins are retained.
+.model A525_TIS98 NPN(Is=10f Bf=210 Br=5 Vaf=75 Ikf=.08 Rb=26 Rc=1 Cje=12p Cjc=5p Tf=.5n Tr=20n)
+.model A525_2N3053 NPN(Is=35f Bf=95 Br=5 Vaf=80 Ikf=.24 Rb=12 Rc=.55 Re=.12 Cje=60p Cjc=20p Tf=1.5n Tr=120n)
+.model A525_2N4036 PNP(Is=35f Bf=90 Br=5 Vaf=55 Ikf=.24 Rb=14 Rc=.66 Re=.13 Cje=90p Cjc=55p Tf=2.2n Tr=160n)
+.model A525_LM394_HALF NPN(Is=2p Bf=450 Br=3 Vaf=100 Ikf=.04 Rb=5 Rc=.4 Cje=35p Cjc=8p Tf=.4n Tr=10n)
+.model A525_2N4250A PNP(Is=3f Bf=160 Br=5 Vaf=80 Ikf=.055 Rb=20 Rc=1.7 Cje=14p Cjc=7p Tf=.65n Tr=22n)
+.model A525_2N2484 NPN(Is=5f Bf=250 Br=3 Vaf=90 Ikf=.045 Rb=18 Rc=1.1 Cje=8p Cjc=4p Tf=.65n Tr=18n)
+.model A525_MJE181 NPN(Is=60f Bf=85 Br=4 Vaf=65 Ikf=.45 Rb=8 Rc=.3 Re=.11 Cje=75p Cjc=28p Tf=1.6n Tr=120n)
+.model A525_MJE171 PNP(Is=50f Bf=80 Br=4 Vaf=55 Ikf=.42 Rb=10 Rc=.42 Re=.11 Cje=85p Cjc=34p Tf=2.1n Tr=150n)
+* 550A fixture alignment: approximately 1.368 V at 10 mA at 27 C.
+.model A525_MZ2361 D(Is=3.8e-14 N=2 Rs=.65 Cjo=3p Tt=6n)
+.model A525_1N914B D(Is=2.52n N=1.73 Rs=.568 Cjo=4p M=.4 Vj=.75 Tt=4n Bv=100 Ibv=100u)
+.model A525_RECT D(Is=2.52n N=1.73 Rs=.568 Cjo=4p M=.4 Vj=.75 Tt=4n Bv=100 Ibv=100u)
+.model A525_SUPPLY D(Is=10n N=1.8 Rs=.09 Cjo=20p Tt=2u Bv=100 Ibv=100u)
+* Vintage VCR2N typical bracket: -4 V pinch-off, 50 ohm rDS at VGS=0.
+.model A525_VCR2N NJF(Vto=-4 Beta=.0025 Lambda=.002 Rd=1 Rs=1
++ Is=5p Cgs=8p Cgd=8p Pb=1 Fc=.5)

@@ -1,0 +1,140 @@
+* Terminal order for both stages: noninverting, inverting, output, V+, V-, common.
+* The 2520 is the base circuit of the published reverse-engineered "API 2520 OpAmp".
+* The notes on that drawing describe other variants. This subcircuit uses the drawn one.
+.subckt DOA2520_DRAWN ip im out vp vn com
+Q1 q1c ip tail A525_MATCH_N
+Q2 q2c im tail A525_MATCH_N
+Q3 q3c q2c front_tail A525_TIS98
+Q4 q4c q1c front_tail A525_TIS98
+Q5 bias_lower sink_ctl q5e A525_TIS98
+Q6 sink_ctl q4c q6e A525_2N5087
+Q7 vp driver_upper q7e A525_2N3053
+Q8 vn bias_lower q8e A525_2N4036
+Q9 bias_upper q3c driver_upper A525_2N5087
+R1 tail vn 150k
+R2 q1c r2_ac 100
+R3 vp q1c 82k
+R4 vp trim_tap 22k
+R5 trim_tap q2c 68k
+R6 vp q3c 3k
+R7 vp q4c 3.9k
+R8 vp q6e 1k
+R9 vp driver_upper 56
+R10 q9_ac bias_upper 800
+R11 q7e out 5.6
+R12 out q8e 5.6
+R13 q5e vn 56
+R14 sink_ctl q5_ac 1k
+R15 sink_ctl vn 1k
+R16 front_tail sink_ctl 47k
+C1 r2_ac q2c 1000p
+C2 q3c q9_ac 47p
+C3 q5_ac bias_lower 47p
+C4 vp q1c 39p
+C5 q2c bias_lower 47p
+D1 bias_upper bias_lower A525_MZ2361
+D2 out driver_upper A525_MZ2361
+D3 bias_lower out A525_MZ2361
+.ends DOA2520_DRAWN
+
+* Q9 diagnostic variant: the base drive comes from the Q9 collector.
+* R9 remains at the original value and is in the Q9 emitter leg.
+* Engineering interpretation of the redraw, pending a corroborating trace.
+.subckt DOA2520_Q9_CORE ip im out vp vn c5_return q2c params: c5_value=47p
+Q1 q1c ip tail A525_MATCH_N
+Q2 q2c im tail A525_MATCH_N
+Q3 q3c q2c front_tail A525_TIS98
+Q4 q4c q1c front_tail A525_TIS98
+Q5 bias_lower sink_ctl q5e A525_TIS98
+Q6 sink_ctl q4c q6e A525_2N5087
+Q7 vp driver_upper q7e A525_2N3053
+Q8 vn bias_lower q8e A525_2N4036
+Q9 driver_upper q3c q9e A525_2N5087
+R1 tail vn 150k
+R2 q1c r2_ac 100
+R3 vp q1c 82k
+R4 vp trim_tap 22k
+R5 trim_tap q2c 68k
+R6 vp q3c 3k
+R7 vp q4c 3.9k
+R8 vp q6e 1k
+R9 vp q9e 56
+R10 q9_ac driver_upper 800
+R11 q7e out 5.6
+R12 out q8e 5.6
+R13 q5e vn 56
+R14 sink_ctl q5_ac 1k
+R15 sink_ctl vn 1k
+R16 front_tail sink_ctl 47k
+C1 r2_ac q2c 1000p
+C2 q3c q9_ac 47p
+C3 q5_ac bias_lower 47p
+C4 vp q1c 39p
+C5 c5_return bias_lower {c5_value}
+D1 driver_upper bias_lower A525_MZ2361
+D2 out driver_upper A525_MZ2361
+D3 bias_lower out A525_MZ2361
+.ends DOA2520_Q9_CORE
+
+* Preserve the original connection for A/B diagnostics.
+.subckt DOA2520_Q9_TEST ip im out vp vn com
+Xcore ip im out vp vn q2c q2c DOA2520_Q9_CORE
+.ends DOA2520_Q9_TEST
+
+* Alternative C5 placement at the inverting input. The builders' -IN and
+* 10 pF reports are design leads; this combination is not an API-verified card.
+.subckt DOA2520_10P ip im out vp vn com
+Xcore ip im out vp vn im q2c DOA2520_Q9_CORE c5_value=10p
+.ends DOA2520_10P
+
+* Jensen Fig. 6, original JE-990, with R10 and R11 for +/-15 V.
+* Raw output is the feedback node. The application-dependent isolator is separate.
+.subckt JE990_15 ip im out vp vn com
+Q1 mirror_ref im q1e A525_LM394_HALF
+Q2 vas_in ip q2e A525_LM394_HALF
+Q3 vas_in mirror_ref q3e A525_2N4250A
+Q4 tail tail_bias q4e A525_2N2484
+Q5 vn vas_in vas_drive A525_2N4250A
+Q6 bias_high vas_drive q6e A525_2N4250A
+Q7 bias_low sink_bias q7e A525_2N2484
+Q8 vp bias_high q8e A525_MJE181
+Q9 vn bias_low q9e A525_MJE171
+R1 q1e tail 30
+R2 tail q2e 30
+R3 q4e vn 160
+R4 vp mirror_emitter 300
+R5 vp q3e 300
+R6 vp vas_drive 2k
+R7 vp q6e 180
+R8 vp hf_damp 300
+R9 vas_in comp_ac 130
+R10 vp tail_bias 33k
+R11 vp sink_bias 33k
+R12 q7e vn 110
+R13 q8e out 3.9
+R14 out q9e 3.9
+C1 comp_ac comp_diode 150p
+C2 vp q6e 62p
+C3 hf_damp q6e 91p
+C4 vp com .1u
+C5 com vn .1u
+L1 q1e tail 20u
+L2 q2e tail 20u
+DCR1 im ip A525_1N914B
+DCR2 ip im A525_1N914B
+DCR3 mirror_emitter mirror_ref A525_1N914B
+DCR4 bias_high comp_diode A525_1N914B
+DCR5 tail_bias cr56 A525_1N914B
+DCR6 cr56 vn A525_1N914B
+DCR7 sink_bias cr78 A525_1N914B
+DCR8 cr78 vn A525_1N914B
+DCR9 bias_high bias_mid A525_1N914B
+DCR10 bias_mid bias_low A525_1N914B
+DCR11 out bias_high A525_1N914B
+DCR12 bias_low out A525_1N914B
+.ends JE990_15
+
+.subckt JE990_ISOLATOR feedback output
+R15 feedback output 39
+L3 feedback output 40u
+.ends JE990_ISOLATOR
