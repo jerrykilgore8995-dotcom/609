@@ -63,34 +63,39 @@ bool run(int channels, bool linked) {
 // Emit the solved waveform before host buffering. The analysis uses a centred
 // single-cycle fundamental envelope and excludes wall clock scheduling.
 int trace(int argc, char** argv) {
-    if (argc != 12 && argc != 14) return 2;
+    if (argc != 12 && argc != 14 && argc != 16) return 2;
     const bool limiter = std::atoi(argv[2]) == 1;
     const int ratio = std::atoi(argv[3]), recovery = std::atoi(argv[4]);
     const int threshold = std::atoi(argv[5]), fast = std::atoi(argv[6]);
     const double low = std::atof(argv[7]), high = std::atof(argv[8]);
     const double duration = std::atof(argv[9]), tail = std::atof(argv[10]);
     const double frequency = std::atof(argv[11]);
-    if (ratio < 1 || ratio > 5 || recovery < 1 || recovery > 6 ||
+    const int makeup = argc == 16 ? std::atoi(argv[14]) : 1;
+    const int sampleRate = argc == 16 ? std::atoi(argv[15]) : rate;
+    if (makeup < 1 || makeup > 11 ||
+        (sampleRate != 44100 && sampleRate != 88200 && sampleRate != 176400) ||
+        ratio < 1 || ratio > 5 || recovery < 1 || recovery > 6 ||
         threshold < 1 || threshold > (limiter ? 23 : 16) ||
         !(duration > .05 && duration <= 8 && tail > .05 && tail <= 16 &&
           frequency >= 20 && frequency <= 20000 && low >= -100 && high <= 26 && high > low))
         return 2;
     auto settings = defaults;
     settings[19] = 0;
-    settings[6] = argc == 14 ? (std::atoi(argv[12]) != 0) : !limiter;
-    settings[7] = argc == 14 ? (std::atoi(argv[13]) != 0) : limiter;
+    settings[6] = argc >= 14 ? (std::atoi(argv[12]) != 0) : !limiter;
+    settings[7] = argc >= 14 ? (std::atoi(argv[13]) != 0) : limiter;
     settings[8] = fast != 0;
     settings[limiter ? 4 : 0] = threshold;
     settings[limiter ? 5 : 2] = recovery;
     settings[1] = ratio;
+    settings[3] = makeup;
     Solver solver(0);
-    if (!solver.prepare(rate)) return 3;
+    if (!solver.prepare(sampleRate)) return 3;
     const double lowAmplitude = std::pow(10.,(low-24)/20.);
     const double highAmplitude = std::pow(10.,(high-24)/20.);
-    const double phaseIncrement = 2*std::numbers::pi*frequency/rate;
-    std::vector<double> samples(static_cast<std::size_t>((.3+duration+tail)*rate));
+    const double phaseIncrement = 2*std::numbers::pi*frequency/sampleRate;
+    std::vector<double> samples(static_cast<std::size_t>((.3+duration+tail)*sampleRate));
     for (std::size_t i=0; i<samples.size(); ++i) {
-        const double time = double(i)/rate;
+        const double time = double(i)/sampleRate;
         const auto amplitude = time >= .3 && time < .3+duration ? highAmplitude : lowAmplitude;
         samples[i] = solver.step({amplitude*std::sin(phaseIncrement*i),0},settings)[0];
     }

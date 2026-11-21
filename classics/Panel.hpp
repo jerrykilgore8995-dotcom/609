@@ -74,6 +74,12 @@ public:
                 const auto a=float(n)*2*pi/28;
                 g.drawLine({polar(x,y,rim*.70f,a),polar(x,y,rim*.82f,a)},1);
             }
+            juce::Path grip;
+            grip.addQuadrilateral(x-rim*.19f,y+rim*.46f, x+rim*.19f,y+rim*.46f,
+                                  x+rim*.24f,y+rim*.96f, x-rim*.24f,y+rim*.96f);
+            grip.applyTransform(juce::AffineTransform::rotation(angle,x,y));
+            g.setColour(Colour{0xff3e403c});
+            g.fillPath(grip);
         }
         if (!metal) {
             const float cap=type==Type::skirt ? .68f : .82f;

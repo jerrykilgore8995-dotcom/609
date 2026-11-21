@@ -33,6 +33,12 @@ LS SS T 125.6
 KPS LP LS .999906245605
 CP P N 106p
 CS S T 142p
+* CJ measured about 110 pF between the two winding groups. Distribute
+* the lumped capacitance equally across the balanced winding ends.
+CPS P S 27.5p
+CPT P T 27.5p
+CNS N S 27.5p
+CNT N T 27.5p
 .ends L10468
 
 * 2254 B185 primary has a DC centre tap to bias the emitter followers.
@@ -50,16 +56,25 @@ KPL LPL LS .9151717145
 KPP LPH LPL .6833322242
 CP P N 106p
 CS S T 142p
+* CJ measured about 110 pF between the two winding groups. Distribute
+* the lumped capacitance equally across the balanced winding ends.
+CPS P S 27.5p
+CPT P T 27.5p
+CNS N S 27.5p
+CNT N T 27.5p
 .ends L10468_CT
 
-* LO1166/A bench specimen: 14.2/43.6 ohm winding DCR, 1:1.68 ratio.
-* 2.026 H from the measured 255 ohm open-secondary magnitude at 20 Hz.
-* The working-point inductance and leakage of the 2254 LO1166 are unverified.
+* Gapped LO1166/A. CJ's first specimen measured 833 mH on the
+* primary, 1.93 H with the secondary windings strapped in series, and
+* 14.5 ohms on the primary (GroupDIY "Mo Metal", posts 11 and 12).
+* The separate LO1166/A bench sheet identifies 43.6 ohms across pins
+* 8 and 5. Keep that explicitly identified end-to-end measurement.
+* Leakage factor and magnetizing behavior under DC are still provisional.
 .subckt LO1166 P N S T
-RP P PP 14.2
-LP PP N 2.026
+RP P PP 14.5
+LP PP N .833
 RS S SS 43.6
-LS SS T 5.7181824
+LS SS T 1.93
 KPS LP LS .9997
 .ends LO1166
 

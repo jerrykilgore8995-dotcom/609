@@ -8,6 +8,23 @@ using juce::String;
 constexpr bool original2254 = CLASSIC_MODEL == 2254;
 constexpr auto product = original2254 ? "2254 Nodal" : "2264 Nodal";
 
+constexpr float degrees(float angle) { return angle * classics::pi / 180.f; }
+
+struct Scale {
+    float first;
+    float last;
+};
+
+// The rotary pointers use the same angular endpoints as the panel markings.
+constexpr Scale limitLevel2254{degrees(-120), degrees(120)};
+constexpr Scale recovery2254{degrees(-42), degrees(42)};
+constexpr Scale ratio2254{degrees(-56), degrees(56)};
+constexpr Scale limitLevel2264{degrees(-75), degrees(255)};
+constexpr Scale recovery2264{degrees(30), degrees(180)};
+constexpr Scale compressLevel2264{degrees(-15), degrees(210)};
+constexpr Scale makeup2264{degrees(-60), degrees(90)};
+constexpr Scale ratio2264{degrees(120), degrees(240)};
+
 struct Dial {
     const char* id;
     const char* title;
@@ -190,23 +207,23 @@ public:
     Plate(Classic& owner,int channel):processor(owner),ch(channel) {
         using enum classics::Rotary::Type;
         if (original2254) {
-            rotary("lt",89,411,47,skirt,-2.40f,2.40f);
-            rotary("lr",276,420,47,skirt,-.88f,.88f);
-            rotary("cm",454,405,47,skirt,-.88f,.88f);
-            rotary("cr",451,151,47,skirt,-.85f,.85f);
-            rotary("meter",135,300,24,skirt,-1.1f,1.1f);
-            button("in",132,152,55,55,"rocker");
-            button("le",231,148,45,45,"toggle");
-            button("ce",311,148,45,45,"toggle");
+            rotary("lt",87,416,54,skirt,limitLevel2254);
+            rotary("lr",270,420,54,skirt,recovery2254);
+            rotary("cm",452,421,54,skirt,recovery2254);
+            rotary("cr",453,157,54,skirt,ratio2254);
+            rotary("meter",130,298,29,skirt,{degrees(-55),degrees(55)});
+            button("in",132,153,64,64,"rocker");
+            button("le",231,153,49,49,"toggle");
+            button("ce",309,153,49,49,"toggle");
             button("fast",270,286,43,43,"side");
-            button("deess",450,287,43,43,"toggle");
+            button("deess",450,290,49,49,"toggle");
         } else {
-            rotary("lr",85,350,48,ring,-1.02f,1.65f);
-            rotary("lt",85,350,32,centre,-2.83f,2.83f);
-            rotary("cm",85,504,48,ring,-1.02f,1.65f);
-            rotary("ct",85,504,32,centre,-1.83f,2.25f);
-            rotary("cr",85,646,48,ring,.50f,2.67f);
-            rotary("cg",85,646,32,centre,-2.67f,.12f);
+            rotary("lr",85,352,48,ring,recovery2264);
+            rotary("lt",85,352,32,centre,limitLevel2264);
+            rotary("cm",85,507,48,ring,recovery2264);
+            rotary("ct",85,507,32,centre,compressLevel2264);
+            rotary("cr",85,651,48,ring,ratio2264);
+            rotary("cg",85,651,32,centre,makeup2264);
             button("le",44,255,31,34,"toggle");
             button("ce",124,255,31,34,"toggle");
             button("in",44,742,31,37,"rocker");
@@ -263,8 +280,8 @@ public:
     }
 
 private:
-    void rotary(const char* control,int x,int y,float r,classics::Rotary::Type shape,float a,float b) {
-        auto slider=std::make_unique<classics::Rotary>(shape,r,a,b);
+    void rotary(const char* control,int x,int y,float r,classics::Rotary::Type shape,Scale scale) {
+        auto slider=std::make_unique<classics::Rotary>(shape,r,scale.first,scale.last);
         const auto key=id(ch,control);
         auto& state=processor.panelState();
         slider->setTitle(state.getParameter(key)->getName(80));
@@ -293,14 +310,14 @@ private:
     void paint2254(juce::Graphics& g) {
         using namespace classics;
         label(g,"LIMITER AND COMPRESSOR",150,19,240,25,16);
-        for (int x:{23,517}) for (int y:{24,521}) screw(g,float(x),float(y),10);
-        screw(g,279,529,13);
-        label(g,"2254",10,489,48,22,15);
+        for (int x:{27,513}) for (int y:{21,533}) screw(g,float(x),float(y),10);
+        screw(g,270,546,14);
+        label(g,"2254",4,492,38,22,13);
         label(g,"dB",43,46,32,19,14);
         label(g,"BY-PASS",94,107,76,22,14);
         label(g,"LIMIT",195,174,72,24,14);
-        label(g,"COMPRESS",269,174,86,24,14);
-        label(g,"COMPRESS\nRATIO",403,205,96,34,14);
+        label(g,"COMPRESS",266,178,86,24,14);
+        label(g,"COMPRESS\nRATIO",404,213,96,34,14);
         label(g,"CONTROL",87,247,96,20,14);
         label(g,"IN",96,264,21,20,14);
         label(g,"OUT",150,264,30,20,14);
@@ -308,34 +325,45 @@ private:
         label(g,"LIMIT\nATTACK",228,221,84,38,14);
         label(g,"100µS",191,277,55,20,13);
         label(g,"1mS",294,277,41,20,13);
-        label(g,"DE-ESS",408,314,84,20,14);
-        label(g,"LIMIT LEVEL",31,470,116,21,14);
-        label(g,"LIMIT\nRECOVERY",227,473,98,42,14);
-        label(g,"COMPRESS\nRECOVERY",405,459,98,42,14);
-        marks(g,89,411,58,-2.4f,2.4f,
+        label(g,"DE-ESS",408,317,84,20,14);
+        label(g,"LIMIT LEVEL",29,473,116,21,14);
+        label(g,"LIMIT\nRECOVERY",221,475,98,37,14);
+        label(g,"COMPRESS\nRECOVERY",403,475,98,37,14);
+        marks(g,87,416,61,limitLevel2254.first,limitLevel2254.last,
             {"+4","","","","+6","","","","+8","","","","+10","","","","+12"});
-        marks(g,276,420,58,-.88f,.88f,{"100mS","200mS","800mS","AUTO"});
-        marks(g,454,405,58,-.88f,.88f,{"400mS","800mS","1·5 S","AUTO"});
-        marks(g,451,151,58,-.85f,.85f,{"1·5:1","2:1","3:1","4:1","6:1"});
-        const FloatRect frame{18,74,72,266};
+        marks(g,270,420,62,recovery2254.first,recovery2254.last,{"100mS","200mS","800mS","AUTO"});
+        marks(g,452,421,62,recovery2254.first,recovery2254.last,{"400mS","800mS","1·5 S","AUTO"});
+        marks(g,453,157,64,ratio2254.first,ratio2254.last,{"1·5:1","2:1","3:1","4:1","6:1"});
+        const FloatRect frame{19,73,72,270};
         g.setColour(Colour{0xff111210});
         g.fillRect(frame);
         g.setGradientFill(juce::ColourGradient(Colour{0xfffff6d4},21,77,Colour{0xffc6bb9c},82,333,false));
         g.fillRoundedRectangle(frame.reduced(7,10),3);
         const auto dark=Colour{0xff27241b};
-        const juce::StringArray level{"+12","+8","+4","0","−4","−8","−12"};
-        const juce::StringArray gr{"16","12","8","6","4","3","2"};
-        for (int i=0;i<level.size();++i) {
-            const auto y=97.f+float(i)*33.f;
-            label(g,level[i],25,y-8,29,16,12,dark);
-            label(g,gr[i],54,y-8,25,16,12,dark);
+        constexpr std::array levelScale{12.f,8.f,4.f,0.f,-4.f,-8.f,-12.f,-16.f};
+        constexpr std::array reductionScale{16.f,12.f,8.f,6.f,4.f,3.f,2.f,1.f};
+        for (std::size_t i=0;i<levelScale.size();++i) {
+            const auto y=113.f+26.f*float(i);
+            const auto level=levelScale[i];
+            label(g,(level>0?String("+"):String())+String(level,0),26,y-8,27,16,11,dark);
+            label(g,String(reductionScale[i],0),55,y-8,19,16,11,dark);
             g.setColour(dark);
             g.drawHorizontalLine(int(y),50,55);
         }
         const auto mode=processor.panelState().getRawParameterValue(id(ch,"meter"))->load();
         const auto dbu=24.f+juce::Decibels::gainToDecibels(std::sqrt(2.f)*displayedSignal);
-        const auto y=mode==1 ? 312.f-215.f*std::clamp(displayedReduction/16.f,0.f,1.f)
-                             : 295.f-198.f*std::clamp((dbu+12.f)/24.f,0.f,1.f);
+        const auto gr=std::clamp(displayedReduction,1.f,16.f);
+        float y=295.f;
+        if (mode==1) {
+            for (std::size_t i=1;i<reductionScale.size();++i) {
+                if (gr<reductionScale[i]) continue;
+                const auto upper=reductionScale[i-1], lower=reductionScale[i];
+                y=113.f+26.f*(float(i)-(gr-lower)/(upper-lower));
+                break;
+            }
+        } else {
+            y=113.f+182.f*std::clamp((12.f-dbu)/28.f,0.f,1.f);
+        }
         g.setColour(Colour{0xff44392a});
         juce::Path pointer;
         pointer.addTriangle(22,y-5,35,y,22,y+5);
@@ -379,22 +407,22 @@ private:
         g.drawHorizontalLine(279,4,166);
         label(g,"LIMIT",3,282,42,16,10);
         juce::StringArray thresholdLimit=dials[4].labels;
-        for (int i=0;i<thresholdLimit.size();++i)
-            if (i%2) thresholdLimit.set(i,{});
-        marks(g,85,350,58,-2.83f,2.83f,thresholdLimit,orange,9);
-        marks(g,85,350,64,-1.02f,1.65f,{"50","100","200","800","A1","A2"},ink,10);
+        for (int i=1;i+1<thresholdLimit.size();++i)
+            thresholdLimit.set(i,i%2 ? String() : thresholdLimit[i].substring(1));
+        marks(g,85,352,56,limitLevel2264.first,limitLevel2264.last,thresholdLimit,orange,9);
+        marks(g,85,352,56,recovery2264.first,recovery2264.last,{"50","100","200","800","A1","A2"},ink,10);
         label(g,"THRESHOLD",2,421,83,14,10,orange);
         label(g,"(dBm)",13,433,54,12,9,orange);
         label(g,"RECOVERY",88,421,80,14,10);
         label(g,"(mS)",100,433,55,12,9);
-        marks(g,85,504,58,-1.83f,2.25f,
-            {"−20","","−16","","−12","","−8","","−4","","0","","+4","","+8","+10"},orange,9);
-        marks(g,85,504,64,-1.02f,1.65f,{"100","400","800","1500","A1","A2"},ink,10);
+        marks(g,85,507,56,compressLevel2264.first,compressLevel2264.last,
+            {"−20","","16","","12","","8","","4","","0","","4","","8","+10"},orange,9);
+        marks(g,85,507,56,recovery2264.first,recovery2264.last,{"100","400","800","1500","A1","A2"},ink,10);
         label(g,"COMPRESS",1,574,76,15,10);
         label(g,"GAIN",3,589,43,13,10,orange);
         label(g,"RATIO",124,589,44,13,10);
-        marks(g,85,646,57,-2.67f,.12f,{"0","","4","","8","","12","","16","","20"},orange,9);
-        marks(g,85,646,56,.50f,2.67f,{"1.5:1","2:1","3:1","4:1","6:1"},ink,9);
+        marks(g,85,651,56,makeup2264.first,makeup2264.last,{"0","","4","","8","","12","","16","","20"},orange,9);
+        marks(g,85,651,56,ratio2264.first,ratio2264.last,{"1.5:1","2:1","3:1","4:1","6:1"},ink,9);
         label(g,"BYPASS",5,704,77,17,11);
         label(g,"IN",12,760,34,16,10);
         label(g,"A",147,722,20,12,10);

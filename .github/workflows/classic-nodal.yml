@@ -50,7 +50,7 @@ jobs:
         shell: pwsh
         run: |
           $deck = (Resolve-Path decks).Path
-          cmake -S classics -B build -A x64 "-DDECK_DIR=$deck"
+          cmake -S classics -B build -A x64 "-DDECK_DIR=$deck" -DCLASSIC_PANEL_SNAPSHOT=ON
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build --config Release --target Classic${{ matrix.model }}_VST3 Bench${{ matrix.model }} --parallel 4
           exit $LASTEXITCODE
@@ -72,4 +72,23 @@ jobs:
         with:
           name: ${{ matrix.model }}-Nodal-Windows-x64-VST3
           path: build/Classic${{ matrix.model }}_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure frequency response and factory distortion conditions
+        run: python -u classics/measure_factory.py ${{ matrix.model }} build/Release/Bench${{ matrix.model }}.exe --output factory.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.model }}-Factory-Audit
+          path: factory.json
+          if-no-files-found: error
+      - name: Capture the mono editor
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target PanelSnapshot${{ matrix.model }} --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build/Release/PanelSnapshot${{ matrix.model }}.exe "${{ matrix.model }}-faceplate.png"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.model }}-Faceplate
+          path: ${{ matrix.model }}-faceplate.png
           if-no-files-found: error
