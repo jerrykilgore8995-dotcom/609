@@ -3,6 +3,8 @@
 #include "Circuit.hpp"
 #include <atomic>
 #include <chrono>
+#include <numbers>
+#include <cmath>
 #include <limits>
 #include <semaphore>
 #include <thread>
@@ -30,6 +32,7 @@ public:
         stop();
         if (inputChannels<1 || inputChannels>2 || hostBlock<1 || hostBlock>4096) return false;
         delay=playbackLatency(hostBlock);
+        sampleRate=rate;
         channels=inputChannels;
         for (int ch=0;ch<channels;++ch)
             if (!laneSolvers[ch].prepare(rate)) return false;
@@ -37,8 +40,16 @@ public:
         if (!event) event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
         if (!event) return false;
 #endif
+        workerReady.store(0,std::memory_order_release);
         started=true;
         worker=std::thread([this]{run();});
+        // The 160 MKII startup fix: activate and prime the actual audio worker
+        // before the host can deliver beat one; no host audio is consumed.
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
+        while (workerReady.load(std::memory_order_acquire)==0 &&
+               std::chrono::steady_clock::now()<deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (workerReady.load(std::memory_order_acquire)!=1) {stop();return false;}
         return true;
     }
     void stop() {
@@ -49,6 +60,7 @@ public:
         rendered.store(0,std::memory_order_relaxed);
         failures.store(0,std::memory_order_relaxed);
         started=false;
+        workerReady.store(0,std::memory_order_release);
         position=0;
         submitted=returned=0;
         meters={};
@@ -174,6 +186,21 @@ private:
     }
     void run() {
         prepareWorker();
+        // Prime the nonlinear circuit and solver on its real worker, then
+        // restore the canonical settled starting state (160 warm-start fix).
+        const double sr=sampleRate;
+        const auto warmControls=defaults;
+        for (int ch=0;ch<channels;++ch) {
+            auto& lane=laneSolvers[ch];
+            for (int i=0;i<static_cast<int>(sr*0.12);++i) {
+                const double time=double(i)/sr;
+                const double level=i<static_cast<int>(sr*0.06)?0.15:0.0;
+                const auto signal=level*std::sin(2*std::numbers::pi*1000*time);
+                lane.step({signal,signal},warmControls);
+            }
+            if (!lane.prepare(sr)) {workerReady.store(-1,std::memory_order_release);return;}
+        }
+        workerReady.store(1,std::memory_order_release);
         std::binary_semaphore begin(0),done(0);
         std::uint64_t first=0,last=0;
         bool linked=false;
@@ -235,7 +262,9 @@ private:
     alignas(64) std::atomic<std::uint64_t> rendered{0};
     std::atomic<unsigned> failures{0};
     std::thread worker;
-    std::uint64_t position=0,delay=1536;
+    std::uint64_t position=0,delay=1024;
+    double sampleRate=44100.0;
+    std::atomic<int> workerReady{0};
     std::uint64_t submitted=0,returned=0;
     MeterReadings meters{};
     bool started=false;
