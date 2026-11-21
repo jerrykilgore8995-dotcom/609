@@ -49,7 +49,8 @@ C6 VP EI 80u
 R9 EI GND 47
 C7 COL F 80u
 R10 F GND 33k
-XT5 VP COL OH OL LO1166
+* L/10004 sends pin 5 to R, pin 8 to T. The winding dots are pins 1/5.
+XT5 COL VP OH OL LO1166
 R11 OH ZX 1.5k
 C8 ZX OL 10n
 .ends B110

@@ -87,7 +87,16 @@ def measure(model, executable, rate):
     for row in bands:
         print(f"{model} through {row['frequency_hz']:5d} Hz | {row['relative_dB']:+.3f} dB"
               f" | phase {row['phase_deg']:+.2f} deg | {row['failures']} fails", flush=True)
-    return {"model": model, "rate": rate, "load_ohms": 600, "response": bands, "modes": mode_results}
+    audit = {"model": model, "rate": rate, "load_ohms": 600, "response": bands, "modes": mode_results}
+    if model == 2254:
+        thresholds = []
+        for position in range(1, 18):
+            point = tone(executable, 1, 1000, 20, threshold=position, recovery=3, rate=rate)
+            target = 4 + .5 * (position - 1)
+            thresholds.append({"detent_dBu": target, "output_dBu": point["output_dBu"],
+                               "failures": point["failures"]})
+        audit["limiter_thresholds"] = thresholds
+    return audit
 
 
 def main():
