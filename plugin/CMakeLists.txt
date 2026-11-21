@@ -42,9 +42,9 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_plugin(Compressor609
     COMPANY_NAME Kilgore
     PLUGIN_MANUFACTURER_CODE Jkil
-    PLUGIN_CODE K69D
-    BUNDLE_ID com.kilgore.609mkiv
-    PRODUCT_NAME "609 MK IV"
+    PLUGIN_CODE K69E
+    BUNDLE_ID com.kilgore.33609jd2x
+    PRODUCT_NAME "33609JD 2x"
     FORMATS VST3
     IS_SYNTH FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
