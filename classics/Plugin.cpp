@@ -330,9 +330,19 @@ private:
         label(g,"LIMIT\nRECOVERY",221,475,98,37,14);
         label(g,"COMPRESS\nRECOVERY",403,475,98,37,14);
         marks(g,87,416,61,limitLevel2254.first,limitLevel2254.last,
-            {"+4","","","","+6","","","","+8","","","","+10","","","","+12"});
-        marks(g,270,420,62,recovery2254.first,recovery2254.last,{"100mS","200mS","800mS","AUTO"});
-        marks(g,452,421,62,recovery2254.first,recovery2254.last,{"400mS","800mS","1·5 S","AUTO"});
+            {"+4","","","","+6","","","","","","","","+10","","","","+12"});
+        label(g,"+8",86,335,22,14,12);
+        const juce::StringArray recoveryTicks{"","","",""};
+        marks(g,270,420,62,recovery2254.first,recovery2254.last,recoveryTicks);
+        marks(g,452,421,62,recovery2254.first,recovery2254.last,recoveryTicks);
+        label(g,"100mS",182,352,47,17,12);
+        label(g,"200mS",215,333,48,17,12);
+        label(g,"800mS",278,333,48,17,12);
+        label(g,"AUTO",312,352,46,17,12);
+        label(g,"400\nmS",371,352,37,31,12);
+        label(g,"800mS",395,338,46,17,12);
+        label(g,"1·5 S",450,338,34,17,12);
+        label(g,"AUTO",494,352,42,17,12);
         marks(g,453,157,64,ratio2254.first,ratio2254.last,{"1·5:1","2:1","3:1","4:1","6:1"});
         const FloatRect frame{19,73,72,270};
         g.setColour(Colour{0xff111210});
