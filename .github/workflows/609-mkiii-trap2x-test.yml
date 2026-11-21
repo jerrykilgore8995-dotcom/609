@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
-          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
           New-Item -ItemType Directory -Force trial-results | Out-Null
           foreach ($mode in @('through','comp','limit','both')) {
             foreach ($level in @(4,20)) {
@@ -44,7 +44,7 @@ jobs:
                 $li=if ($mode -in @('limit','both')) {1} else {0}
                 $values=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9)
                 $label="$mode-$level-$hz"
-                & $host $bundle --jd-case @values 2> "trial-results/$label.stderr.txt" |
+                & $tester $bundle --jd-case @values 2> "trial-results/$label.stderr.txt" |
                    Out-File -Encoding utf8 "trial-results/$label.txt"
                 if ($LASTEXITCODE) {exit $LASTEXITCODE}
                 Write-Host "MEASURED $label"
@@ -55,8 +55,8 @@ jobs:
         shell: pwsh
         run: |
           $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK III.vst3').Path
-          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
-          & $host $bundle > trial-results/realtime-smoke.txt 2> trial-results/realtime-smoke.stderr.txt
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          & $tester $bundle > trial-results/realtime-smoke.txt 2> trial-results/realtime-smoke.stderr.txt
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
