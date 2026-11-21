@@ -1,6 +1,7 @@
 #pragma once
 #include "Api.hpp"
 #include "Circuit.hpp"
+#include "OutputResponseMkIV.hpp"
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -33,6 +34,7 @@ public:
         channels=inputChannels;
         for (int ch=0;ch<channels;++ch)
             if (!laneSolvers[ch].prepare(rate)) return false;
+        for(int ch=0;ch<channels;++ch) response[ch].prepare(rate);
 #ifdef _WIN32
         if (!event) event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
         if (!event) return false;
@@ -157,7 +159,7 @@ private:
             settings[19]=linked;
             const auto result=lane.step({sample.values[0],sample.values[1]},settings);
             auto& out=output[frame&mask];
-            out.values[channel]=float(result[channel]);
+            out.values[channel]=float(response[channel].process(sample.values[channel],result[channel],settings,channel));
             out.meter[channel]=float(std::max(0.0,lane.meterVolts()[channel]*6.9));
             if (linked) {
                 local.volts[1-index]=lane.linkVoltage();
@@ -227,6 +229,7 @@ private:
     }
     std::array<LinkState,2> linkState{};
     std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
+    std::array<OutputResponseMkIV,2> response{};
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};
     std::array<Input,capacity> input{};
