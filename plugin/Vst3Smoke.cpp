@@ -4,6 +4,7 @@
 #include "Presets.hpp"
 #include "../native/Api.hpp"
 #include "../native/Circuit.hpp"
+#include "../native/BandlimitedHalf.hpp"
 #include "../native/DynamicsProbe.hpp"
 #include "../native/PlaybackClock.hpp"
 
@@ -433,17 +434,20 @@ int main(int argc,char** argv) {
                 if (!lane.prepare(rate*2) || !lane.usesGeneratedSolve() || !lane.usesGeneratedResidual()) return 9;
             }
             auto expected=input;
-            mkii::native::Solver::Frame previousSource{};
             for (int frame=0;frame<input.getNumSamples();++frame) {
                 const mkii::native::Solver::Frame source{
                     input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0};
                 const mkii::native::Solver::Frame midpoint{
-                    .5*(previousSource[0]+source[0]),.5*(previousSource[1]+source[1])};
+                    mkii::native::BandlimitedHalf::interpolate(frame,[&input](std::uint64_t t) {
+                        return t<static_cast<std::uint64_t>(input.getNumSamples()) ? double(input.getSample(0,int(t))) : 0.0;
+                    }),
+                    mkii::native::BandlimitedHalf::interpolate(frame,[&input,&layout](std::uint64_t t) {
+                        return layout.size()>1 && t<static_cast<std::uint64_t>(input.getNumSamples()) ? double(input.getSample(1,int(t))) : 0.0;
+                    })};
                 for (int ch=0;ch<layout.size();++ch) {
                     lanes[ch].step(midpoint,settings);
                     expected.setSample(ch,frame,static_cast<float>(lanes[ch].step(source,settings)[ch]));
                 }
-                previousSource=source;
             }
             const auto failures=lanes[0].failures()+lanes[1].failures();
             if (failures) {
