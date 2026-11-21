@@ -178,7 +178,7 @@ public:
             addAndMakeVisible(button);
             switches[i] = std::make_unique<ButtonAttachment>(owner.state, ids[i+6], button);
         }
-        buttons.back().onStateChange = [this] { repaint(143, 579, 32, 32); };
+        buttons.back().onStateChange = [this] { repaint(143, 592, 32, 32); };
         setSize(207, 736);
     }
     ~Panel() override {
@@ -195,7 +195,7 @@ public:
         }
         buttons[0].setBounds(26, 628, 44, 44);
         buttons[1].setBounds(81, 628, 44, 44);
-        buttons[2].setBounds(21, 569, 53, 53);
+        buttons[2].setBounds(27, 587, 42, 42);
         buttons[3].setBounds(137, 628, 44, 44);
     }
 
@@ -243,7 +243,7 @@ public:
             print(labels[row], 1, y+84, 30, ink);
             print(row == 2 ? "Hz" : "kHz", 174, y+84, 30, blue, 14);
         }
-        print("FLTR", 76, 582, 46, ink);
+        print("FLTR", 74, 598, 46, ink);
         print("L   F", 17, 681, 60, ink);
         print("H   F", 73, 681, 60, ink);
         print("IN", 137, 681, 44, ink);
@@ -261,9 +261,9 @@ public:
         g.strokePath(lowShelf, PathStrokeType(1.4f));
         g.strokePath(highShelf, PathStrokeType(1.4f));
         g.setColour(buttons.back().getToggleState() ? Colour(0xfff14c41) : Colour(0xff451516));
-        g.fillEllipse(152, 585, 16, 16);
+        g.fillEllipse(152, 600, 16, 16);
         g.setColour(Colour(0xff9e5d59));
-        g.fillEllipse(156, 588, 4, 4);
+        g.fillEllipse(156, 603, 4, 4);
     }
 private:
     KnobStyle style;
