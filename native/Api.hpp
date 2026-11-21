@@ -15,6 +15,6 @@ struct Api {
     void (*readMeters)(void*,MeterReadings*);
 };
 inline constexpr std::uint32_t apiVersion=2;
-constexpr int playbackLatency(int hostBlock) {return 3*(hostBlock<512?512:hostBlock);}
+constexpr int playbackLatency(int hostBlock) {return 2*(hostBlock<512?512:hostBlock);}
 using LoadApi=const Api* (*)();
 }
