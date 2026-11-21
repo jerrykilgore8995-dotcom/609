@@ -10,7 +10,7 @@ def capture(hz,level,comp,limit,ratio=5,crec=3,lrec=4,cth=11,lth=1):
     # Bench trace args: limiter flag, ratio, recovery, threshold, fast,
     # low dBu, high dBu, burst seconds, tail seconds, frequency, comp on, limiter on.
     values=[int(limit),ratio,crec if comp else lrec,cth if comp else lth,0,
-            level,level,1.5,.15,hz,int(comp),int(limit)]
+            level-0.001,level,1.5,.15,hz,int(comp),int(limit)]
     p=subprocess.run([str(EXE),"--trace",*map(str,values)],capture_output=True,text=True,check=True,timeout=240)
     y=np.fromstring(p.stdout,sep=" ")
     fails=int(p.stderr.strip() or "0")
