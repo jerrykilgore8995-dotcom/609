@@ -1,0 +1,63 @@
+name: 609 MKII DLL sample-rate root-cause probe
+on:
+  push:
+    branches: [609-mkii-windows]
+    paths: ['.github/workflows/mkii-dll-rate-probe.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rate-probe:
+    runs-on: windows-2022
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-MKII-Windows-x64-VST3
+          path: build/target
+          github-token: ${{ github.token }}
+          run-id: '44834500643'
+      - name: Build modified measurement host ONLY
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Isolate DLL high-frequency loss by sample rate and engaged mode
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build/target/609 MKII.vst3').Path
+          $test=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -Type Directory -Force rate-results | Out-Null
+          foreach ($rate in @(44100,96000)) {
+            foreach ($mode in @('through','comp','limit','both')) {
+              foreach ($level in @(4,20)) {
+                foreach ($hz in @(1000,10000,15000,20000)) {
+                  $ci=if ($mode -in @('comp','both')) {1} else {0}
+                  $li=if ($mode -in @('limit','both')) {1} else {0}
+                  $argsList=@(10,2,2,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9,$rate)
+                  $label="$rate-$mode-$level-$hz"
+                  Write-Host "BEGIN $label"
+                  & $test $bundle --jd-case @argsList 2> "rate-results/$label.stderr.txt" |
+                     Out-File -Encoding utf8 "rate-results/$label.txt"
+                  if ($LASTEXITCODE) {exit $LASTEXITCODE}
+                  Write-Host "DONE $label"
+                }
+              }
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MKII-DLL-rate-and-mode-diagnosis
+          path: rate-results/
+          if-no-files-found: warn
