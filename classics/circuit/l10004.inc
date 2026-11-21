@@ -67,11 +67,11 @@ RLQ QL3B GND 39k
 CLQ QL3B GND 1n
 QL3 LSUP QL3B LIM_DRV Q2N1711
 RATT1 LIM_DRV LIM_FAST 47
-RATT2 LIM_FAST LIM_ENV 185
+RATT2 LIM_FAST LIM_ENV 145
 RATT3 LIM_FAST LIM_ENV {FAST>0.5?0.01:1e10}
 CLENV LIM_ENV LREF 22u
 CLREF LREF GND 100u
-XLREC LIM_ENV LREF REC54 params: POS={LR} R1=12.6k R2=23k R3=77k
+XLREC LIM_ENV LREF REC54 params: POS={LR} R1=13.5k R2=26k R3=82k
 QL4 RAIL LIM_ENV LINK BC107
 
 * B185 control shaping and gain-reduction meter connection.
@@ -91,39 +91,41 @@ QBUF RAIL BCREF BUF_E BC107
 RBUF3 BUF_E GND 3.9k
 CBUF2 BUF_E GND 1n
 CBUF3 BUF_E BUF_C 20u
-RBUF4 BUF_C COMP_IN 1k
+* The original panel has a fixed threshold. The host-only threshold trim
+* uses a gain/attenuation ladder ahead of the clamp.
+RBUF4 BUF_C COMP_IN {470-464*(CT==1)-453*(CT==2)-435*(CT==3)-414*(CT==4)-388*(CT==5)-354*(CT==6)-315*(CT==7)-259*(CT==8)-193*(CT==9)-108*(CT==10)+134*(CT==12)+302*(CT==13)+514*(CT==14)+780*(CT==15)+1116*(CT==16)}
 XCAMP COMP_IN COMP_SEND COMP_AUX CFB SMALL GND B112 params: CIN=20u RIN=120
 RCFB1 CFB CFB_T 10
-RCFB2 CFB GND 33
+RCFB2 CFB GND {33-21*(CT==1)-18*(CT==2)-15*(CT==3)-12*(CT==4)-9*(CT==5)-6*(CT==6)-3*(CT==7)}
 RDEESS CFB_T CDE 100k
 R_DEESS CFB_T CDE {(DEESS>0.5)?0.01:1e10}
 CDEESS CDE GND 2u
-* The 2254 drawing fixes the compressor reference and sets its gain externally.
-* CT trims that existing voltage path to expose the threshold in the plugin.
-RCTS COMP_SEND COMP_A 1k
-RCLEV COMP_A GND {1630-75*(CT-1)}
-R_COMP_ON COMP_A COMP_E {CE>0.5?0.01:1e10}
+R_COMP_ON COMP_SEND COMP_E {CE>0.5?0.01:1e10}
 RCE COMP_E GND 33k
 CDET COMP_E COMP_CAP 20u
 RDET COMP_CAP COMP_CH 820
 RSIDE RAIL CP_V 470
 CSIDE RAIL GND 160u
-DC1 CP_V COMP_CH BAX16
-DC2 CP_V QC3B BAX16
+* Reference the clamp pair before the 470-ohm envelope-stage supply feed.
+* With the compact models, sharing CP_V with the charging followers lets
+* their supply sag switch QCD back on after the input burst has fallen.
+DC1 RAIL COMP_CH BAX16
+DC2 RAIL QC3B BAX16
 RCD QC3B GND 47k
 QCD COMP_LAW QC3B COMP_CH BCY70
-RCL COMP_LAW GND {10k+8k*(CR==2)+29k*(CR==3)+37k*(CR==4)+58k*(CR==5)}
+* Effective ratio and timing values fitted with the diode bridge in the loop.
+RCL COMP_LAW GND {1.5k+850*(CR==2)+37.5k*(CR==3)+45.5k*(CR==4)+66.5k*(CR==5)}
 DC3 COMP_LAW DZ1 BAX16
 DC4 DZ1 DZ2 BAX16
 DC5 DZ2 DZ3 BAX16
 DC6 DZ3 DZ4 BAX16
 DZC TOP_LAW DZ4 HS2027
-RTL TOP_LAW GND {68+842*(CR==2)+3232*(CR==3)+9932*(CR==4)+32932*(CR==5)}
+RTL TOP_LAW GND {68+842*(CR==2)+5032*(CR==3)+11932*(CR==4)+32932*(CR==5)}
 QC1 CP_V COMP_LAW CQE BC107
-RCA CQE COMP_ENV 270
+RCA CQE COMP_ENV 39
 QC2 CP_V COMP_ENV LINK BC107
 CCENV COMP_ENV GND 22u
-XCREC COMP_ENV LINK REC54 params: POS={CM} R1=18k R2=39k R3=82k
+XCREC COMP_ENV LINK REC54 params: POS={CM} R1=10k R2=22k R3=52k
 .ends L10004
 
 .subckt REC54 ENV REF params: POS=1 R1=8.2k R2=18k R3=82k

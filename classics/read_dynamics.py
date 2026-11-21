@@ -9,13 +9,13 @@ import numpy as np
 RATE = 44100
 
 
-def measurement(executable, limiter, ratio, recovery, threshold, fast, low, high, burst, tail):
-    values = (int(limiter), ratio, recovery, threshold, int(fast), low, high, burst, tail, 1000)
+def measurement(executable, limiter, ratio, recovery, threshold, fast, low, high, burst, tail, *, frequency=1000):
+    values = (int(limiter), ratio, recovery, threshold, int(fast), low, high, burst, tail, frequency)
     result = subprocess.run([str(executable), "--trace", *map(str, values)], text=True,
                             capture_output=True, check=True, timeout=180)
     y = np.fromstring(result.stdout, sep=" ")
-    n = round(RATE / 1000)
-    phase = 2 * math.pi * 1000 * np.arange(n) / RATE
+    n = round(RATE / frequency)
+    phase = 2 * math.pi * frequency * np.arange(n) / RATE
     sine = np.correlate(y, np.sin(phase), "valid")
     cosine = np.correlate(y, np.cos(phase), "valid")
     amplitude = 2 / n * np.hypot(sine, cosine)
@@ -32,7 +32,7 @@ def measurement(executable, limiter, ratio, recovery, threshold, fast, low, high
         hits = time[mask]
         return 1000 * (hits[0] - origin) if len(hits) else math.nan
 
-    attack = first((time >= .3005) & (time < stop) & (envelope <= after + 1), .3)
+    attack = first((time >= .3 + .5 / frequency) & (time < stop) & (envelope <= after + 1), .3)
     release = first((time >= stop + .0005) & (envelope >= release_band), stop)
     gain_change = high - low + before - after
     if gain_change <= 1 or int(result.stderr.strip()):
@@ -68,8 +68,15 @@ def main():
         lo, hi, att, _, peak, failures = measurement(exe,True,4,1,9,fast,10,20,.65,.1)
         limit_ratio = 10/max(abs(hi-lo), 1e-8)
         check("limit ratio", limit_ratio, 100, failures, minimum=True)
-        if not old or not fast:
-            check("limit attack", att, 1 if old else 4, failures)
+        if not old:
+            check("limit attack", att, 4, failures)
+        elif not fast:
+            # The 1 ms target is one full cycle at 1 kHz. Use a shorter
+            # carrier period for the attack gate, keeping the 1 kHz ratio test.
+            _, _, fast_probe, _, _, fast_probe_failures = measurement(
+                exe, True, 4, 1, 9, False, 10, 20, .65, .1, frequency=2000)
+            check("limit attack at 2 kHz", fast_probe, 1, fast_probe_failures)
+            print(f"LIMIT NORMAL ATTACK 2 kHz | {fast_probe:.2f} ms | {fast_probe_failures} fails", flush=True)
         print(f"LIMIT {'FAST' if fast else 'NORMAL'} | {limit_ratio:.0f}:1 | attack {att:.2f} ms | "
               f"output {lo:+.2f}/{hi:+.2f} dBu | burst minimum {peak:+.2f} dBu | {failures} fails", flush=True)
     for lim, positions in ((False, fixed_comp), (True, fixed_limit)):

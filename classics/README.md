@@ -28,7 +28,7 @@ The working decks are restricted to circuit development. Vintage semiconductor c
 
 `iron.inc` labels interim values explicitly. The LO1166/A zero-bias test cannot establish core behavior at the 2254 operating point. The LO2567 teardown covers a different transformer and cannot supply LO1173 winding data.
 
-The 2254 uses the early L/10004 circuit with an added compressor threshold trim in the existing detector feed. The B192 limiter input loading and control taper are effective alignment values. The drawing's 120 Ω reading did not give a working +8 dBu limiter in the first pass. The De-Ess switch now stamps the B191 feedback network. Program meter modes use input/output levels and control voltage at the UI, rather than a B192 meter-driver simulation. The external duck input is omitted. The makeup switch uses the resistor bank from L/10004. Panel labels describe intended calibration and still need verification.
+The 2254 uses the early L/10004 circuit. A detented trim in the B191 input attenuation and feedback sets the host compressor threshold. The B192 limiter input loading and control taper are effective alignment values. The drawing's 120 Ω reading did not give a working +8 dBu limiter in the first pass. The De-Ess switch now stamps the B191 feedback network. Program meter modes use input/output levels and control voltage at the UI, rather than a B192 meter-driver simulation. The external duck input is omitted. The makeup switch uses the resistor bank from L/10004. Panel labels describe intended calibration and still need verification.
 
 The 2264 motherboard scan calls out EX20127, EX20128 and EX20129 for the rotary subassemblies. The 2264 threshold begins with a 609-family ladder. The ratio, attack and recovery elements are effective values fitted to the published 2264 response. They do not represent a recovered EX20127–EX20129 parts list. Limiter calibration, interstage termination and amplifier bias need per-revision confirmation. Stereo link uses the MKII's 10 Ω Norton equivalent with one sample of delay between the channel solvers.
 
@@ -39,7 +39,7 @@ The current bench checks finite output and convergence under combined compressio
 | 2254 | +8.00 dBu | +7.91 dBu |
 | 2264 | +7.87 dBu | +8.00 dBu |
 
-The 2254 still over-attenuates at the higher ratios. Correcting the B191 detector switch and supply bypass wiring did not remove the envelope overshoot. Lower effective top-end law resistances reduced the collapse in SPICE, but the nodal step still had convergence failures and the ratio slopes missed their targets. That experimental ratio ladder was dropped. The 2264 compressor passed this operating sanity check, but that does not verify its individual rotary assemblies or hardware ratio curves. Hardware comparison of the full ratio curves, timing, THD and frequency response remains open.
+The earlier 2254 compressed far past its steady-state setpoint. During a burst, charging the B191 envelope pulled down the rail after the 470 Ω feed resistor and shifted the BCY70 base reference. The compact-model circuit drove the bridge past 40 dB of reduction. The clamp diodes now reference the rail on the supply side of the resistor. The discrete charging followers, timing capacitor, feedback path and diode bridge remain in the solve. Initial-law, top-end-law and timing resistors use effective values fitted to the modeled loop and are documented in the deck. The calibration covers the benchmark stimuli below. Hardware THD, threshold accuracy over the entire control range and 100 µs fast limiter attack need separate verification.
 
 ## Faceplates
 
@@ -47,7 +47,7 @@ The 2254 editor traces the [first 2254's panel photograph](https://postfade.co.u
 
 ## Validation and build
 
-The 2264 candidate builds on the Windows runner. Publishing its bundle requires a clean SPICE operating check, attack and release timing and effective ratio within 10% of the benchmark targets, and a clean mono and linked-stereo native benchmark. The 2254 is held at the source stage.
+The Windows runner builds both candidates independently. Each VST3 download requires clean SPICE operating checks, attack and fixed release timing and effective ratio within 10% of the benchmark targets, and a clean mono and linked-stereo processing benchmark. The 2254 normal limiter attack check uses a 2 kHz carrier to shorten the envelope measurement window. The 1 kHz fast limiter result is comparative and does not verify the 100 µs marking.
 
 The dynamics probe uses a 1 kHz carrier and a centred, one-cycle fundamental envelope. Ratio is the output change from +10 to +20 dBu input at a fixed threshold. Attack is the time from that step to 1 dB above the new plateau, with the compressor on 6:1 for the timing reference. Release is the time to recover 63.2% of the gain change in dB. A 0.55 s burst checks the fixed releases. The Auto checks compare 0.1 and 3 s bursts. The 2264 recovery network keeps each Auto capacitor on a separate switched branch so SPICE and the generated solver use the same capacitance. A detent expression on a single capacitor would have stayed fixed at its default value in the generated solver. Timing values are tied to these stimuli and measurement definitions.
 
