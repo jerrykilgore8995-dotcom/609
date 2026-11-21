@@ -1,0 +1,99 @@
+name: 609 MK III loaded DLL beat-one and dynamics calibration
+on:
+  push:
+    branches: [609-mkiii-trap2x-bandlimited]
+    paths: ['.github/workflows/609-mkiii-dll-diagnostics.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  measure:
+    runs-on: windows-2022
+    timeout-minutes: 105
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-MK-III-2x-Bandlimited-Candidate
+          path: build/target
+          github-token: ${{ github.token }}
+          run-id: '44880214658'
+      - name: Compile test host only (do not rebuild DLL)
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Test first beat, wet parity and fallback separately from VM CPU speed
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build/target/609 MK III.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -Type Directory -Force diagnostic-results | Out-Null
+          & $tester $bundle --first-beat > diagnostic-results/first-beat.txt 2> diagnostic-results/first-beat.stderr.txt
+          exit $LASTEXITCODE
+      - name: Measure packaged DLL 1 kHz THD at 3 levels and all five ratios
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build/target/609 MK III.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -Type Directory -Force diagnostic-results/spectra | Out-Null
+          foreach ($mode in @('through','comp','limit','both')) {
+            foreach ($level in @(4,10,20)) {
+              $ci=if ($mode -in @('comp','both')) {1} else {0}
+              $li=if ($mode -in @('limit','both')) {1} else {0}
+              $values=@(10,3,0,0,8,3,$ci,$li,0,0,1000,0,$level,0,0.9)
+              $label="$mode-$level"
+              & $tester $bundle --jd-case @values 2> "diagnostic-results/spectra/$label.err" |
+                 Out-File -Encoding utf8 "diagnostic-results/spectra/$label.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+          foreach ($ratio in @(0,1,2,3,4)) {
+            foreach ($level in @(0,10)) {
+              $values=@(10,$ratio,0,0,8,3,1,0,0,0,1000,0,$level,0,0.9)
+              $label="ratio-$ratio-level-$level"
+              & $tester $bundle --jd-case @values 2> "diagnostic-results/spectra/$label.err" |
+                 Out-File -Encoding utf8 "diagnostic-results/spectra/$label.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+      - name: Measure compressor 3 attacks and 6 recoveries and limiter 2 attacks and 6 recoveries
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build/target/609 MK III.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -Type Directory -Force diagnostic-results/timing | Out-Null
+          foreach ($attack in @(0,1,2)) {
+            foreach ($rec in @(0,1,2,3,4,5)) {
+              $values=@(10,3,$rec,0,8,3,1,0,0,$attack,1000,-30,10,0.1,4.5)
+              $name="comp-a$attack-r$rec"
+              & $tester $bundle --jd-case @values 2> "diagnostic-results/timing/$name.err" |
+                Out-File -Encoding utf8 "diagnostic-results/timing/$name.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+          foreach ($fast in @(0,1)) {
+            foreach ($rec in @(0,1,2,3,4,5)) {
+              $values=@(0,0,0,0,8,$rec,0,1,$fast,0,1000,10,20,0.1,5.5)
+              $name="limit-fast$fast-r$rec"
+              & $tester $bundle --jd-case @values 2> "diagnostic-results/timing/$name.err" |
+                Out-File -Encoding utf8 "diagnostic-results/timing/$name.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MK-III-packaged-DLL-beat-one-timing-THD
+          path: diagnostic-results/
+          if-no-files-found: warn
