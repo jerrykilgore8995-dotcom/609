@@ -1,0 +1,98 @@
+name: 609 MKII versus MK IV packaged DLL parity - phase THD ratios and timing
+on:
+  push:
+    branches: [609-mkiv-frequency-only]
+    paths: ['.github/workflows/609-mkiv-parity.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parity:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-MKII-Windows-x64-VST3
+          path: build/mkii
+          github-token: ${{ github.token }}
+          run-id: '44834500643'
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-MK-IV-Frequency-Only-Windows-x64-VST3
+          path: build/mkiv
+          github-token: ${{ github.token }}
+          run-id: '44884618726'
+      - name: Build measurement HOST only; do not rebuild either plugin
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-parity-host -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-parity-host --config Release --target Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure actual DLL complex transfer, harmonics, ratio, attacks and recoveries
+        shell: pwsh
+        run: |
+          $tester=(Resolve-Path 'build-parity-host/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          $paths=@{mkii=(Resolve-Path 'build/mkii/609 MKII.vst3').Path; mkiv=(Resolve-Path 'build/mkiv/609 MK IV.vst3').Path}
+          New-Item -ItemType Directory -Force results | Out-Null
+          foreach($version in @('mkii','mkiv')) {
+            $bundle=$paths[$version]
+            New-Item -ItemType Directory -Force "results/$version" | Out-Null
+            foreach($mode in @('through','comp','limit','both')) {
+              $ci=if ($mode -in @('comp','both')) {1} else {0}
+              $li=if ($mode -in @('limit','both')) {1} else {0}
+              foreach($level in @(4,10,20)) {
+                foreach($hz in @(100,1000,5000,10000,15000,20000)) {
+                  $v=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9)
+                  $name="$mode-$level-$hz"
+                  & $tester $bundle --jd-case @v 2> "results/$version/$name.stderr" |
+                     Out-File -Encoding utf8 "results/$version/$name.txt"
+                  if ($LASTEXITCODE) {exit $LASTEXITCODE}
+                  Write-Host "$version spectral $name"
+                }
+              }
+            }
+            foreach($ratio in @(0,1,2,3,4)) {
+              foreach($level in @(0,10)) {
+                $v=@(10,$ratio,0,0,8,3,1,0,0,0,1000,0,$level,0,0.9)
+                $name="ratio-$ratio-$level"
+                & $tester $bundle --jd-case @v 2> "results/$version/$name.stderr" |
+                  Out-File -Encoding utf8 "results/$version/$name.txt"
+                if ($LASTEXITCODE) {exit $LASTEXITCODE}
+              }
+            }
+            foreach($attack in @(0,1,2)) {
+              foreach($recovery in @(0,1,2,3,4,5)) {
+                $v=@(10,3,$recovery,0,8,3,1,0,0,$attack,1000,-30,10,0.1,4.5)
+                $name="comp-a$attack-r$recovery"
+                & $tester $bundle --jd-case @v 2> "results/$version/$name.stderr" |
+                  Out-File -Encoding utf8 "results/$version/$name.txt"
+                if ($LASTEXITCODE) {exit $LASTEXITCODE}
+              }
+            }
+            foreach($fast in @(0,1)) {
+              foreach($recovery in @(0,1,2,3,4,5)) {
+                $v=@(0,0,0,0,8,$recovery,0,1,$fast,0,1000,10,20,0.1,5.5)
+                $name="limit-a$fast-r$recovery"
+                & $tester $bundle --jd-case @v 2> "results/$version/$name.stderr" |
+                  Out-File -Encoding utf8 "results/$version/$name.txt"
+                if ($LASTEXITCODE) {exit $LASTEXITCODE}
+              }
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MKII-MKIV-identical-DLL-phase-THD-timing-ratio
+          path: results/
+          if-no-files-found: warn
