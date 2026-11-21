@@ -405,6 +405,7 @@ int main(int argc,char** argv) {
                 input.setSample(c,i,static_cast<float>(t<2?cymbal:t<4?noisyBass:sustained));
             }
         }
+        if (!setControl(*vst,"Stereo Link",0.f)) return 11;
         const std::array<const char*,4> caseNames{"through","dual mono compressor","dual mono limiter","dual mono compressor and limiter"};
         const int caseCount=layout.size()==2?4:1;
         for (int testCase=0;testCase<caseCount;++testCase) {
@@ -427,18 +428,33 @@ int main(int argc,char** argv) {
                     settings[ch*9+7]=limit;
                 }
             }
+            settings[19]=0;
             std::array<mkii::native::Solver,2> lanes{mkii::native::Solver(0),mkii::native::Solver(1)};
             for (int ch=0;ch<layout.size();++ch) {
                 auto& lane=lanes[ch];
-                if (!lane.prepare(rate) || !lane.usesGeneratedSolve() || !lane.usesGeneratedResidual()) return 9;
+                if (!lane.prepare(2*rate) || !lane.usesGeneratedSolve() || !lane.usesGeneratedResidual()) return 9;
             }
             auto expected=input;
+            juce::AudioBuffer<double> midpoints(layout.size(),input.getNumSamples());
+            using mkii::native::BandlimitedHalf;
             for (int frame=0;frame<input.getNumSamples();++frame) {
-                const mkii::native::Solver::Frame source{
-                    input.getSample(0,frame),layout.size()==2?input.getSample(1,frame):0.0};
-                for (int ch=0;ch<layout.size();++ch)
+                mkii::native::Solver::Frame source{}, midpoint{};
+                for (int ch=0;ch<layout.size();++ch) {
+                    source[ch]=input.getSample(ch,frame);
+                    midpoint[ch]=BandlimitedHalf::interpolate(frame,[&](std::uint64_t t) {
+                        return t<static_cast<std::uint64_t>(input.getNumSamples())?input.getSample(ch,int(t)):0.;
+                    });
+                }
+                for (int ch=0;ch<layout.size();++ch) {
+                    midpoints.setSample(ch,frame,lanes[ch].step(midpoint,settings)[ch]);
                     expected.setSample(ch,frame,static_cast<float>(lanes[ch].step(source,settings)[ch]));
+                }
             }
+            for (int ch=0;ch<layout.size();++ch)
+                for (int frame=0;frame<input.getNumSamples()-BandlimitedHalf::past;++frame)
+                    expected.setSample(ch,frame,static_cast<float>(BandlimitedHalf::decimate(
+                        frame,expected.getSample(ch,frame),
+                        [&](std::uint64_t t){return midpoints.getSample(ch,int(t));})));
             const auto failures=lanes[0].failures()+lanes[1].failures();
             if (failures) {
                 std::cerr<<failures<<" nodal reference solves failed\n";

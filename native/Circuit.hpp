@@ -164,9 +164,7 @@ public:
         matrix.resize(deck.size);
         // Include the transient structure in the symbolic factorization.
         // The actual initial solve below uses zero integration conductance.
-        inverse = 1.5*rate;
-        history1 = -2.0*rate;
-        history2 = 0.5*rate;
+        prepareSampleGrid();
         diodeStorage.clear();
         bjtStorage.clear();
         stampLinear();
@@ -186,9 +184,7 @@ public:
         generatedResidual=findGeneratedResidual(rate,lane);
 #endif
         accept(true);
-        inverse = 1.5*rate;
-        history1 = -2.0*rate;
-        history2 = 0.5*rate;
+        prepareSampleGrid();
         savedNodes.resize(deck.size);
         savedHistory.resize(deck.capacitors.size()+deck.inductance.size()+deck.diodes.size()+2*deck.bjts.size());
         misses = 0;
@@ -429,7 +425,7 @@ private:
         };
         bool solved=false;
         // Advance physical time with backward Euler on the shorter steps.
-        // The next host sample resumes BDF2 with history on the host grid.
+        // The next host sample resumes trapezoidal integration on its own grid.
         std::swap(matrix,retryMatrix);
         for (int count : {2,4,8,16,32,64,128}) {
             restore();
@@ -447,11 +443,14 @@ private:
             if (solved) break;
         }
         std::swap(matrix,retryMatrix);
-        if (solved) visitHistory([](const History& save,double&,double& q2){q2=save.previous;});
-        else restore();
-        inverse=1.5*hostRate;
-        history1=-2.0*hostRate;
-        history2=0.5*hostRate;
+        if (solved) {
+            // Re-map the final backward-Euler derivative to the
+            // trapezoidal host-grid derivative history, preserving charge.
+            // q2 is the scaled prior derivative, not a second charge sample.
+            const double scale=inverse/(2.0*hostRate);
+            visitHistory([scale](const History&,double&,double& q2){q2*=scale;});
+        } else restore();
+        prepareSampleGrid();
         return solved;
     }
 
@@ -688,7 +687,7 @@ private:
                 sum+=terms[j].g*x[terms[j].column];
             matrix.rhs[row.row]=sum;
         }
-        const double delta=inverse-1.5*hostRate;
+        const double delta=inverse-2.0*hostRate;
         if (delta!=0)
             for (const auto& d : deck.capacitors) conduct(d.a,d.b,delta*d.value);
         if (delta!=0) for (const auto& d : deck.inductance) {
@@ -902,27 +901,38 @@ private:
         return residual<(fastConvergence?1e-10:1e-12);
     }
 
+    // Trapezoidal companion model: dQ/dt[n] = 2*fs*(Q[n]-Q[n-1]) - dQ/dt[n-1].
+    // q2 stores the previous derivative divided by 2*fs. This applies to
+    // magnetic winding flux, capacitors, diode and BJT junction charge.
+    void prepareSampleGrid() {
+        inverse=2.0*hostRate;
+        history1=-inverse;
+        history2=-inverse;
+    }
+    double nextHistory(double charge,double prior,double priorDerivativeScaled,bool dc) const {
+        return dc ? 0.0 : charge-prior+(history2/inverse)*priorDerivativeScaled;
+    }
     void accept(bool dc) {
         for (auto& d : deck.inductance) {
             const double q=d.value*v(d.column);
-            d.q2=dc?q:d.q1;
+            d.q2=nextHistory(q,d.q1,d.q2,dc);
             d.q1=q;
         }
         for (auto& d : deck.capacitors) {
             d.q=(v(d.a)-v(d.b))*d.value;
-            d.q2=dc?d.q:d.q1;
+            d.q2=nextHistory(d.q,d.q1,d.q2,dc);
             d.q1=d.q;
         }
         for (const int i : diodeStorage) {
             auto& d=deck.diodes[i];
-            d.q2=dc?d.q:d.q1;
+            d.q2=nextHistory(d.q,d.q1,d.q2,dc);
             d.q1=d.q;
         }
         for (const int i : bjtStorage) {
             auto& d=deck.bjts[i];
-            d.f2=dc?d.f:d.f1;
+            d.f2=nextHistory(d.f,d.f1,d.f2,dc);
             d.f1=d.f;
-            d.r2=dc?d.r:d.r1;
+            d.r2=nextHistory(d.r,d.r1,d.r2,dc);
             d.r1=d.r;
         }
         std::copy(x.begin(), x.end(), previous.begin());

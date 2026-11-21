@@ -1,5 +1,6 @@
 #pragma once
 #include "Api.hpp"
+#include "BandlimitedHalf.hpp"
 #include "Circuit.hpp"
 #include <atomic>
 #include <chrono>
@@ -32,7 +33,7 @@ public:
         delay=playbackLatency(hostBlock);
         channels=inputChannels;
         for (int ch=0;ch<channels;++ch)
-            if (!laneSolvers[ch].prepare(rate)) return false;
+            if (!laneSolvers[ch].prepare(2*rate)) return false;
 #ifdef _WIN32
         if (!event) event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
         if (!event) return false;
@@ -141,12 +142,16 @@ private:
         SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_ABOVE_NORMAL);
 #endif
     }
+    struct Subsamples { double midpoint=0, endpoint=0; float meter=0; };
+    static constexpr std::uint64_t filterHistorySize=64;
+    static_assert(filterHistorySize>=BandlimitedHalf::weights.size());
     struct alignas(64) LinkState {
         std::atomic<std::uint64_t> completed{0};
         std::array<double,2> volts{};
     };
     void renderLane(int channel,std::uint64_t first,std::uint64_t end,bool linked) {
         auto& lane=laneSolvers[channel];
+        auto& history=filterHistory[channel];
         for (auto frame=first;frame<end;++frame) {
             const auto& sample=input[frame&mask];
             const auto index=frame&1;
@@ -155,10 +160,26 @@ private:
             if (linked) lane.setPeerLinkVoltage(peer.volts[index]);
             auto settings=sample.settings;
             settings[19]=linked;
-            const auto result=lane.step({sample.values[0],sample.values[1]},settings);
-            auto& out=output[frame&mask];
-            out.values[channel]=float(result[channel]);
-            out.meter[channel]=float(std::max(0.0,lane.meterVolts()[channel]*6.9));
+            // Hold the peer link and switch positions over both solves on
+            // this host frame, as the link exchanges voltage on the host grid.
+            const auto midpoint=[&](int ch) {
+                return BandlimitedHalf::interpolate(frame,[&](std::uint64_t t) {
+                    const auto& tap=input[t&mask];
+                    return double(tap.values[ch]);
+                });
+            };
+            const auto half=lane.step({midpoint(0),channels==2?midpoint(1):0.0},settings);
+            const auto full=lane.step({sample.values[0],sample.values[1]},settings);
+            history[frame%filterHistorySize]={half[channel],full[channel],
+                float(std::max(0.0,lane.meterVolts()[channel]*6.9))};
+            if (frame>=BandlimitedHalf::past) {
+                const auto source=frame-BandlimitedHalf::past;
+                const auto& center=history[source%filterHistorySize];
+                auto& out=output[source&mask];
+                out.values[channel]=float(BandlimitedHalf::decimate(source,center.endpoint,
+                    [&](std::uint64_t t){return history[t%filterHistorySize].midpoint;}));
+                out.meter[channel]=center.meter;
+            }
             if (linked) {
                 local.volts[1-index]=lane.linkVoltage();
                 const auto completed=frame+1;
@@ -192,13 +213,14 @@ private:
         for (;;) {
             const auto available=written.load(std::memory_order_acquire);
             if (available==stopSignal) break;
-            if (available==next) {wait(available);continue;}
+            const auto ready=available>BandlimitedHalf::future ? available-BandlimitedHalf::future : 0;
+            if (ready==next) {wait(available);continue;}
             const auto wantsLink=[&](std::uint64_t frame) {
                 const auto& settings=input[frame&mask].settings;
                 return channels==2 && settings[19] && settings[20];
             };
             linked=wantsLink(next);
-            const auto limit=std::min(available,next+512);
+            const auto limit=std::min(ready,next+512);
             auto end=next+1;
             while (end<limit && wantsLink(end)==linked) ++end;
             if (linked) {
@@ -216,7 +238,8 @@ private:
             if (right.joinable()) done.acquire();
             failures.store(laneSolvers[0].failures()+
                 (channels==2 ? laneSolvers[1].failures():0),std::memory_order_relaxed);
-            rendered.store(end,std::memory_order_release);
+            const auto filtered=end>BandlimitedHalf::past ? end-BandlimitedHalf::past : 0;
+            rendered.store(filtered,std::memory_order_release);
             next=end;
         }
         if (right.joinable()) {
@@ -226,6 +249,7 @@ private:
         }
     }
     std::array<LinkState,2> linkState{};
+    std::array<std::array<Subsamples,filterHistorySize>,2> filterHistory{};
     std::array<Solver,2> laneSolvers{Solver(0),Solver(1)};
     // The DAW clock advances even when the worker queue cannot accept a block.
     std::array<std::array<float,2>,capacity> dryInput{};

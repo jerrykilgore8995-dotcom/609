@@ -1,0 +1,71 @@
+name: 609 MK IV solver correction
+on:
+  push:
+    branches: [609-mkiv-solver-correction]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Build Windows VST3 and measurement host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-MK-IV-Solver-Windows-x64-VST3
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure the built VST3 at +4 dBu
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          $results=New-Item -ItemType Directory -Force results
+          $table=@(
+            foreach ($rate in @(44100,48000,96000)) {
+              $modes=if ($rate -eq 44100) {@('through','comp','limit','both')} else {@('through')}
+              foreach ($mode in $modes) {
+                $ci=[int]($mode -in @('comp','both'))
+                $li=[int]($mode -in @('limit','both'))
+                $frequencies=if ($mode -eq 'through') {@(1000,20,100,5000,10000,15000,18000,20000)} else {@(1000,10000,20000)}
+                foreach ($hz in $frequencies) {
+                  $arguments=@(10,2,2,0,8,3,$ci,$li,0,0,$hz,0,4,0,0.8,$rate)
+                  $name="$rate-$mode-$hz"
+                  $spectrum=@(& $tester $bundle --jd-case @arguments 2> "$results/$name.stderr.txt")
+                  if ($LASTEXITCODE -or !$spectrum.Count) {throw "Failed to measure $name"}
+                  $spectrum | Set-Content "$results/$name.txt"
+                  $re,$im=$spectrum[0].Trim() -split '\s+'
+                  $mag=[Math]::Sqrt([double]$re*[double]$re+[double]$im*[double]$im)
+                  if ($hz -eq 1000) {$reference=$mag}
+                  [pscustomobject]@{SampleRate=$rate;Mode=$mode;Hz=$hz;Relative_dB=20*[Math]::Log10($mag/$reference);Phase_deg=[Math]::Atan2([double]$im,[double]$re)*180/[Math]::PI}
+                }
+              }
+            }
+          )
+          $table | Export-Csv "$results/response.csv" -NoTypeInformation
+          $table | Format-Table -AutoSize
+          if ($table | Where-Object {$_.Mode -eq 'through' -and [Math]::Abs($_.Relative_dB) -gt 1}) {
+            throw "Through response exceeded the ±1 dB target"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MK-IV-Solver-DLL-response
+          path: results/
+          if-no-files-found: warn
