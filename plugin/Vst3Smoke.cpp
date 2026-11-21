@@ -185,8 +185,9 @@ std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin
     return spectrum;
 }
 
-bool runJdCase(juce::AudioProcessor& plugin,char** args) {
-    constexpr int rate=44100,blockSize=512;
+bool runJdCase(juce::AudioProcessor& plugin,char** args,int argc) {
+    const int rate=argc==19 ? std::stoi(args[15]) : 44100;
+    constexpr int blockSize=512;
     constexpr std::array<const char*,9> names{"Compress Threshold","Compress Ratio","Compress Recovery",
         "Compress Gain","Limit Threshold","Limit Recovery","Compress In","Limit In","Fast Attack"};
     constexpr std::array upper{15,4,5,10,22,5,1,1,1};
@@ -326,7 +327,7 @@ int main(int argc,char** argv) {
     std::cerr<<std::unitbuf;
     const bool offline=argc==3 && std::string_view(argv[2])=="--offline";
     const bool dynamics=argc==11 && std::string_view(argv[2])=="--jd-timing";
-    const bool jdCase=argc==18 && std::string_view(argv[2])=="--jd-case";
+    const bool jdCase=(argc==18 || argc==19) && std::string_view(argv[2])=="--jd-case";
     if (argc!=2 && !offline && !dynamics && !jdCase) {
         std::cerr<<"Expected one VST3 bundle argument\n";
         return 2;
@@ -351,7 +352,7 @@ int main(int argc,char** argv) {
         std::cerr<<error<<'\n';
         return 4;
     }
-    if (jdCase) return runJdCase(*vst,argv+3) ? 0 : 19;
+    if (jdCase) return runJdCase(*vst,argv+3,argc) ? 0 : 19;
     if (dynamics) {
         for (const auto* parameter : vst->getParameters()) {
             if (parameter->getName(100) == "Compressor Attack" && parameter->getValue() != 0.f) {
