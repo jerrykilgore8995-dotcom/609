@@ -1,0 +1,41 @@
+name: 609 stage-by-stage 20k circuit fault localization
+on:
+  push:
+    branches: [609-stage-hf-diagnostic]
+    paths: ['.github/workflows/609-stage-hf-diagnostic.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  stages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Compile native stage measurement only (NO VST3 rebuild)
+        shell: bash
+        run: |
+          g++ -O3 -std=c++20 -march=x86-64-v3 -Ibuild/deck -Inative native/StageHFProbe.cpp -o /tmp/stage-hf-probe
+      - name: Compare complex fundamental across T2 bridge T1 amp and T3
+        shell: bash
+        run: |
+          mkdir -p diagnostic
+          for freq in 1000 10000 15000 18000 20000; do
+            echo "BEGIN $freq Hz"
+            /tmp/stage-hf-probe "$freq" 44100 4 > "diagnostic/stage-$freq.txt" 2> "diagnostic/stage-$freq.stderr"
+            cat "diagnostic/stage-$freq.txt"
+            cat "diagnostic/stage-$freq.stderr"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MKIV-trapezoid-stage-fault-localization
+          path: diagnostic/
+          if-no-files-found: warn
