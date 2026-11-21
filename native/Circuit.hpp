@@ -275,6 +275,9 @@ public:
     unsigned failures() const { return misses; }
     unsigned refinedSamples() const { return subdivisions; }
     double rawOutput() const { return v(deck.output[0])-v(deck.output[1]); }
+    // Standalone diagnostic only; not included in packaged plugin DSP.
+    double diagnosticNode(int nodeIndex) const {return v(nodeIndex);}
+
 
 private:
     static constexpr int unusedNode=-10000;
