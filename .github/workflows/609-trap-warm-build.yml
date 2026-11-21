@@ -1,0 +1,95 @@
+name: 609 MKII trapezoid 1024 warm-start candidate build and DLL validation
+on:
+  push:
+    branches: [609-mkii-trap-1024-warmstart]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  candidate:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: '44813157089'
+      - name: Compile candidate VST3 DLL and packaged VST3 measurement host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 609-MKII-Trap-1024-WarmStart-Windows-VST3
+          path: build-plugin/Compressor609_artefacts/Release/VST3/
+          if-no-files-found: error
+      - name: Measure DLL spectral response, K2-K20, THD
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MKII.vst3').Path
+          $test=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force candidate-results/spectra | Out-Null
+          foreach ($mode in @('through','compressor','limiter','both')) {
+            foreach ($level in @(4,20)) {
+              foreach ($hz in @(20,100,1000,5000,10000,15000,20000)) {
+                $ci=if ($mode -in @('compressor','both')) {1} else {0}
+                $li=if ($mode -in @('limiter','both')) {1} else {0}
+                $values=@(10,3,0,0,8,3,$ci,$li,0,0,$hz,0,$level,0,0.9)
+                $label="$mode-$level-$hz"
+                Write-Host "DLL spectrum $label"
+                & $test $bundle --jd-case @values 2> "candidate-results/spectra/$label.stderr.txt" |
+                   Out-File -Encoding utf8 "candidate-results/spectra/$label.txt"
+                if ($LASTEXITCODE) {exit $LASTEXITCODE}
+              }
+            }
+          }
+      - name: Measure actual DLL ratio, attack and recovery traces
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MKII.vst3').Path
+          $test=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force candidate-results/dynamics | Out-Null
+          # Ratio slopes from +0 to +10 dBu, all five ratios, compressor 100 ms recovery.
+          foreach ($ratio in @(0,1,2,3,4)) {
+            foreach ($level in @(0,10)) {
+              $values=@(10,$ratio,0,0,8,3,1,0,0,0,1000,0,$level,0,0.9)
+              $label="ratio-$ratio-level-$level"
+              & $test $bundle --jd-case @values 2> "candidate-results/dynamics/$label.stderr.txt" |
+                  Out-File -Encoding utf8 "candidate-results/dynamics/$label.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+          # Three compressor attack settings and six recovery modes; 100 ms / 500 ms burst.
+          foreach ($attack in @(0,1,2)) {
+            foreach ($recovery in @(0,1,2,3,4,5)) {
+              $values=@(10,3,$recovery,0,8,3,1,0,0,$attack,1000,-20,10,0.5,7.0)
+              $label="comp-attack-$attack-recovery-$recovery"
+              & $test $bundle --jd-case @values 2> "candidate-results/dynamics/$label.stderr.txt" |
+                  Out-File -Encoding utf8 "candidate-results/dynamics/$label.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+          # Normal and fast limiter with all six recovery choices.
+          foreach ($fast in @(0,1)) {
+            foreach ($recovery in @(0,1,2,3,4,5)) {
+              $values=@(0,0,0,0,8,$recovery,0,1,$fast,0,1000,0,20,0.5,7.0)
+              $label="limit-fast-$fast-recovery-$recovery"
+              & $test $bundle --jd-case @values 2> "candidate-results/dynamics/$label.stderr.txt" |
+                  Out-File -Encoding utf8 "candidate-results/dynamics/$label.txt"
+              if ($LASTEXITCODE) {exit $LASTEXITCODE}
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MKII-Trap-1024-packaged-DLL-validation
+          path: candidate-results/
+          if-no-files-found: warn
