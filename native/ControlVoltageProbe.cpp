@@ -30,12 +30,12 @@ int main(int argc,char** argv) {
     };
     constexpr double rate=44100.;
     const long total=static_cast<long>((step+after)*rate);
-    std::cout<<"sample,time_s,control_voltage_V\n"<<std::setprecision(14);
+    std::cout<<"sample,time_s,control_voltage_V,QL12E,ATTACK_TAP,RELEASE_REF,QL7C,QL12B,QL7B,ZREF\n"<<std::setprecision(14);
     for(long n=0;n<=total;++n) {
         double t=n/rate;
         solver.step({input(t<step?startDb:endDb,t),0},controls);
         if(n%44==0||n==static_cast<long>(step*rate)||n==total)
-            std::cout<<n<<','<<t<<','<<solver.controlVoltage()[limiter?1:0]<<'\n';
+            {auto v=solver.diagnosticVoltages();std::cout<<n<<','<<t<<','<<solver.controlVoltage()[limiter?1:0];for(double x:v)std::cout<<','<<x;std::cout<<'\n';}
     }
     std::cerr<<"misses="<<solver.failures()<<" subdivisions="<<solver.refinedSamples()<<"\n";
     return solver.failures()?5:0;
