@@ -87,7 +87,7 @@ R51 QC5C QC8B 47k
 Q8 SCV QC8B QC8E QBC184C
 * Effective charge resistances aligned after the bridge and gain-stage fit.
 * CATK=0 is the JD attack, with two optional slower positions.
-R31 QC8E COMP_ENV {375+835*(CATK==1)+2370*(CATK==2)}
+R31 QC8E COMP_ENV {680+530*(CATK==1)+2065*(CATK==2)}
 C13 COMP_ENV GND 10u
 R52 COMP_ENV QC9B 47k
 R2 SCV MERGE_B 10k
