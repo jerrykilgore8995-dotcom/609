@@ -107,7 +107,7 @@ struct Control { int a,b,p,m; double gain; };
 struct DModel { double is,n,cjo,vj,m,tt,fc,bv,ibv; };
 struct Inductance {int row,column; double value,q1=0,q2=0;};
 struct Cubic {int a,b,control;double gain;};
-enum class Behavior {detector,comparator,positiveRegulator,negativeRegulator};
+enum class Behavior {detector,comparator,positiveRegulator,negativeRegulator,vishayForward};
 struct Behavioral {Behavior kind;int a,b;std::array<int,4> input;std::array<double,4> param;};
 struct QModel {
     double is,bf,nf,vaf,ikf,ise,ne,br,nr,var,ikr,isc,nc,cje,vje,mje,cjc,vjc,mjc,tf,tr,fc;
@@ -541,6 +541,22 @@ private:
                         slope={2*factor*input,2*factor*input/10000,
                                exponentSlope-2*factor*input/10000,-exponentSlope};
                     } else value=0.002;
+                    break;
+                }
+                case Behavior::vishayForward: {
+                    // Exact Vishay 1N4148 semiconductor SPICE3 source:
+                    // BF 20 2 V=600*I(VF)/(abs(V(51)*10/V(30))+1).
+                    // The native MNA branch enforces V(20)-V(2)-BF=0;
+                    // stamp the negative BF and all three analytic Jacobian terms.
+                    const double denominatorVoltage=std::abs(c)>1e-12?c:(c<0?-1e-12:1e-12);
+                    const double normalized=10*b/denominatorVoltage;
+                    const double magnitude=std::abs(normalized);
+                    const double denom=1+magnitude;
+                    value=-600*a/denom;
+                    const double sign=normalized>0?1:(normalized<0?-1:0);
+                    slope[0]=-600/denom;
+                    slope[1]=600*a*sign*(10/denominatorVoltage)/(denom*denom);
+                    slope[2]=-600*a*sign*normalized/denominatorVoltage/(denom*denom);
                     break;
                 }
                 case Behavior::comparator: {
