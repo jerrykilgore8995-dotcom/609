@@ -158,7 +158,8 @@ bool checkSupplyNoise(juce::AudioProcessor& plugin) {
     std::cout<<"PSU noise at 1 kHz "<<pink<<" dBFS, 60 Hz "<<hum60<<" dBFS, 120 Hz "<<hum120<<" dBFS\n";
     return std::abs(pink+96)<3.5 && std::abs(hum60+78)<.6 && std::abs(hum120+86)<.7;
 }
-std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin,double frequency,double dbu,int rate=44100,int durationTenths=6) {
+template<std::size_t N=20>
+std::array<std::complex<double>,N> measureSpectrum(juce::AudioProcessor& plugin,double frequency,double dbu,int rate=44100,int durationTenths=6) {
     constexpr int blockSize=512;
     const int duration=rate*durationTenths/10,window=rate/5;
     const double omega=2*std::numbers::pi*frequency/rate;
@@ -166,7 +167,7 @@ std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin
     juce::AudioBuffer<float> block(2,blockSize);
     juce::MidiBuffer midi;
     plugin.prepareToPlay(rate,blockSize);
-    std::array<std::complex<double>,20> spectrum{};
+    std::array<std::complex<double>,N> spectrum{};
     const int latency=plugin.getLatencySamples();
     for (int frame=0;frame<duration+latency;frame+=blockSize) {
         for (int i=0;i<blockSize;++i) {
@@ -188,7 +189,7 @@ std::array<std::complex<double>,20> measureSpectrum(juce::AudioProcessor& plugin
     return spectrum;
 }
 
-bool runJdCase(juce::AudioProcessor& plugin,char** args,int argc) {
+bool runJdCase(juce::AudioProcessor& plugin,char** args,int argc,bool fullBandwidth=false) {
     const int rate=argc==19 ? std::stoi(args[15]) : 44100;
     constexpr int blockSize=512;
     constexpr std::array<const char*,9> names{"Compress Threshold","Compress Ratio","Compress Recovery",
@@ -205,9 +206,13 @@ bool runJdCase(juce::AudioProcessor& plugin,char** args,int argc) {
     std::cout<<std::setprecision(12);
     if (burst==0.) {
         const auto durationTenths=static_cast<int>(std::ceil(stop*10));
-        const auto spectrum=measureSpectrum(plugin,frequency,high,rate,durationTenths);
-        for (const auto& bin:spectrum)
-            std::cout<<bin.real()*(10./rate)<<' '<<bin.imag()*(10./rate)<<'\n';
+        if (fullBandwidth) {
+            const auto spectrum=measureSpectrum<80>(plugin,frequency,high,rate,durationTenths);
+            for (const auto& bin:spectrum) std::cout<<bin.real()*(10./rate)<<' '<<bin.imag()*(10./rate)<<'\n';
+        } else {
+            const auto spectrum=measureSpectrum<20>(plugin,frequency,high,rate,durationTenths);
+            for (const auto& bin:spectrum) std::cout<<bin.real()*(10./rate)<<' '<<bin.imag()*(10./rate)<<'\n';
+        }
         return true;
     }
     plugin.prepareToPlay(rate,blockSize);
@@ -332,7 +337,8 @@ int main(int argc,char** argv) {
     std::cerr<<std::unitbuf;
     const bool offline=argc==3 && std::string_view(argv[2])=="--offline";
     const bool dynamics=argc==11 && std::string_view(argv[2])=="--jd-timing";
-    const bool jdCase=(argc==18 || argc==19) && std::string_view(argv[2])=="--jd-case";
+    const bool fullBandwidth=(argc==18 || argc==19) && std::string_view(argv[2])=="--jd-case-80";
+    const bool jdCase=(argc==18 || argc==19) && (std::string_view(argv[2])=="--jd-case" || fullBandwidth);
     if (argc!=2 && !offline && !dynamics && !jdCase) {
         std::cerr<<"Expected one VST3 bundle argument\n";
         return 2;
@@ -357,7 +363,7 @@ int main(int argc,char** argv) {
         std::cerr<<error<<'\n';
         return 4;
     }
-    if (jdCase) return runJdCase(*vst,argv+3,argc) ? 0 : 19;
+    if (jdCase) return runJdCase(*vst,argv+3,argc,fullBandwidth) ? 0 : 19;
     if (dynamics) {
         for (const auto* parameter : vst->getParameters()) {
             if (parameter->getName(100) == "Compressor Attack" && parameter->getValue() != 0.f) {
