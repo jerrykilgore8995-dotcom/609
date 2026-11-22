@@ -1,0 +1,53 @@
+name: MKIV factory R28 R30 values recovery experiment
+on:
+  push:
+    paths: [.github/workflows/609-r28r30-factory-experiment.yml]
+    branches: [609-rv2-control-voltage-recovery-probe]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  factory_resistors:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Add diagnostic voltage probes
+        shell: pwsh
+        run: python tools/instrument_recovery_deck.py build/deck/Deck.hpp
+      - name: Patch only R28 R30 from fitted values to schematic 1600 ohms each
+        shell: pwsh
+        run: python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+      - name: Build equivalent standalone nodal engine
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-rc -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-rc --config Release --target ControlVoltageProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Capture factory +20 to +10 and control below-threshold capacitor responses
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results/r28r30-factory | Out-Null
+          $exe=(Resolve-Path build-rc/Release/ControlVoltageProbe.exe).Path
+          foreach($rec in @(1,2,3,4)){
+            $dest="results/r28r30-factory/limit-rec${rec}-to10.csv"
+            & $exe limit $rec 0 20 10 8 3 > $dest
+            if($LASTEXITCODE){throw "Failed $dest"}
+          }
+          & $exe limit 1 0 20 0 8 3 > results/r28r30-factory/limit-rec1-to0.csv
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mkiv-factory-r28-r30-cv-traces
+          path: results/r28r30-factory
+          if-no-files-found: warn
+          retention-days: 14
