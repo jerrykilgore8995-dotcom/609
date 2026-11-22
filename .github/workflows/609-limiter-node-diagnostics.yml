@@ -1,0 +1,49 @@
+name: MKIV limiter sidechain causal node diagnostics
+on:
+  push:
+    paths: [.github/workflows/609-limiter-node-diagnostics.yml]
+    branches: [609-rv2-control-voltage-recovery-probe]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  debug:
+    runs-on: windows-2022
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Instrument unchanged existing calibrated deck
+        shell: pwsh
+        run: python tools/instrument_recovery_deck.py build/deck/Deck.hpp
+      - name: Build sidechain debug probe
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-debug -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-debug --config Release --target ControlVoltageProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Compare fixed limiter recovery with factory and below-threshold steps
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results/sidechain-debug | Out-Null
+          $exe=(Resolve-Path build-debug/Release/ControlVoltageProbe.exe).Path
+          foreach($rec in @(1,2,3,4)){
+            foreach($end in @(10,0)){
+              $dest="results/sidechain-debug/limiter-r${rec}-end${end}.csv"
+              & $exe limit $rec 0 20 $end 8 3 > $dest
+              if($LASTEXITCODE){throw "Probe failed $dest"}
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mkiv-limiter-sidechain-node-traces
+          path: results/sidechain-debug
+          retention-days: 14
