@@ -101,3 +101,5 @@ jobs:
           path: results
           retention-days: 30
           if-no-files-found: warn
+
+# Uses fully committed model generator and 100 Hz THD comparison scripts.
