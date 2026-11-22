@@ -1,4 +1,4 @@
-* EX11475 revision 3, handbook PDF page 18, using its 1N4153 bridge option.
+* EX11475 revision 3; test-only matched manufacturer NXP 1N4148 replacement for bridge D14-D17.
 * P3.2 LINK and P1.6 METER are exported to the relay and meter harness.
 .subckt EX11475 HI LO OH OL VP GND LINK METER params: CT=1 CR=1 CM=1 CG=1 LT=9 LR=1 CE=1 LE=1 FAST=0 CATK=0 PRESET=0.345 LAW=0.04 MTR=0.5 LIMCAL=0.166966 COMPCAL=0.3 BIAS=0.445245
 * Transformer input and attenuator
@@ -9,11 +9,11 @@ R47 T2H T2L 2.2k
 R48 T2H PADH 47k
 R49 T2L PADL 47k
 R11 PADH PADL 5.6k
-D14 VCTRL PADL D1N4153
-D15 VCTRL PADH D1N4153
-D16 PADL GND D1N4153
-D17 PADH GND D1N4153
-* Match the two branches by selecting one diode family for all four junctions.
+D14 VCTRL PADL D1N4148_NXP
+D15 VCTRL PADH D1N4148_NXP
+D16 PADL GND D1N4148_NXP
+D17 PADH GND D1N4148_NXP
+* Four precisely matched NXP models, identical SPICE parameters, and manufacturer's 5.827G parallel leakage path.\nR_D14_NXP VCTRL PADL 5.827gig\nR_D15_NXP VCTRL PADH 5.827gig\nR_D16_NXP PADL GND 5.827gig\nR_D17_NXP PADH GND 5.827gig
 * R47-R49 and R11 are ahead of the bridge, per the original drawing.
 C20 PADH GND 100p
 C21 PADL GND 100p
