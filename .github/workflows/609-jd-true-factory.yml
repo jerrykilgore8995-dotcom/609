@@ -62,6 +62,13 @@ jobs:
           $tester=(Resolve-Path 'build-factory/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
           python tools/rv2_factory_attack.py $tester $bundle results/attack
           exit $LASTEXITCODE
+      - name: Check every compressor and limiter attack/recovery detent with 100ms and 500ms histories
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-factory/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-factory/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_timing_audit.py $tester $bundle results/stepped-timing --law 0.04
+          exit $LASTEXITCODE
       - name: Test mono, dual-mono, linked behavior, noise and solver parity
         continue-on-error: true
         shell: pwsh
