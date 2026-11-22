@@ -3,6 +3,7 @@
 .include transformers.inc
 .include switches.inc
 .include ex10340c.inc
+.include vishay_1n4148_full.inc
 .include ex11475.inc
 
 .param AMP_L=1.095873 AMP_R=0 FREQ=1000 SOURCE=40 LOAD=600
