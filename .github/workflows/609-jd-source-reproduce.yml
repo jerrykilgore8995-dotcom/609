@@ -1,0 +1,46 @@
+name: JD regenerated 1k6 calibrated source-deck reproduction
+on:
+  push:
+    branches: [609-jd-source-calibrated-1k6]
+    paths: [.github/workflows/609-jd-source-reproduce.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regenerate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install reference SPICE
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Solve circuit operating point and regenerate all JD nodal components
+        run: |
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - name: Verify fixed RC values in newly generated left and right channel
+        run: python tools/jd_fixed_rc_inventory.py build/Deck.hpp results/source
+      - name: Assert each calibrated trimmer and attack component exactly matches the 1k6 candidate
+        run: |
+          python - <<'PY'
+          import json
+          a=json.load(open('results/source/summary.json'))
+          exp={'rv1a':3275.001,'rv1b':1725.001,'rv2':200.001,'rv4':1669.661,'rv5':15000.001}
+          for k,v in exp.items():
+              x=a['calibrated_trims_ohm'][k]
+              assert abs(x-v)<.01,(k,x,v)
+          assert a['matches']==206 and not a['mismatches'],a
+          print('Recreated JD schematic candidate and verified calibration',exp)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-reproduced-calibrated-1k6-deck
+          path: |
+            build/Deck.hpp
+            results/source
+          if-no-files-found: warn
+          retention-days: 30
