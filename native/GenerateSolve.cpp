@@ -2,6 +2,7 @@
 #include "Circuit.hpp"
 
 #include <fstream>
+#include <iostream>
 
 int main(int argc,char** argv) {
     if (argc!=2) return 2;
@@ -14,7 +15,7 @@ int main(int argc,char** argv) {
     out<<"// Generated sparse elimination schedules for the native circuit.\n";
     for (const auto& schedule:schedules) {
         mkii::native::Solver solver(schedule.lane);
-        if (!solver.prepare(schedule.rate)) return 4;
+        if (!solver.prepare(schedule.rate)) {std::cerr << "Vishay schedule failure: rate=" << schedule.rate << " lane=" << schedule.lane << "\\n"; return 4;}
         solver.emitSolver(out,schedule.name);
     }
     out<<"using GeneratedFunction = bool(*)(double*,double*,double*,const double*);\n"
