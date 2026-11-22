@@ -4,6 +4,7 @@ on:
     paths: [.github/workflows/609-limiter-node-diagnostics.yml]
     branches: [609-rv2-control-voltage-recovery-probe]
   workflow_dispatch:
+# Instrumentation regex validated against the calibrated Deck.hpp resistor labels.
 permissions:
   contents: read
   actions: read
