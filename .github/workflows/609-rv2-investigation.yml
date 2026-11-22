@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        law: ['0.15','0.35','0.55','0.75','0.95']
+        law: ['0.00','0.04','0.07','0.10','0.12']
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        law: ['0.15','0.35','0.55','0.75','0.95']
+        law: ['0.00','0.04','0.07','0.10','0.12']
     runs-on: windows-2022
     timeout-minutes: 35
     steps:
