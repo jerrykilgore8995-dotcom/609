@@ -1,0 +1,41 @@
+name: JD 100Hz 1kHz all four circuit configurations 9-level sweep
+on:
+  push:
+    branches: [609-jd-100hz-1khz-all-modes]
+    paths: [.github/workflows/609-jd-all-modes-100-1k.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  measure:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-original-resistors-correct-trims-deck
+          run-id: '45041082922'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Compile same corrected JD VST3 with highest available thresholds
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-modes -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/build/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-modes --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure 72 four-mode sine cases at 100Hz and 1kHz including actual attenuation
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-modes/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-modes/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_all_modes_100_1k_thd.py $tester $bundle results/level
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-100hz-1khz-72cases-all-modes-thd-attenuation
+          path: results/level
+          retention-days: 30
