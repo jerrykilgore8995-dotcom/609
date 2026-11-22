@@ -16,13 +16,13 @@ jobs:
         with:
           name: 609-nodal-deck
           path: build/deck
-          github-token: \${{ github.token }}
+          github-token: ${{ github.token }}
           run-id: '44813157089'
       - uses: actions/download-artifact@v4
         with:
           name: 609-MK-IV-Solver-Windows-x64-VST3
           path: build/target
-          github-token: \${{ github.token }}
+          github-token: ${{ github.token }}
           run-id: '44972994363'
       - name: Build diagnostics VST3 host only
         shell: pwsh
