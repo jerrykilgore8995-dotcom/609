@@ -34,6 +34,7 @@ int main(int argc,char** argv) {
         const auto& schedule=schedules[i];
         out<<"  if (signature==signature_"<<schedule.name<<") return solve_"<<schedule.name<<";\n";
     }
+    }
     out<<"  return nullptr;\n"
          "}\n"
          "inline PivotOrder findGeneratedOrder(double rate,int lane) {\n";
@@ -41,6 +42,7 @@ int main(int argc,char** argv) {
         const auto& schedule=schedules[i];
         out<<"  if (rate=="<<schedule.rate<<" && lane=="<<schedule.lane
            <<") return order_"<<schedule.name<<";\n";
+    }
     }
     out<<"  return {};\n"
          "}\n"
@@ -50,6 +52,7 @@ int main(int argc,char** argv) {
         const auto& schedule=schedules[i];
         out<<"  if (rate=="<<schedule.rate<<" && lane=="<<schedule.lane
            <<") return rhs_"<<schedule.name<<";\n";
+    }
     }
     out<<"  return nullptr;\n"
          "}\n";
