@@ -147,6 +147,17 @@ public:
         loadDeck(deck);
         if (lane>=0) isolateChannel();
     }
+    // Diagnostic ONLY: ideal DC clamp of the final diode-bridge control voltage.
+    // Call after constructing the isolated channel solver and before prepare().
+    // Adds an MNA voltage source, without changing normal plugin behavior.
+    void diagnosticClampVctrl(double value) {
+        const int n=deck.diagnosticNodes[4];
+        if(n<0 || lane<0) {partitionValid=false;return;}
+        const int branch=deck.size++;
+        deck.sources.push_back({n,-1,branch,value});
+        deck.bias.push_back(0.0);
+        deck.channel.push_back(lane);
+    }
     bool prepare(double rate) {
         if (!partitionValid) return false;
         x = deck.bias;
