@@ -1,0 +1,91 @@
+name: MKIV joint RV2 RV1 gain and limiter optimization
+on:
+  push:
+    branches: [609-rv2-rv1-joint-optimization]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  decks:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [g030,g0335,g036,g040,g0335limlo,g0335limhi,rv250g0335,rv300g0335,g0335complo]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate genuine circuit deck for trim combination
+        env:
+          CASE: ${{ matrix.name }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ngspice
+          python -m pip install numpy
+          python - <<'PY'
+          import os,pathlib,re
+          name=os.environ["CASE"]
+          configurations={
+            "g030":("0.04","0.300","0.166966","0.4073"),
+            "g0335":("0.04","0.335","0.166966","0.4073"),
+            "g036":("0.04","0.360","0.166966","0.4073"),
+            "g040":("0.04","0.400","0.166966","0.4073"),
+            "g0335limlo":("0.04","0.335","0.147000","0.4073"),
+            "g0335limhi":("0.04","0.335","0.187000","0.4073"),
+            "rv250g0335":("0.05","0.335","0.166966","0.4073"),
+            "rv300g0335":("0.06","0.335","0.166966","0.4073"),
+            "g0335complo":("0.04","0.335","0.166966","0.3273")}
+          law,preset,limcal,compcal=configurations[name]
+          changes={"LAW":("0.35",law),"PRESET":("0.226248",preset),
+                   "LIMCAL":("0.166966",limcal),"COMPCAL":("0.4073",compcal)}
+          p=pathlib.Path("circuit/609.cir");s=p.read_text()
+          for k,(old,new) in changes.items():
+            s,n=re.subn(r"\b"+k+r"="+re.escape(old)+r"\b",k+"="+new,s)
+            assert n==2,(name,k,n)
+          p.write_text(s)
+          print("CONDITIONS",name,configurations[name])
+          PY
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: combined-deck-${{ matrix.name }}
+          path: build/Deck.hpp
+          retention-days: 7
+  evaluate:
+    needs: decks
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [g030,g0335,g036,g040,g0335limlo,g0335limhi,rv250g0335,rv300g0335,g0335complo]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-${{ matrix.name }}
+          path: build/deck
+      - name: Build genuine nodal VST3 for trim combination
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Check compressor ratios plus all major THD test conditions
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_joint_trim_screen.py $tester $bundle results '${{ matrix.name }}'
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: combined-results-${{ matrix.name }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 7
