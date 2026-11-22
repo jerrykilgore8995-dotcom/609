@@ -1,0 +1,63 @@
+name: MKIV unlinked full CV recovery comparison
+on:
+  push:
+    branches: [609-rv2-control-voltage-recovery-probe]
+    paths: [.github/workflows/609-unlinked-full-cv.yml]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        resistor: [fitted, schematic]
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Instrument unmodified calibrated candidate and optional schematic resistors
+        shell: pwsh
+        run: |
+          python tools/instrument_recovery_deck.py build/deck/Deck.hpp
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          if("${{ matrix.resistor }}" -eq "schematic"){
+            python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+            if($LASTEXITCODE){exit $LASTEXITCODE}
+          }
+      - name: Build single-channel voltage diagnostic with stereo link OFF
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-cv -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-cv --config Release --target ControlVoltageProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure fixed and auto C13 C14 with correct unlinked topology
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results/full-cv | Out-Null
+          $exe=(Resolve-Path build-cv/Release/ControlVoltageProbe.exe).Path
+          foreach($mode in @("limit","comp")) {
+            foreach($rec in 1..6) {
+              $start=20; $end=10; $attack=0
+              if($mode -eq "comp"){$start=10;$end=-30; $attack=1}
+              $after=if($rec -ge 5){8}else{if($rec -eq 4){5}else{3}}
+              $output="results/full-cv/${mode}-rec${rec}.csv"
+              & $exe $mode $rec $attack $start $end 8 $after 88200 > $output
+              if($LASTEXITCODE){throw "Failed $output"}
+              Write-Host "Completed $output"
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unlinked-full-cv-${{ matrix.resistor }}
+          path: results/full-cv
+          retention-days: 14
