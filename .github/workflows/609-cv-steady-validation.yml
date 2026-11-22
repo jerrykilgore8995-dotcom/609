@@ -1,0 +1,63 @@
+name: MKIV steady-state direct capacitor recovery validation
+on:
+  push:
+    branches: [609-rv2-control-voltage-recovery-probe]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  validation:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Instrument unchanged calibrated C13/C14 deck
+        shell: pwsh
+        run: python tools/instrument_recovery_deck.py build/deck/Deck.hpp
+      - name: Build standalone nodal control-voltage measuring tool
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-cv -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-cv --config Release --target ControlVoltageProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Run 8s conditioning and 8s recovery for each fixed and auto setting
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results/cv-steady | Out-Null
+          $exe=(Resolve-Path build-cv/Release/ControlVoltageProbe.exe).Path
+          foreach($mode in @('limit','comp')){
+            foreach($rec in 1..6){
+              foreach($test in @('factory','full')){
+                if($mode -eq 'limit') {
+                  $start=20
+                  $finish=if($test -eq 'factory'){10}else{0}
+                  $attack=0
+                } else {
+                  $start=10
+                  $finish=if($test -eq 'factory'){0}else{-30}
+                  $attack=1
+                }
+                $dest="results/cv-steady/${mode}_${rec}_${attack}_${test}.csv"
+                & $exe $mode $rec $attack $start $finish 8 8 > $dest
+                if($LASTEXITCODE){throw "Control voltage solve error: $dest"}
+                Write-Host "Saved $dest"
+              }
+            }
+          }
+          python tools/summarize_cv_steady.py
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mkiv-steady-conditioned-cv-recovery
+          path: results/cv-steady
+          if-no-files-found: warn
+          retention-days: 14
