@@ -1,0 +1,41 @@
+name: MKIV RV2 candidate Neve factory limiter attack
+on:
+  push:
+    branches: [609-rv2-candidate-factory-attack]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  attack:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Build candidate nodal DLL and test host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure slow and fast attack via factory output return within 1dB
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_factory_attack.py $tester $bundle results
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rv2-candidate-factory-attack
+          path: results/
+          retention-days: 14
