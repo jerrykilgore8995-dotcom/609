@@ -1,0 +1,60 @@
+name: MKIV direct C13 C14 control voltage recovery
+on:
+  push:
+    branches: [609-rv2-control-voltage-recovery-probe]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  cv_measure:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Instrument existing calibrated nodal deck (no component value changes)
+        shell: pwsh
+        run: python tools/instrument_recovery_deck.py build/deck/Deck.hpp
+      - name: Build instrumented standalone solver probe
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-cv -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-cv --config Release --target ControlVoltageProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure every limiter and compressor fixed and auto recovery control voltage
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results/control-voltage | Out-Null
+          $exe=(Resolve-Path build-cv/Release/ControlVoltageProbe.exe).Path
+          foreach($mode in @('limit','comp')){
+            foreach($rec in 1..6){
+              foreach($case in @('high','low')){
+                if($mode -eq 'limit'){
+                  $start=20; $finish=10; $attack=0
+                } else {
+                  if($case -eq 'high'){$start=20;$finish=10}else{$start=10;$finish=0}
+                  $attack=1
+                }
+                if($mode -eq 'limit' -and $case -eq 'low'){continue}
+                $dest="results/control-voltage/${mode}_${rec}_${attack}_${case}.csv"
+                & $exe $mode $rec $attack $start $finish > $dest
+                if($LASTEXITCODE){Write-Error "Probe failed $dest";exit $LASTEXITCODE}
+              }
+            }
+          }
+          python tools/summarize_control_voltage.py
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mkiv-c13-c14-direct-control-voltage
+          path: results/control-voltage
+          if-no-files-found: warn
+          retention-days: 14
