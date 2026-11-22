@@ -1,0 +1,28 @@
+name: JD Vishay matrix diagnostic Linux small native solver
+on:
+  push:
+    branches: [609-jd-full-vishay-1n4148-subcircuit]
+    paths: [.github/workflows/609-vishay-matrix-diagnostic.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-vishay-complete-original-subcircuit-deck
+          run-id: '45060264799'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Build tiny original nodal solver without JUCE / generated schedules
+        run: |
+          g++ -std=c++20 -O0 -I build/deck native/GenerateSolve.cpp -o build/GenerateSolve
+      - name: Show exact failure including network dimensions, rate, lane, preparation stage
+        run: |
+          ./build/GenerateSolve build/GeneratedSolve.hpp
+          wc -c build/GeneratedSolve.hpp
