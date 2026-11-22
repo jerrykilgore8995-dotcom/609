@@ -11,7 +11,7 @@ for rec in (1,4):
   circuit=circuit.replace("LEL=0 FASTL=0","LEL=1 FASTL=0").replace("LRL=1 CEL=0",f"LRL={rec} CEL=0")
   circuit=circuit.replace("VINL SL 0 SIN(0 {AMP_L} {FREQ}) AC 1",
    "BINPUT SL 0 V=sin(2*3.141592653589793*1000*time)*(0.1995262315+0.4314311135*u(4-time))")
-  circuit=circuit.replace(".end",""".control
+  circuit=circuit.replace("\n.end\n",""".control
 set noaskquit
 set wr_singlescale
 set wr_vecnames
@@ -19,7 +19,7 @@ tran 100u 6
 wrdata ../results/spice/spice_"""+str(rec)+"_"+version+""".csv v(xleft.xboard.limit_env) v(xleft.xboard.ql7c) v(xleft.xboard.ql12b)
 quit
 .endc
-.end""",1)
+.end\n""",1)
   outname=f"circuit/609-spice-rec{rec}-{version}.cir"
   pathlib.Path(outname).write_text(circuit)
   if version=="schematic":
