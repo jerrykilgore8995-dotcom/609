@@ -26,3 +26,5 @@ jobs:
         run: |
           ./build/GenerateSolve build/GeneratedSolve.hpp
           wc -c build/GeneratedSolve.hpp
+
+# Confirm behavior source lane remapping after previous unsupported-vector partition diagnostic.
