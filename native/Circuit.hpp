@@ -8,6 +8,7 @@
 #include <bit>
 #include <cstdint>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 namespace mkii::native {
@@ -148,7 +149,7 @@ public:
         if (lane>=0) isolateChannel();
     }
     bool prepare(double rate) {
-        if (!partitionValid) return false;
+        if (!partitionValid) {std::fprintf(stderr,"vishay prepare invalid partition lane=%d\\n",lane);return false;}
         x = deck.bias;
         previous = x;
         older = x;
@@ -175,12 +176,12 @@ public:
 #if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
         order=findGeneratedOrder(rate,lane);
 #endif
-        if (!matrix.prepare(order)) return false;
+        if (!matrix.prepare(order)) {std::fprintf(stderr,"vishay sparse matrix factorization failure lane=%d rate=%g size=%d\\n",lane,rate,deck.size);return false;}
         cacheNonlinearSlots();
         retryMatrix=matrix;
-        if (!prepareLinear(false)) return false;
+        if (!prepareLinear(false)) {std::fprintf(stderr,"vishay DC linear preparation failure lane=%d rate=%g\\n",lane,rate);return false;}
         std::swap(matrix,retryMatrix);
-        if (!prepareLinear(true)) return false;
+        if (!prepareLinear(true)) {std::fprintf(stderr,"vishay transient linear preparation failure lane=%d rate=%g\\n",lane,rate);return false;}
         std::swap(matrix,retryMatrix);
 #if !defined(MKII_NATIVE_GENERATE_SOLVER) && __has_include("GeneratedSolve.hpp")
         generatedResidual=findGeneratedResidual(rate,lane);
