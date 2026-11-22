@@ -49,6 +49,13 @@ if(MSVC)
   target_compile_options(Stage100HzProbe PRIVATE $<$<CONFIG:Release>:/arch:AVX2> $<$<CONFIG:Release>:/fp:precise>)
 endif()
 
+add_executable(CvCauseProbe "${native_dir}/CvCauseProbe.cpp" "${generated_dir}/Deck.hpp" "${generated_dir}/GeneratedSolve.hpp")
+target_include_directories(CvCauseProbe PRIVATE "${generated_dir}")
+target_compile_features(CvCauseProbe PRIVATE cxx_std_20)
+add_dependencies(CvCauseProbe Generate609Deck)
+if(MSVC)
+  target_compile_options(CvCauseProbe PRIVATE $<$<CONFIG:Release>:/arch:AVX2> $<$<CONFIG:Release>:/fp:precise>)
+endif()
 include(FetchContent)
 FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
                          GIT_TAG 8.0.10 GIT_SHALLOW TRUE)
