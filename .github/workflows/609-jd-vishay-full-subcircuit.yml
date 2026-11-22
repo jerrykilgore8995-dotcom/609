@@ -81,3 +81,5 @@ jobs:
           path: results
           retention-days: 30
           if-no-files-found: warn
+
+# Rerun with circuit factorization failure diagnostics for exact Vishay behavioral source.
