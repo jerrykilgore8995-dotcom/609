@@ -18,14 +18,14 @@ for recovery in (1,4):
      ".param PRESET=0.345 LAW=0.04 MTR=0.5 LIMCAL=0.166966 COMPCAL=0.30 BIAS=0.445245")
   c=c.replace("LEL=0 FASTL=0","LEL=1 FASTL=0").replace("LRL=1 CEL=0",f"LRL={recovery} CEL=0")
   c=c.replace("VINL SL 0 SIN(0 {AMP_L} {FREQ}) AC 1",
-     "BINPUT SL 0 V=sin(2*3.141592653589793*1000*time)*(0.1995262315+0.4314311135*u(4-time))")
+     "BINPUT SL 0 V=sin(2*3.141592653589793*1000*time)*(3.465293+7.493437*u(4-time))")
   control=f"""
 .control
 set noaskquit
 set wr_singlescale
 set wr_vecnames
 tran 100u 6
-wrdata ../../results/spice/spice_{recovery}_{variant}.txt v(xleft.xboard.limit_env) v(xleft.xboard.ql7c) v(xleft.xboard.ql12b)
+wrdata ../../results/spice/spice_{recovery}_{variant}.txt v(xleft.xboard.limit_env) v(xleft.xboard.ql7c) v(xleft.xboard.ql12b) v(sl)
 quit
 .endc
 .end
