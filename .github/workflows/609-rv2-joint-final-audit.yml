@@ -1,0 +1,82 @@
+name: MKIV 200ohm RV2 joint calibration final full audit
+on:
+  push:
+    branches: [609-rv2-joint-candidate-validation]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  broad:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Build exact candidate nodal VST3
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Full 776-case electrical conformance with corrected 800ms THD tests
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_200_full_conformance.py $tester $bundle results/broad --law '0.04'
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rv2-joint-final-broad
+          path: results/
+          if-no-files-found: warn
+          retention-days: 14
+  timing:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Build exact candidate nodal VST3 for dynamics tests
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Test all compressor and limiter attack/recovery presets and burst histories
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_timing_audit.py $tester $bundle results/timing --law '0.04'
+          exit $LASTEXITCODE
+      - name: Verify circuit-solver parity and PSU noise
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          & $tester $bundle --offline *>&1 | Tee-Object -FilePath results/timing/solver-and-psu.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rv2-joint-final-timing
+          path: results/
+          if-no-files-found: warn
+          retention-days: 14
