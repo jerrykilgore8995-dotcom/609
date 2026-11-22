@@ -1,0 +1,53 @@
+name: JD compressor R31 375 versus schematic 680 factory attack A/B
+on:
+  push:
+    branches: [609-r31-stock-375-versus-680-audit]
+    paths: [.github/workflows/609-r31-factory-ab.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  attack:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        resistor: ['375','680']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-reproduced-calibrated-1k6-deck
+          run-id: '45038174159'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Confirm original factory schematic candidate and apply test-only stock R31 where requested
+        shell: pwsh
+        run: |
+          if("${{ matrix.resistor }}" -eq "680"){
+            python tools/patch_r31_stock_680_candidate.py build/deck/build/Deck.hpp
+            if($LASTEXITCODE){exit $LASTEXITCODE}
+          }
+      - name: Compile VST3 with identical calibrated JD candidate apart from R31
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-r31 -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/build/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-r31 --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure stock JD attack and 7.5/15ms controls under 100 and 500ms bursts
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-r31/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-r31/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/compare_r31_stock_attack.py $tester $bundle results/attack "${{ matrix.resistor }}"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-r31-attack-${{ matrix.resistor }}
+          path: results/attack
+          if-no-files-found: warn
+          retention-days: 30
