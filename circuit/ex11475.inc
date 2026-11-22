@@ -13,7 +13,11 @@ D14 VCTRL PADL D1N4148_NXP
 D15 VCTRL PADH D1N4148_NXP
 D16 PADL GND D1N4148_NXP
 D17 PADH GND D1N4148_NXP
-* Four precisely matched NXP models, identical SPICE parameters, and manufacturer's 5.827G parallel leakage path.\nR_D14_NXP VCTRL PADL 5.827gig\nR_D15_NXP VCTRL PADH 5.827gig\nR_D16_NXP PADL GND 5.827gig\nR_D17_NXP PADH GND 5.827gig
+* Four precisely matched NXP models, identical SPICE parameters, and manufacturer's 5.827G parallel leakage path.
+R_D14_NXP VCTRL PADL 5.827gig
+R_D15_NXP VCTRL PADH 5.827gig
+R_D16_NXP PADL GND 5.827gig
+R_D17_NXP PADH GND 5.827gig
 * R47-R49 and R11 are ahead of the bridge, per the original drawing.
 C20 PADH GND 100p
 C21 PADL GND 100p
