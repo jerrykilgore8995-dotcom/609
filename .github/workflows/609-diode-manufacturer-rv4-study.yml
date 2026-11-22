@@ -1,0 +1,103 @@
+name: JD real 1N4148 manufacturer comparison and RV4 limiter calibration
+on:
+  push:
+    branches: [609-jd-1n4148-manufacturer-calibration-study]
+    paths: [.github/workflows/609-diode-manufacturer-rv4-study.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  models:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: nxp-stock
+            model: nxp
+            rv4: '1669.66'
+          - id: diodes-inc-stock
+            model: diodes
+            rv4: '1669.66'
+          - id: onsemi-attributed-stock
+            model: onsemi
+            rv4: '1669.66'
+          - id: nxp-rv4-1200
+            model: nxp
+            rv4: '1200'
+          - id: nxp-rv4-2200
+            model: nxp
+            rv4: '2200'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply one isolated verified manufacturer model/trim variant
+        run: python tools/jd_manufacturer_diode_variant.py ${{ matrix.model }} ${{ matrix.rv4 }}
+      - name: Generate fresh nodal source, preserve original schematic calibration
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jd-diodes-${{ matrix.id }}-deck
+          path: build/Deck.hpp
+          retention-days: 30
+  bench:
+    needs: models
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: nxp-stock
+          - id: diodes-inc-stock
+          - id: onsemi-attributed-stock
+          - id: nxp-rv4-1200
+          - id: nxp-rv4-2200
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-diodes-${{ matrix.id }}-deck
+          path: build/deck
+      - name: Compile actual 33609JD VST3 for model candidate
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-variant -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-variant --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure factory limiter compressor through 80kHz THD, frequency response, compression ratios and limiter transfer
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-variant/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-variant/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_factory_exact_electrical.py $tester $bundle results/factory
+          exit $LASTEXITCODE
+      - name: Measure Neve fast slow limiter attack with RV4 change
+        shell: pwsh
+        if: always()
+        run: |
+          $bundle=(Resolve-Path 'build-variant/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-variant/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          exit $LASTEXITCODE
+      - name: Trace low frequency THD at 100 Hz +12 and +18 dBu, compressor limiter through
+        shell: pwsh
+        if: always()
+        run: |
+          $bundle=(Resolve-Path 'build-variant/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-variant/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_manufacturer_quick_100hz.py $tester $bundle results/100hz
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-manufacturer-${{ matrix.id }}-bench
+          path: results
+          retention-days: 30
+          if-no-files-found: warn
