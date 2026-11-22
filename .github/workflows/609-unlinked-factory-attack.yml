@@ -1,0 +1,53 @@
+name: MKIV true unlinked VST3 factory attack original versus schematic
+on:
+  push:
+    branches: [609-rv2-control-voltage-recovery-probe]
+    paths: [.github/workflows/609-unlinked-factory-attack.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  factory_attack:
+    strategy:
+      fail-fast: false
+      matrix:
+        resistors: [fitted, schematic]
+    runs-on: windows-2022
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Use original calibrated deck or schematic R28/R30 candidate
+        shell: pwsh
+        run: |
+          if("${{ matrix.resistors }}" -eq "schematic"){
+            python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+            if($LASTEXITCODE){exit $LASTEXITCODE}
+          }
+      - name: Build actual VST3 and corrected unlinked host measurement
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Factory slow and fast attack measurement at +8 dBu threshold
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mkiv-unlinked-factory-attack-${{ matrix.resistors }}
+          path: results/attack
+          if-no-files-found: warn
+          retention-days: 14
