@@ -82,6 +82,8 @@ bool traceDynamics(juce::AudioProcessor& plugin, const mkii::native::DynamicsPro
         !setControl(plugin, "Channel 1 Limit In", float(positions[7])) ||
         !setControl(plugin, "Channel 1 Fast Attack", float(positions[8])) ||
         !setControl(plugin, "Compressor Attack", probe.limiter ? 0.0f : probe.attack/2.f)) return false;
+    // Factory mono-channel dynamics must not link to the silent second channel.
+    if (!setControl(plugin,"Stereo Link",0.f)) return false;
     juce::AudioProcessor::BusesLayout stereo;
     stereo.inputBuses.add(juce::AudioChannelSet::stereo());
     stereo.outputBuses.add(juce::AudioChannelSet::stereo());
