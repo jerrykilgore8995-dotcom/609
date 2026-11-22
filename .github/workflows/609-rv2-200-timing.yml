@@ -1,0 +1,58 @@
+name: MKIV RV2 original versus 200-ohm timed VST3
+on:
+  push:
+    branches: [609-rv2-200-timing-audit]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  timing:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - law: '0.35'
+            deck_run: '44979868306'
+          - law: '0.04'
+            deck_run: '44980539331'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv2-deck-${{ matrix.law }}
+          path: build/deck
+          run-id: ${{ matrix.deck_run }}
+          github-token: ${{ github.token }}
+      - name: Build temporary nodal VST3 and trace host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure all compressor and limiter recovery positions, fast/slow attack and burst dependence
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_timing_audit.py $host $bundle results/timing --law '${{ matrix.law }}'
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+      - name: Verify packaged stereo VST3 solver parity and supply-noise calibration
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          & $host $bundle --offline *>&1 | Tee-Object -FilePath results/timing/stereo-solver-and-noise.txt
+          Write-Host "Smoke return code $LASTEXITCODE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rv2-timing-${{ matrix.law }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 14
