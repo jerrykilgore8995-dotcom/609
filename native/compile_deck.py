@@ -263,7 +263,7 @@ cpp = ["// Generated from 609.cir and the schematic transcriptions.",
        f"    c.size = {len(variables)};",
        f"    c.output = {{{ix('olh')},{ix('oll')},{ix('orh')},{ix('orl')}}};",
        f"    c.meter = {{{ix('meterl')},{ix('meterr')}}};",
-       f"    c.diagnosticNodes = {{{', '.join(str(ix('xleft.xboard.'+n)) for n in ('t2h','t2l','padh','padl','t1s','amp_out','linesend'))}}};",
+       f"    c.diagnosticNodes = {{{', '.join(str(ix('xleft.xboard.'+n)) for n in ('t2h','t2l','padh','padl','vctrl','comp_env','limit_env'))}}};",
        "    c.channel = {" + ", ".join(str(channel_owner(k)) for k in variables) + "};",
        "    c.bias = {" + ", ".join(fmt(bias(k)) for k in variables) + "};"]
 for kind,value in known.values():
