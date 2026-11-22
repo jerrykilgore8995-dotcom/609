@@ -329,7 +329,8 @@ int main(int argc,char** argv) {
     const bool offline=argc==3 && std::string_view(argv[2])=="--offline";
     const bool dynamics=argc==11 && std::string_view(argv[2])=="--jd-timing";
     const bool jdCase=(argc==18 || argc==19) && std::string_view(argv[2])=="--jd-case";
-    if (argc!=2 && !offline && !dynamics && !jdCase) {
+    const bool noiseOnly=argc==3 && std::string_view(argv[2])=="--jd-noise";
+    if (argc!=2 && !offline && !dynamics && !jdCase && !noiseOnly) {
         std::cerr<<"Expected one VST3 bundle argument\n";
         return 2;
     }
@@ -353,6 +354,7 @@ int main(int argc,char** argv) {
         std::cerr<<error<<'\n';
         return 4;
     }
+    if (noiseOnly) return checkSupplyNoise(*vst) ? 0 : 21;
     if (jdCase) return runJdCase(*vst,argv+3,argc) ? 0 : 19;
     if (dynamics) {
         for (const auto* parameter : vst->getParameters()) {
