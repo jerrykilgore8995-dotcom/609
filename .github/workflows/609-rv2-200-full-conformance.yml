@@ -1,0 +1,50 @@
+name: MKIV RV2-200 full conformance versus original
+on:
+  push:
+    branches: [609-rv2-200-full-conformance]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  electrical:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - law: '0.35'
+            deck_run: '44979868306'
+          - law: '0.04'
+            deck_run: '44980539331'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv2-deck-${{ matrix.law }}
+          path: build/deck
+          github-token: ${{ github.token }}
+          run-id: ${{ matrix.deck_run }}
+      - name: Build authentic nodal VST3 from the selected RV2 generated circuit
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Broad factory and stress conformance, harmonic spectrum at all settings
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_200_full_conformance.py $host $bundle results/broad --law '${{ matrix.law }}'
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rv2-full-conformance-${{ matrix.law }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 14
