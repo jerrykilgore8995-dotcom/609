@@ -1,0 +1,123 @@
+name: JD exact factory procedure 1k6 / R31 680 comprehensive verification
+on:
+  push:
+    branches: [609-jd-neve-factory-verified-1k6-680]
+    paths: [.github/workflows/609-jd-true-factory.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ngspice reference
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Recreate from source with established RV1 RV2 RV4 RV5, R28 R30=1600, R31=680
+        run: |
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+          python tools/jd_fixed_rc_inventory.py build/Deck.hpp results/schematic
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jd-original-resistors-correct-trims-deck
+          path: |
+            build/Deck.hpp
+            results/schematic
+          retention-days: 30
+  bench:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-original-resistors-correct-trims-deck
+          path: build/candidate
+      - name: Compile exact packaged VST3 and factory measurement host
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-factory -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/candidate/build/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-factory --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure Neve factory THD over 80 kHz, 0 dBu frequency response, ratios and limiter alignment
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-factory/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-factory/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_factory_exact_electrical.py $tester $bundle results/factory
+          exit $LASTEXITCODE
+      - name: Measure limiter attack to within 1dB of original output
+        shell: pwsh
+        if: always()
+        run: |
+          $bundle=(Resolve-Path 'build-factory/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-factory/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          exit $LASTEXITCODE
+      - name: Test mono, dual-mono, linked behavior, noise and solver parity
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-factory/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-factory/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results/smoke | Out-Null
+          & $tester $bundle --offline *>&1 | Tee-Object -FilePath results/smoke/offline.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-original-resistors-factory-80khz-and-attack
+          path: results
+          retention-days: 30
+  recovery:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-original-resistors-correct-trims-deck
+          path: build/candidate
+      - name: Add direct read-only C13 C14 voltage probes, stereo link OFF
+        shell: pwsh
+        run: |
+          python tools/instrument_recovery_deck.py build/candidate/build/Deck.hpp
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+      - name: Compile direct Neve factory CV measurement instrument
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-cv -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/candidate/build/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-cv --config Release --target ControlVoltageProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Limiter +20 to +10 dBu factory C14, compressor below threshold C13, each recovery detent
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results/cv | Out-Null
+          $exe=(Resolve-Path build-cv/Release/ControlVoltageProbe.exe).Path
+          foreach($mode in @("limit","comp")) {
+            foreach($rec in 1..6) {
+              $start=20; $end=10; $attack=0
+              if($mode -eq "comp"){$start=10; $end=-30}
+              $window=if($rec -ge 5){9}else{if($rec -eq 4){6}else{4}}
+              $dest="results/cv/${mode}-rec${rec}.csv"
+              & $exe $mode $rec $attack $start $end 8 $window 88200 > $dest
+              if($LASTEXITCODE){throw "CV failed $dest"}
+            }
+          }
+          python tools/jd_neve_cv_summary.py results/cv results/summary
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-direct-c13-c14-all-12-neve-step-traces
+          path: results
+          retention-days: 30
