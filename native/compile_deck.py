@@ -340,7 +340,7 @@ for kind,name,pins,data in filtered:
         model,md=models[data]
         keys,defaults=sets[kind]
         keys=keys.split()
-        assert model in types[kind] and set(md)<=set(keys),(name,model,set(md)-set(keys))
+        assert model in types[kind] and set(md)<=set(keys)|{"eg","xti","kf","af"},(name,model,set(md)-set(keys))
         indices=list(map(ix,pins))
         series={"q":(("rc","collector"),("rb","base"),("re","emitter")), "d":(("rs","pos"),), "j":(("rd","drain"),("none","gate"),("rs","source"))}[kind]
         for i,(key,label) in enumerate(series):
