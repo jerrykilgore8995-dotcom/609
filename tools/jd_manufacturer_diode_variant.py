@@ -35,7 +35,7 @@ if model!="nxp":
     s='\n'.join(lines)+'\n'
   s='\n'.join(line for line in s.splitlines() if not re.match(r'^R_D1[4-7]_NXP\b',line))+'\n'
 for p,original in [(ex,s),(main,c)]:
-  assert original.count('LIMCAL=0.166966')==1, (p,original.count('LIMCAL=0.166966'))
+  assert original.count('LIMCAL=0.166966') in (1,2), (p,original.count('LIMCAL=0.166966'))
   original=original.replace('LIMCAL=0.166966',f'LIMCAL={rv4/10000:.8f}')
   if p==ex:s=original
   else:c=original
