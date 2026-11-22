@@ -1,0 +1,108 @@
+name: JD combined calibrated schematic and Neve factory exhaustive audit
+on:
+  push:
+    branches: [609-jd-combined-schematic-factory-audit]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  schematic:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Apply validated R28 and R30 values in generated nodal deck only
+        run: python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+      - name: Audit every fixed R C component in EX11475 and EX10340C for both channels
+        run: python tools/jd_fixed_rc_inventory.py build/deck/Deck.hpp results/schematic
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-schematic-nodal-component-inventory
+          path: results/schematic
+          retention-days: 30
+  electrical:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Use jointly calibrated RV1 RV2 RV4 RV5 and fix R28 R30 to 1.6k
+        shell: pwsh
+        run: python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+      - name: Build packaged MKIV and Neve measuring host
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-factory -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-factory --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Complete Neve factory attack and 776 spectral electroacoustic cases
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-factory/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-factory/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          python tools/rv2_200_full_conformance.py $tester $bundle results/electrical --law 0.04
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-factory-attack-fr-thd-phase-ratio-776
+          path: results
+          retention-days: 30
+  timing_and_noise:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Apply exactly the same 1.6k jointly calibrated candidate
+        shell: pwsh
+        run: python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+      - name: Build packaged MKIV with correct unlinked dynamics fixture
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-timing -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-timing --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure 72 stepped-sine compressor/limiter dynamics cases, each recovery and attack
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-timing/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-timing/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_timing_audit.py $tester $bundle results/timing --law 0.04
+          exit $LASTEXITCODE
+      - name: Test packaged VST3 offline solver and noise
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-timing/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-timing/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results/solver | Out-Null
+          & $tester $bundle --offline *>&1 | Tee-Object -FilePath results/solver/offline.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-factory-dynamics-and-solver-noise
+          path: results
+          retention-days: 30
