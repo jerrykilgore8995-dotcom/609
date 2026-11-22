@@ -1,0 +1,49 @@
+name: JD A1 A2 full short-to-long pulse recovery (10 50 100 500 1000ms)
+on:
+  push:
+    branches: [609-jd-auto-recovery-pulse-grid]
+    paths: [.github/workflows/609-jd-auto-pulse-grid.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  pulses:
+    runs-on: windows-2022
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-original-resistors-correct-trims-deck
+          run-id: '45041082922'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Build once from verified R31=680, R28/R30=1k6 JD deck
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-pulses -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/build/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-pulses --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure compressor A1 A2 at 10 50 100 500 1000 ms drive
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-pulses/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-pulses/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_auto_pulse_grid.py $tester $bundle results/auto --mode comp
+          exit $LASTEXITCODE
+      - name: Measure limiter A1 A2 at identical pulse durations
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-pulses/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-pulses/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_auto_pulse_grid.py $tester $bundle results/auto --mode limit
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-a1-a2-10-50-100-500-1000ms-measured
+          path: results/auto
+          retention-days: 30
+          if-no-files-found: warn
