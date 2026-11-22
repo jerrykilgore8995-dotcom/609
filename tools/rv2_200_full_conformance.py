@@ -90,7 +90,8 @@ def main():
         ("comp6+9",1,0,9,1,4,8,10),
         ("limit+22",0,1,22,0,2,8,0),
         ("both+22",1,1,22,4,4,8,0)]:
-        pt=add("factory-thd",mode,ci=ci,li=li,level=level,ct=ct,cr=cr,lt=lt,makeup=makeup)
+        pt=add("factory-thd",mode,ci=ci,li=li,level=level,ct=ct,cr=cr,lt=lt,makeup=makeup,
+               rec=(2 if mode=="comp6+9" else 0),lr=(3 if mode=="limit+22" else 0))
         nominal={"through+9":.075,"comp6+9":.2,"limit+22":.45}.get(mode)
         check("thd",mode,pt["THD_pct"],nominal,None,
               "factory-proxy" if nominal is not None else "characterization",
