@@ -83,3 +83,5 @@ jobs:
           if-no-files-found: warn
 
 # Rerun with circuit factorization failure diagnostics for exact Vishay behavioral source.
+
+# Actual partition fix: remap exact BF behavior inputs per independent channel.
