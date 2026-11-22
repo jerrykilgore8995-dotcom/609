@@ -3,8 +3,8 @@ $ErrorActionPreference="Stop"
 New-Item -ItemType Directory -Force $Destination | Out-Null
 $culture=[System.Globalization.CultureInfo]::InvariantCulture
 $rows=[System.Collections.Generic.List[object]]::new()
-function RunTone([string]$group,[string]$label,[int]$ct,[int]$cr,[int]$rec,[int]$makeup,[int]$lt,[int]$lr,[int]$ci,[int]$li,[int]$fast,[int]$attack,[double]$hz,[double]$input,[double]$duration=1.2) {
-  $argsTone=@($ct,$cr,$rec,$makeup,$lt,$lr,$ci,$li,$fast,$attack,$hz,0,$input,0,$duration,44100)
+function RunTone([string]$group,[string]$label,[int]$ct,[int]$cr,[int]$rec,[int]$makeup,[int]$lt,[int]$lr,[int]$ci,[int]$li,[int]$fast,[int]$attack,[double]$hz,[double]$signalDbu,[double]$duration=1.2) {
+  $argsTone=@($ct,$cr,$rec,$makeup,$lt,$lr,$ci,$li,$fast,$attack,$hz,0,$signalDbu,0,$duration,44100)
   $spectrum=@(& $Tester $Bundle --jd-case @argsTone 2> "$Destination/current-stderr.txt")
   if ($LASTEXITCODE -ne 0 -or $spectrum.Count -ne 20) {throw "Failed measurement $group/$label : $LASTEXITCODE (lines $($spectrum.Count))"}
   $magnitudes=@()
@@ -18,7 +18,7 @@ function RunTone([string]$group,[string]$label,[int]$ct,[int]$cr,[int]$rec,[int]
   for($k=1;$k -lt [Math]::Min(20,[int][Math]::Floor(20000/$hz));$k++) {$power+=[math]::Pow($magnitudes[$k],2)}
   $output=24+20*[math]::Log10($magnitudes[0])
   $thd=100*[math]::Sqrt($power)/$magnitudes[0]
-  $rows.Add([pscustomobject]@{Group=$group; Case=$label; Input_dBu=$input; Frequency_Hz=$hz; Compressor=$ci; Limiter=$li; CompressorThresholdDetent=$ct; RatioDetent=$cr; CompressorRecoveryDetent=$rec; MakeupDetent=$makeup; LimiterThresholdDetent=$lt; LimiterRecoveryDetent=$lr; FastLimiter=$fast; CompressorAttackDetent=$attack; Output_dBu=[math]::Round($output,6); THD_percent=[math]::Round($thd,7); K2_dBc=[math]::Round(20*[math]::Log10([math]::Max(1e-12,$magnitudes[1]/$magnitudes[0])),4); K3_dBc=[math]::Round(20*[math]::Log10([math]::Max(1e-12,$magnitudes[2]/$magnitudes[0])),4)})
+  $rows.Add([pscustomobject]@{Group=$group; Case=$label; Input_dBu=$signalDbu; Frequency_Hz=$hz; Compressor=$ci; Limiter=$li; CompressorThresholdDetent=$ct; RatioDetent=$cr; CompressorRecoveryDetent=$rec; MakeupDetent=$makeup; LimiterThresholdDetent=$lt; LimiterRecoveryDetent=$lr; FastLimiter=$fast; CompressorAttackDetent=$attack; Output_dBu=[math]::Round($output,6); THD_percent=[math]::Round($thd,7); K2_dBc=[math]::Round(20*[math]::Log10([math]::Max(1e-12,$magnitudes[1]/$magnitudes[0])),4); K3_dBc=[math]::Round(20*[math]::Log10([math]::Max(1e-12,$magnitudes[2]/$magnitudes[0])),4)})
   return $output
 }
 $report=[System.Collections.Generic.List[object]]::new()
