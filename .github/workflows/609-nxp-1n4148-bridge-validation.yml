@@ -1,0 +1,80 @@
+name: JD matched NXP manufacturer 1N4148 bridge - full before/after conformance
+on:
+  push:
+    branches: [609-jd-matched-nxp-1n4148-bridge-audit]
+    paths: [.github/workflows/609-nxp-1n4148-bridge-validation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regenerate true source nodal deck and assert all 4 matched NXP devices
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('circuit/ex11475.inc').read_text()
+          m=Path('circuit/devices.inc').read_text()
+          assert sum(line.startswith(('D14 ','D15 ','D16 ','D17 ')) and line.endswith('D1N4148_NXP') for line in s.splitlines())==4
+          assert len([x for x in s.splitlines() if x.startswith('R_D1') and '5.827gig' in x])==4
+          assert '.model D1N4148_NXP' in m and '.model D1N4153 ' not in m
+          print('Four nominally identical NXP 1N4148 models, manufacturer shunt paths verified')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jd-matched-nxp-1n4148-deck
+          path: build/Deck.hpp
+          retention-days: 30
+  measure:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-matched-nxp-1n4148-deck
+          path: build/deck
+      - name: Build actual VST3 against regenerated NXP diode source deck
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-nxp -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-nxp --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Repeat 100Hz and 1kHz all four mode 9 input level THD and GR
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-nxp/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-nxp/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_all_modes_100_1k_thd.py $tester $bundle results/72case
+          exit $LASTEXITCODE
+      - name: Repeat Neve 80kHz bandwidth distortion, through FR, ratios
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-nxp/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-nxp/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_factory_exact_electrical.py $tester $bundle results/factory
+          exit $LASTEXITCODE
+      - name: Check original Neve limiter slow 4ms and fast 2ms attack
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-nxp/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-nxp/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-matched-nxp-1n4148-72case-plus-neve-factory
+          path: results
+          retention-days: 30
+          if-no-files-found: warn
