@@ -63,6 +63,59 @@ jobs:
           if ($table | Where-Object {$_.Mode -eq 'through' -and [Math]::Abs($_.Relative_dB) -gt 1}) {
             throw "Through response exceeded the ±1 dB target"
           }
+      - name: Measure MKIV steady-state 3-to-1 compressor ratio, factory and input sweep
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          $results=New-Item -ItemType Directory -Force results
+          $levels=@(-12,-8,-4,0,4,8,12,10)
+          $rows=@()
+          foreach ($dbu in $levels) {
+            foreach ($compress in @(0,1)) {
+              # Threshold detent 0 = -20 dBu; ratio detent 2 = 3:1; recovery detent 0 = 100 ms.
+              # Other settings: gain=0, limiter off, noise disabled, 1 kHz, 44.1 kHz.
+              $arguments=@(0,2,0,0,8,3,$compress,0,0,0,1000,0,$dbu,0,1.2,44100)
+              $name="ratio3-thrMinus20-input$dbu-comp$compress"
+              $spectrum=@(& $tester $bundle --jd-case @arguments 2> "$results/$name.stderr.txt")
+              if ($LASTEXITCODE -or !$spectrum.Count) {throw "Ratio measurement failed: $name"}
+              $spectrum | Set-Content "$results/$name.txt"
+              $parts=$spectrum[0].Trim() -split '\s+'
+              $re=[double]::Parse($parts[0],[cultureinfo]::InvariantCulture)
+              $im=[double]::Parse($parts[1],[cultureinfo]::InvariantCulture)
+              $mag=[Math]::Sqrt($re*$re+$im*$im)
+              if (!$mag -or !$([double]::IsFinite($mag))) {throw "Invalid magnitude for $name"}
+              $rows += [pscustomobject]@{Input_dBu=$dbu; CompressorIn=$compress; FundamentalMagnitude=$mag; Fundamental_dB=20*[Math]::Log10($mag)}
+            }
+          }
+          $output=@()
+          foreach ($dbu in $levels) {
+            $dry=$rows | Where-Object {$_.Input_dBu -eq $dbu -and $_.CompressorIn -eq 0}
+            $wet=$rows | Where-Object {$_.Input_dBu -eq $dbu -and $_.CompressorIn -eq 1}
+            $output += [pscustomobject]@{
+              Input_dBu=$dbu
+              Uncompressed_dB=[math]::Round($dry.Fundamental_dB,5)
+              Compressed_dB=[math]::Round($wet.Fundamental_dB,5)
+              GainReduction_dB=[math]::Round($dry.Fundamental_dB-$wet.Fundamental_dB,5)
+            }
+          }
+          $output | Export-Csv "$results/mkiv-ratio-3to1-sweep.csv" -NoTypeInformation
+          $sorted=@($output | Sort-Object Input_dBu)
+          $differences=@()
+          for ($i=1;$i -lt $sorted.Count;$i++) {
+            $a=$sorted[$i-1];$b=$sorted[$i]
+            $rise=$b.Compressed_dB-$a.Compressed_dB
+            $ratio=if ($rise -gt 0) {($b.Input_dBu-$a.Input_dBu)/$rise} else {[double]::NaN}
+            $differences += [pscustomobject]@{From_dBu=$a.Input_dBu;To_dBu=$b.Input_dBu;OutputChange_dB=[math]::Round($rise,5);EffectiveRatio=[math]::Round($ratio,4)}
+          }
+          $differences | Export-Csv "$results/mkiv-ratio-3to1-local-slopes.csv" -NoTypeInformation
+          $zero=$output | Where-Object Input_dBu -eq 0
+          $ten=$output | Where-Object Input_dBu -eq 10
+          $factory=$ten.Compressed_dB-$zero.Compressed_dB
+          "Factory Neve 0 dBu -> +10 dBu, 3:1, -20 dBu threshold, 100ms recovery: output increase $([math]::Round($factory,5)) dB; target 3.5 +/-1 dB" | Set-Content "$results/mkiv-ratio-factory.txt"
+          $output | Format-Table -AutoSize
+          $differences | Format-Table -AutoSize
+          Get-Content "$results/mkiv-ratio-factory.txt"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
