@@ -1,0 +1,83 @@
+name: JD complete Vishay 1N4148 subcircuit physics and Neve +8 limiter factory validation
+on:
+  push:
+    branches: [609-jd-full-vishay-1n4148-subcircuit]
+    paths: [.github/workflows/609-jd-vishay-full-subcircuit.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify complete manufacturer Vishay SPICE subcircuits
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          b=Path('circuit/ex11475.inc').read_text()
+          s=Path('circuit/vishay_1n4148_full.inc').read_text()
+          assert len(re.findall(r'^XV1[4-7]\s+\S+\s+\S+\s+VISHAY4148$',b,re.M))==4
+          assert all(re.search('^'+x+r'\b',s,re.M) for x in ['D_DIO','V_F','BVIS','I1','R1','H2','RTF1','CTF','RTF2','DBV1','DBV2','RL'])
+          assert '.model VISHAY_LEGD' in s and '.model DBVMOD' in s
+          print("All four Vishay manufacturer subcircuits include complete BF / feedback RC / reverse diodes and leakage")
+          PY
+      - name: Regenerate true Ngspice operating point and native circuit deck (no approximated fit)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jd-vishay-complete-original-subcircuit-deck
+          path: build/Deck.hpp
+          retention-days: 30
+  measure:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-vishay-complete-original-subcircuit-deck
+          path: build/deck
+      - name: Build actual VST3 with Vishay original BF and dynamic diode circuits
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-vishay -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-vishay --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Re-test factory THD at confirmed limiter +8 dBu and +22 dBu input, compressor, through, FR and ratios
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-vishay/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-vishay/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_factory_exact_electrical.py $tester $bundle results/factory
+          exit $LASTEXITCODE
+      - name: Re-test 72 levels, four modes, 100Hz and 1kHz
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-vishay/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-vishay/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/jd_all_modes_100_1k_thd.py $tester $bundle results/72
+          exit $LASTEXITCODE
+      - name: Re-test limiter 2ms fast and 4ms slow attack
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-vishay/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-vishay/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-full-vishay-1n4148-factory-and-72cases
+          path: results
+          retention-days: 30
+          if-no-files-found: warn
