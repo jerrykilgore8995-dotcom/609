@@ -339,7 +339,18 @@ private:
         trim(deck.sources,&V::a,&V::b,&V::k);
         trim(deck.controlled,&Control::a,&Control::b,&Control::p,&Control::m);
         trim(deck.cubic,&Cubic::a,&Cubic::b,&Cubic::control);
-        if (!deck.behavioral.empty()) partitionValid=false;
+        retain(deck.behavioral,[&](auto& part,std::size_t) {
+            // All Vishay BF controlled-current and dynamic-voltage inputs must
+            // follow their own mono lane. Reject cross-lane references, not
+            // legitimate manufacturer nonlinear devices.
+            if (!remap(part,&Behavioral::a,&Behavioral::b)) return false;
+            for (int& input : part.input) if (input>=0) {
+                const int mapped=node(input);
+                if(mapped==unusedNode) {partitionValid=false;return false;}
+                input=mapped;
+            }
+            return true;
+        });
         // Keep indices for the generated model groups.
         for (auto& d:deck.diodes)
             if (!remap(d,&D::a,&D::b)) d.a=unusedNode;
