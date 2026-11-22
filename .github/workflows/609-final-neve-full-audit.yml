@@ -1,0 +1,56 @@
+name: MKIV Neve full factory electrical and attack audit two resistor candidates
+on:
+  push:
+    branches: [609-rv2-control-voltage-recovery-probe]
+    paths: [.github/workflows/609-final-neve-full-audit.yml]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        resistors: [fitted, schematic]
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Apply factory attack resistor candidate only in test build
+        shell: pwsh
+        run: |
+          if("${{ matrix.resistors }}" -eq "schematic"){
+            python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+            if($LASTEXITCODE){exit $LASTEXITCODE}
+          }
+      - name: Compile exact native VST3 and independent factory tester
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-full -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-full --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Verify factory attack, FR, ratio, THD, harmonics, phase, gain, limiter thresholds and dynamic range
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-full/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-full/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results/attack | Out-Null
+          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          python tools/rv2_200_full_conformance.py $tester $bundle results/electrical --law 0.04
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mkiv-neve-full-audit-${{ matrix.resistors }}
+          path: results
+          if-no-files-found: warn
+          retention-days: 14
