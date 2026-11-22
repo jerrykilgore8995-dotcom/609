@@ -1,0 +1,51 @@
+name: MKIV 88k2 nodal versus SPICE CV stability
+on:
+  push:
+    branches: [609-rv2-control-voltage-recovery-probe]
+    paths: [.github/workflows/609-88k2-cv-compare.yml]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-2022
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: combined-deck-g0345c030
+          run-id: '45020417541'
+          github-token: ${{ github.token }}
+          path: build/deck
+      - name: Instrument calibrated deck and use EX11475 schematic R28 R30 values
+        shell: pwsh
+        run: |
+          python tools/instrument_recovery_deck.py build/deck/Deck.hpp
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          python tools/patch_r28_r30_candidate.py build/deck/Deck.hpp
+          exit $LASTEXITCODE
+      - name: Compile rate-comparison diagnostic using unchanged circuit solver
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-88 -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-88 --config Release --target ControlVoltageProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Trace factory +20 to +10 at 88.2k, 50 and 800ms recovery
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results/rate | Out-Null
+          $exe=(Resolve-Path build-88/Release/ControlVoltageProbe.exe).Path
+          foreach($r in @(1,4)){
+            & $exe limit $r 0 20 10 8 2 88200 > "results/rate/limit-rec${r}-88200.csv"
+            if($LASTEXITCODE){throw "Failed 88k2 $r"}
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mkiv-88k2-physical-cv
+          path: results/rate
+          if-no-files-found: warn
+          retention-days: 14
