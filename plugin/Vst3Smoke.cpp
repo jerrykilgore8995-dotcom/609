@@ -197,6 +197,8 @@ bool runJdCase(juce::AudioProcessor& plugin,char** args,int argc) {
     for (std::size_t i=0; i<names.size(); ++i)
         if (!setControl(plugin,"Channel 1 "+juce::String(names[i]),std::stof(args[i])/upper[i])) return false;
     if (!setControl(plugin,"Compressor Attack",std::stof(args[9])/2.f)) return false;
+    // Factory characterization uses one driven channel; the other channel is silent.
+    if (!setControl(plugin,"Stereo Link",0.f)) return false;
     const auto frequency=std::stod(args[10]), low=std::stod(args[11]), high=std::stod(args[12]);
     const auto burst=std::stod(args[13]), stop=std::stod(args[14]);
     plugin.setNonRealtime(true);
