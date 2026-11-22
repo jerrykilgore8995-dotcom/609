@@ -34,6 +34,13 @@ add_custom_command(OUTPUT "${generated_dir}/GeneratedSolve.hpp"
     VERBATIM)
 add_custom_target(Generate609Deck DEPENDS "${generated_dir}/GeneratedSolve.hpp")
 
+add_executable(ControlVoltageProbe "${native_dir}/ControlVoltageProbe.cpp" "${generated_dir}/Deck.hpp")
+target_include_directories(ControlVoltageProbe PRIVATE "${generated_dir}")
+target_compile_features(ControlVoltageProbe PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(ControlVoltageProbe PRIVATE $<$<CONFIG:Release>:/arch:AVX2> $<$<CONFIG:Release>:/fp:precise>)
+endif()
+
 include(FetchContent)
 FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
                          GIT_TAG 8.0.10 GIT_SHALLOW TRUE)
