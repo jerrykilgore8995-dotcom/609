@@ -1,0 +1,54 @@
+name: JD isolate distortion cause - direct VCTRL ripple versus frozen-CV diode bridge
+on:
+  push:
+    branches: [609-jd-100hz-distortion-cv-cause]
+    paths: [.github/workflows/609-jd-cv-causality.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jd-cv-causal-diagnostic-deck
+          path: build/Deck.hpp
+          retention-days: 14
+  compare:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-cv-causal-diagnostic-deck
+          path: build/deck
+      - name: Compile circuit physics probe
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-cause -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-cause --config Release --target CvCauseProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Isolate bridge static nonlinearity from detector ripple with original mean CV retained
+        shell: pwsh
+        run: |
+          $exe=(Resolve-Path build-cause/Release/CvCauseProbe.exe).Path
+          python tools/jd_cv_causality.py $exe results/cv-causality
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-actual-vctrl-ripple-vs-fixed-control-thd-source
+          path: results/cv-causality
+          retention-days: 30
