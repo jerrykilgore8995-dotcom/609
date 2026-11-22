@@ -1,4 +1,5 @@
 name: Independent ngspice limiter recovery causal cross-check
+# Repeat with verified physical +20/+10 dBu AC amplitudes.
 on:
   push:
     branches: [609-rv2-control-voltage-recovery-probe]
