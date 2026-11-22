@@ -121,6 +121,7 @@ struct Circuit {
     int size=0,nodes=0;
     std::array<int,4> output{};
     std::array<int,2> meter{};
+    std::array<int,2> controlProbe{{-1,-1}};
     std::vector<Constant> constants;
     std::vector<R> resistors;
     std::vector<Contact> contact;
@@ -251,6 +252,7 @@ public:
     double linkVoltage() const {return previous[linkNode];}
     void setPeerLinkVoltage(double volts) {peerLinkVoltage=volts;}
     Frame meterVolts() const {return {v(deck.meter[0]),v(deck.meter[1])};}
+    Frame controlVoltage() const {return {deck.controlProbe[0]<0?0:v(deck.controlProbe[0]),deck.controlProbe[1]<0?0:v(deck.controlProbe[1])};}
     int operations() const { return matrix.operationCount(); }
     bool usesGeneratedSolve() const { return matrix.usesGeneratedSolve(); }
     bool usesGeneratedResidual() const {
@@ -344,6 +346,7 @@ private:
             if (!remap(j,&J::s,&J::d,&J::g)) j.d=unusedNode;
         for (auto& n:deck.output) n=std::max(-1,node(n));
         for (auto& n:deck.meter) n=std::max(-1,node(n));
+        for (auto& n:deck.controlProbe) n=std::max(-1,node(n));
         deck.size=static_cast<int>(bias.size());
         deck.channel.assign(deck.size,lane);
         deck.bias=std::move(bias);
