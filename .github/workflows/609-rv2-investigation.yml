@@ -1,0 +1,102 @@
+name: MKIV RV2 law trim investigative sweep
+on:
+  push:
+    branches: [609-rv2-investigation-only]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  deck:
+    strategy:
+      fail-fast: false
+      matrix:
+        law: ['0.15','0.35','0.55','0.75','0.95']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate true nodal deck with adjusted RV2
+        env:
+          LAW_TRIM: ${{ matrix.law }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ngspice
+          python3 - <<'PY'
+          import os,pathlib,re
+          p=pathlib.Path('circuit/609.cir')
+          s=p.read_text()
+          s,n=re.subn(r'LAW=0\.35', 'LAW='+os.environ['LAW_TRIM'], s)
+          assert n==2, (n,'Unexpected LAW param occurrence')
+          p.write_text(s)
+          print('Temporary RV2:',os.environ['LAW_TRIM'], 'resistance:',5000*float(os.environ['LAW_TRIM']),'ohms')
+          PY
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv2-deck-${{ matrix.law }}
+          path: build/Deck.hpp
+          retention-days: 7
+  windows:
+    needs: deck
+    strategy:
+      fail-fast: false
+      matrix:
+        law: ['0.15','0.35','0.55','0.75','0.95']
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv2-deck-${{ matrix.law }}
+          path: build/deck
+      - name: Build RV2 trial nodal VST3 (temporary only)
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure every compressor ratio and limiter comparison
+        shell: pwsh
+        env:
+          LAW_TRIM: ${{ matrix.law }}
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results | Out-Null
+          $targets=@(6.5,5,3.5,2.5,1.5)
+          $tolerance=@(1,1,1,.5,.5)
+          $names=@('1.5:1','2:1','3:1','4:1','6:1')
+          $rows=@()
+          function Tone([int]$ratio,[double]$level,[int]$comp,[int]$limit,[int]$threshold=0) {
+            $argsTone=@($threshold,$ratio,0,0,8,0,$comp,$limit,0,0,1000,0,$level,0,1.2,44100)
+            $spectra=@(& $tester $bundle --jd-case @argsTone 2> $null)
+            if ($LASTEXITCODE -or !$spectra.Count) {throw "Tone failed for ratio $ratio level $level comp $comp limit $limit"}
+            $p=$spectra[0].Trim() -split '\s+'
+            $a=[double]::Parse($p[0],[cultureinfo]::InvariantCulture)
+            $b=[double]::Parse($p[1],[cultureinfo]::InvariantCulture)
+            return 20*[math]::Log10([math]::Sqrt($a*$a+$b*$b))
+          }
+          for($i=0;$i -lt 5;$i++) {
+            $low=Tone $i 0 1 0
+            $high=Tone $i 10 1 0
+            $change=$high-$low
+            $deviation=$change-$targets[$i]
+            $rows += [pscustomobject]@{Law=$env:LAW_TRIM;RV2_ohm=5000*[double]$env:LAW_TRIM;Ratio=$names[$i];InputStep_dB=10;OutputRise_dB=[math]::Round($change,5);FactoryTarget_dB=$targets[$i];Error_dB=[math]::Round($deviation,5);Tolerance_dB=$tolerance[$i];ExcessOutsideTolerance_dB=[math]::Round([math]::Max(0,[math]::Abs($deviation)-$tolerance[$i]),5);Pass=([math]::Abs($deviation) -le $tolerance[$i])}
+          }
+          $out0=Tone 0 20 0 1
+          $loLimit=Tone 0 10 0 1
+          $hiLimit=Tone 0 20 0 1
+          $rows | Export-Csv "results/rv2-ratios-$env:LAW_TRIM.csv" -NoTypeInformation
+          $rows | Format-Table -AutoSize
+          "Limiter +20dBu output dB (FFT relative) $out0; limiter +10->+20 dB rise $($hiLimit-$loLimit)" | Set-Content "results/rv2-limiter-$env:LAW_TRIM.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rv2-results-${{ matrix.law }}
+          path: results/
+          retention-days: 7
