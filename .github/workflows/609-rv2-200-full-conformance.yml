@@ -38,8 +38,8 @@ jobs:
         shell: pwsh
         run: |
           $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
-          $host=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
-          python tools/rv2_200_full_conformance.py $host $bundle results/broad --law '${{ matrix.law }}'
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_200_full_conformance.py $tester $bundle results/broad --law '${{ matrix.law }}'
           if($LASTEXITCODE){exit $LASTEXITCODE}
       - uses: actions/upload-artifact@v4
         if: always()
