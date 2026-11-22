@@ -1,0 +1,59 @@
+name: JD 100Hz nine-level THD and circuit distortion source trace
+on:
+  push:
+    branches: [609-jd-100hz-thd-source-trace]
+    paths: [.github/workflows/609-jd-100hz-stage-sweep.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ngspice and regenerate same calibrated JD circuit with seven read-only stage taps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jd-100hz-stage-probe-deck
+          path: build/Deck.hpp
+          retention-days: 14
+  measure:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: jd-100hz-stage-probe-deck
+          path: build/deck
+      - name: Build VST3 and stage voltmeter from identical nodal deck
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-100hz -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-100hz --config Release --target Compressor609_VST3 Vst3Smoke Stage100HzProbe --parallel 4
+          exit $LASTEXITCODE
+      - name: Sweep nine levels with both dynamics OFF and measure harmonics at each circuit stage
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-100hz/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-100hz/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          $probe=(Resolve-Path 'build-100hz/Release/Stage100HzProbe.exe').Path
+          python tools/jd_100hz_level_and_stage.py $tester $bundle $probe results/100hz
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jd-100hz-thd-nine-input-levels-and-stage-localization
+          path: results/100hz
+          retention-days: 30
+          if-no-files-found: warn
