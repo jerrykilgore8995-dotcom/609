@@ -100,6 +100,12 @@ def expand(lines, prefix="", mapping=None, parent=None, override=None):
                 elif orig=="bdrive":
                     kind = "y"
                     value = ("negativeRegulator" if "xvr2" in prefix else "positiveRegulator"), [node("in"),node("ref")], []
+                elif orig=="bvis":
+                    # Exact Vishay manufacturer's behavioral voltage source:
+                    # V(BVIS) = 600*I(V_F)/(abs(V(51)*10/V(30))+1).
+                    # The voltage-source branch is stamped via existing 'y' MNA path.
+                    kind = "y"
+                    value = "vishayForward", [prefix+"v_f", node("51"), node("30")], []
                 else:
                     raise ValueError(line)
         elif kind in "dqj":
