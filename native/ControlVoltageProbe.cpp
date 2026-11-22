@@ -18,6 +18,7 @@ int main(int argc,char** argv) {
     mkii::native::Solver solver(0);
     if(!solver.prepare(rate))return 4;
     auto controls=mkii::native::defaults;
+    controls[19]=0; // True independent factory channel; do not ground missing stereo peer through 10-ohm link.
     controls[0]=limiter?1:1; // compressor reference -20 dBu
     controls[1]=3;
     controls[2]=rec;
