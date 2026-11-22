@@ -52,3 +52,5 @@ jobs:
           name: jd-actual-vctrl-ripple-vs-fixed-control-thd-source
           path: results/cv-causality
           retention-days: 30
+
+# Runtime nodal solver builds the diagnostic probe without regenerating JIT solver code.
