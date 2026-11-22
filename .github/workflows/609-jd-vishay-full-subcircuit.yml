@@ -2,7 +2,7 @@ name: JD complete Vishay 1N4148 subcircuit physics and Neve +8 limiter factory v
 on:
   push:
     branches: [609-jd-full-vishay-1n4148-subcircuit]
-    paths: [.github/workflows/609-jd-vishay-full-subcircuit.yml]
+    paths: [.github/workflows/609-jd-vishay-full-subcircuit.yml, native/GenerateSolve.cpp]
   workflow_dispatch:
 permissions:
   contents: read
