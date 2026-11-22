@@ -61,23 +61,22 @@ def main():
     for k,(mode,attack,rec,burst,stop,high,threshold,ratio) in enumerate(cases,1):
         envelope=measure(a.host,a.bundle,mode,attack,rec,burst,stop,high,threshold,ratio)
         start=.45;end=.45+burst/1000
-        # small pre-window; for 100ms burst use its last 20ms.
-        before=average(envelope,.32,.43)
-        during=average(envelope,max(start+.03,end-.03),end-.005)
-        after=average(envelope,max(end+1.0,stop-.2),stop-.04)
-        attack63=crossing(envelope,start,end,before,during,.63212)
-        attack90=crossing(envelope,start,end,before,during,.9)
-        release63=crossing(envelope,end,stop,during,before,.63212)
-        release90=crossing(envelope,end,stop,during,before,.9)
-        # Control behavior requires gain relative to input, not raw output level
-        # Output baseline differs from output during by input step plus compression.
-        # Attack: measure dB gain change from dry input step in first 20ms vs final driven.
-        # The waveform step itself contributes to output attack. Report this as an explicit proxy.
+        # Subtract the generator's instantaneous dBu level to isolate the gain-reduction
+        # transition; otherwise a 40 dB input jump falsely looks like a 1ms attack.
+        low=10. if mode=="limit" else -30.
+        gain={i:v-(high if start<=i/1000<end else low) for i,v in envelope.items()}
+        before=average(gain,.32,.43)
+        during=average(gain,max(start+.03,end-.03),end-.005)
+        after=average(gain,max(end+1.0,stop-.2),stop-.04)
+        attack63=crossing(gain,start+.002,end,before,during,.63212)
+        attack90=crossing(gain,start+.002,end,before,during,.9)
+        release63=crossing(gain,end+.002,stop,during,before,.63212)
+        release90=crossing(gain,end+.002,stop,during,before,.9)
         row=dict(LAW=a.law,mode=mode,attack=attack,recovery=rec,burst_ms=burst,
-                 pre_output_dBu=round(before,4),driven_output_dBu=round(during,4),late_output_dBu=round(after,4),
+                 pre_gain_dB=round(before,4),driven_gain_dB=round(during,4),late_gain_dB=round(after,4),
                  audio_attack63_ms=attack63,audio_attack90_ms=attack90,
                  audio_release63_ms=release63,audio_release90_ms=release90,
-                 note="RMS audio output response includes input step; not factory detector CV trace")
+                 note="Input-corrected 1ms RMS gain-reduction envelope; not factory internal CV trace")
         rows.append(row)
         if k%10==0:print(f"TIMING {a.law}: {k}/{len(cases)} measured",flush=True)
     with (out/"timing-raw.csv").open("w",newline="") as f:
