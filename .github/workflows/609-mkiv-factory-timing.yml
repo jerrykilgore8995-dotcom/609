@@ -1,0 +1,75 @@
+name: 609 MKIV factory timing and noise diagnostics
+on:
+  push:
+    branches: [609-mkiv-factory-timing]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  timing:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-nodal-deck
+          path: build/deck
+          github-token: \${{ github.token }}
+          run-id: '44813157089'
+      - uses: actions/download-artifact@v4
+        with:
+          name: 609-MK-IV-Solver-Windows-x64-VST3
+          path: build/target
+          github-token: \${{ github.token }}
+          run-id: '44972994363'
+      - name: Build diagnostics VST3 host only
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure PSU-noise and compressor/limiter audio ballistics
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build/target/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results/timing | Out-Null
+          & $tester $bundle --jd-noise *>&1 | Out-File -Encoding utf8 results/timing/psu-noise.txt
+          Write-Host "PSU-noise instrument result: $LASTEXITCODE"
+          Get-Content results/timing/psu-noise.txt | Select-Object -Last 8
+          $cases=@(
+            @{mode="limit";a=0;r=1;duration=35;high=20;thr=9;ratio=3},
+            @{mode="limit";a=0;r=2;duration=35;high=20;thr=9;ratio=3},
+            @{mode="limit";a=0;r=3;duration=35;high=20;thr=9;ratio=3},
+            @{mode="limit";a=0;r=4;duration=35;high=20;thr=9;ratio=3},
+            @{mode="limit";a=0;r=5;duration=65;high=20;thr=9;ratio=3},
+            @{mode="limit";a=0;r=6;duration=75;high=20;thr=9;ratio=3},
+            @{mode="limit";a=1;r=1;duration=35;high=20;thr=9;ratio=3},
+            @{mode="comp";a=0;r=1;duration=35;high=10;thr=1;ratio=3},
+            @{mode="comp";a=0;r=2;duration=35;high=10;thr=1;ratio=3},
+            @{mode="comp";a=0;r=3;duration=35;high=10;thr=1;ratio=3},
+            @{mode="comp";a=0;r=4;duration=45;high=10;thr=1;ratio=3},
+            @{mode="comp";a=0;r=5;duration=65;high=10;thr=1;ratio=3},
+            @{mode="comp";a=0;r=6;duration=75;high=10;thr=1;ratio=3},
+            @{mode="comp";a=1;r=1;duration=35;high=10;thr=1;ratio=3},
+            @{mode="comp";a=2;r=1;duration=35;high=10;thr=1;ratio=3}
+          )
+          foreach($c in $cases) {
+            $attackName=if ($c.mode -eq 'limit') {if($c.a -eq 1) {'fast'}else{'slow'}}else{"a$($c.a)"}
+            $filename=('{0}_{1}_r{2}_{3}.txt' -f $c.mode,$attackName,$c.r,$c.duration)
+            $argsTone=@($c.mode,$c.a,$c.r,500,($c.duration/10),$c.high,$c.thr,$c.ratio)
+            & $tester $bundle --jd-timing @argsTone > "results/timing/$filename"
+            if ($LASTEXITCODE) {throw "Timing measurement failed: $filename"}
+          }
+          python tools/mkiv_timing_report.py results/timing
+          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MKIV-factory-timing-and-noise
+          path: results/timing/
+          if-no-files-found: warn
