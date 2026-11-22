@@ -1,0 +1,88 @@
+name: MKIV RV2 multi-trim conformance study
+on:
+  push:
+    branches: [609-rv2-joint-trim-investigation]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  deck:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [base,gainlo,gainhi,biaslo,biashi,complo,comphi,limlo,limhi,meterlo,meterhi]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build real nodal deck with controlled individual trim
+        env:
+          TRIM_VARIANT: ${{ matrix.name }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ngspice
+          python -m pip install numpy
+          python - <<'PY'
+          import os,pathlib,re
+          variant=os.environ["TRIM_VARIANT"]
+          substitutions={
+            "base":{},
+            "gainlo":{"PRESET":"0.2000"},"gainhi":{"PRESET":"0.2525"},
+            "biaslo":{"BIAS":"0.395245"},"biashi":{"BIAS":"0.495245"},
+            "complo":{"COMPCAL":"0.3273"},"comphi":{"COMPCAL":"0.4873"},
+            "limlo":{"LIMCAL":"0.126966"},"limhi":{"LIMCAL":"0.206966"},
+            "meterlo":{"MTR":"0.3"},"meterhi":{"MTR":"0.7"}}
+          original={"LAW":"0.35","PRESET":"0.226248","BIAS":"0.445245",
+                    "COMPCAL":"0.4073","LIMCAL":"0.166966","MTR":"0.5"}
+          vals={"LAW":"0.04",**substitutions[variant]}
+          p=pathlib.Path("circuit/609.cir");s=p.read_text()
+          for key,v in vals.items():
+            s,n=re.subn(r"\b"+key+r"="+re.escape(original[key])+r"\b",key+"="+v,s)
+            assert n==2,(key,n)
+          p.write_text(s)
+          print("TRIAL",variant,vals)
+          PY
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: joint-deck-${{ matrix.name }}
+          path: build/Deck.hpp
+          retention-days: 7
+  windows:
+    needs: deck
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [base,gainlo,gainhi,biaslo,biashi,complo,comphi,limlo,limhi,meterlo,meterhi]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: joint-deck-${{ matrix.name }}
+          path: build/deck
+      - name: Build actual experimental nodal VST3
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-plugin -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-plugin --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Check all factory ratio positions and focused compressor and limiter THD
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-plugin/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-plugin/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          python tools/rv2_joint_trim_screen.py $tester $bundle results '${{ matrix.name }}'
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: joint-results-${{ matrix.name }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 7
