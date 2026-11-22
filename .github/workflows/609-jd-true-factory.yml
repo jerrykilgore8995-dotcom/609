@@ -121,3 +121,5 @@ jobs:
           name: jd-direct-c13-c14-all-12-neve-step-traces
           path: results
           retention-days: 30
+
+# Includes direct recovery summary from current revision.
