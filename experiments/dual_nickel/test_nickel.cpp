@@ -14,7 +14,7 @@ Spectrum measure(double freq,double dbu,bool highHeadroom) {
     nickel::Transformer transformer;
     nickel::CoreParams core;
     if(highHeadroom) {
-        core.turns=1000;core.coreArea=2e-4;core.Ms=7e5;
+        core.turns=2600;core.coreArea=5e-4;core.Ms=7e5;
         core.a=30;core.k=40;core.c=.30;core.sourceR=10;
         core.primaryLeak=20e-6;core.secondaryLeak=20e-6;
         core.receiverR=15;core.receiverC=10e-12;
