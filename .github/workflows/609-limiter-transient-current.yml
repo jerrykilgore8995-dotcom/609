@@ -1,0 +1,39 @@
+name: 609 physical limiter current + 1kHz ripple diagnosis
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-limiter-transient-current.yml
+      - tools/limiter_transient_current_audit.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  physical-transient:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [generic, w, ws, wt]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install unchanged circuit Ngspice engine
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          mkdir -p results
+      - name: Select only the original and three manufacturer bridge models
+        run: python tools/diodesinc_bridge_fixture.py ${{ matrix.diode }}
+      - name: Measure 1kHz limiter 2kHz ripple and actual control currents
+        run: python tools/limiter_transient_current_audit.py ${{ matrix.diode }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: limiter-physical-current-${{ matrix.diode }}
+          path: |
+            results/limiter-current-wave-*.json
+            results/limiter-ngspice-*.log
+          retention-days: 14
+          if-no-files-found: warn
