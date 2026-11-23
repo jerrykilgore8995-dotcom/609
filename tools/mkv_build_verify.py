@@ -29,21 +29,21 @@ for attack in range(3):
     windows={}
     for t,y in rows:
         idx=int(t*1000)
-        if 455<=idx<=540:
+        if 450<=idx<=540:
             windows.setdefault(idx,[]).append(y*y)
     rms={k:math.sqrt(sum(a)/len(a)) for k,a in windows.items() if len(a)>=35}
     # Initial window after the burst, 455-459ms; final during burst 530-540ms.
-    early=statistics.median(rms[i] for i in range(455,460) if i in rms)
+    early=statistics.median(rms[i] for i in range(450,452) if i in rms)
     late=statistics.median(rms[i] for i in range(530,540) if i in rms)
     # Envelope decays as compression develops: estimate t10/t90 of total reduction.
     if early<=late:raise RuntimeError(f'Attack position {attack} has no GR transition early {early} late {late}')
     def crossing(frac):
         threshold=early-frac*(early-late)
-        return next((i-455 for i in range(455,531) if i in rms and rms[i]<=threshold),None)
+        return next((i-450 for i in range(450,531) if i in rms and rms[i]<=threshold),None)
     a10=crossing(.1);a90=crossing(.9)
     attacks.append(dict(position=attack,label=['3 ms','7.5 ms','15 ms'][attack],
                 resistor_ohms=[680,1210,2745][attack],initial_rms=early,settled_rms=late,
-                t10_from_455_ms=a10,t90_from_455_ms=a90,
+                t10_from_450_ms=a10,t90_from_450_ms=a90,
                 time_10_to_90_ms=None if a10 is None or a90 is None else a90-a10))
 result=dict(model='609 MkV',diodes='Diodes Inc 1N4148W x4 distinct IS -1,-0.5,+0.5,+1 percent',
     resistor_R28_R30_ohms=1600,R31_attack_resistor_ohms=[680,1210,2745],
