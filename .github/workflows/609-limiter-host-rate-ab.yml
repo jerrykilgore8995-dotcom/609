@@ -1,0 +1,53 @@
+name: 609 limiter 1kHz - 44.1k vs 192k actual plugin THD
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-limiter-host-rate-ab.yml
+      - tools/limiter_host_rate_ab.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-rate-comparison:
+    runs-on: windows-2022
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [generic, w, ws, wt]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ngspice and Python runtime for unchanged model
+        shell: pwsh
+        run: |
+          choco install ngspice --yes --no-progress
+          python -m pip install numpy
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+      - name: Select exact circuit bridge-model test fixture
+        shell: pwsh
+        run: |
+          python tools/diodesinc_bridge_fixture.py "${{ matrix.diode }}"
+          exit $LASTEXITCODE
+      - name: Build independent VST3 and native solver
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-hostrate -A x64
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-hostrate --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Run 44.1kHz (K2-K22) and 192kHz (K2-K80) limiter comparison
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse -Path build-hostrate -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
+          $tester=Get-ChildItem -Recurse -Path build-hostrate -File -Filter 'Vst3Smoke.exe' | Select-Object -First 1 -ExpandProperty FullName
+          if(!$bundle -or !$tester){throw "Missing VST3 bundle or smoke host"}
+          python tools/limiter_host_rate_ab.py "$tester" "$bundle" "${{ matrix.diode }}" results
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-limiter-host-rate-${{ matrix.diode }}
+          path: results/*
+          retention-days: 14
+          if-no-files-found: warn
