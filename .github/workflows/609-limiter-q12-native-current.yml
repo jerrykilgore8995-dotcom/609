@@ -8,6 +8,7 @@ on:
       - native/Circuit.hpp
       - native/compile_deck.py
       - tools/limiter_nodal_probe_summary.py
+      - tools/limiter_q12_bias_sweep_fixture.py
   workflow_dispatch:
 permissions:
   contents: read
