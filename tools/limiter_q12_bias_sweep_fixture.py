@@ -31,12 +31,18 @@ if case.startswith("q12-bf"):
     if n!=1:raise RuntimeError("Q12 instance topology differs from expected")
 elif case.startswith("law-"):
     value={"law-002":"0.02","law-006":"0.06"}[case]
-    t,n=re.subn(r"\bLAW=0\.04\b","LAW="+value,t)
-    if n!=1:raise RuntimeError("Unexpected LAW parameter match count")
+    lines=t.splitlines(keepends=True)
+    pos=next(i for i,line in enumerate(lines) if line.startswith(".param PRESET="))
+    if "LAW=0.04" not in lines[pos]:raise RuntimeError("Factory LAW baseline differs")
+    lines[pos]=lines[pos].replace("LAW=0.04","LAW="+value,1)
+    t="".join(lines)
 elif case.startswith("rv4-"):
     value={"rv4-012":"0.12","rv4-022":"0.22"}[case]
-    t,n=re.subn(r"\bLIMCAL=0\.166966\b","LIMCAL="+value,t)
-    if n!=1:raise RuntimeError("Unexpected RV4 parameter match count")
+    lines=t.splitlines(keepends=True)
+    pos=next(i for i,line in enumerate(lines) if line.startswith(".param PRESET="))
+    if "LIMCAL=0.166966" not in lines[pos]:raise RuntimeError("Factory RV4 baseline differs")
+    lines[pos]=lines[pos].replace("LIMCAL=0.166966","LIMCAL="+value,1)
+    t="".join(lines)
 elif case.startswith("c14-"):
     value={"c14-8u":"8u","c14-12u":"12u"}[case]
     b,n=re.subn(r"(?m)^C14 LIMIT_ENV GND 10u$",
