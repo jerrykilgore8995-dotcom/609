@@ -1,0 +1,51 @@
+name: 609 physical limiter Q12 C14 bridge current waveforms
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-limiter-q12-native-current.yml
+      - native/LimiterNodeProbe.cpp
+      - native/Circuit.hpp
+      - native/compile_deck.py
+      - tools/limiter_nodal_probe_summary.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  physical-current:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, q12-bf250, q12-bf650, q12-bf800, law-002, law-006, rv4-012, rv4-022, c14-8u, c14-12u]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ngspice and analysis packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Keep four bridge diodes at Diodes Incorporated 1N4148W
+        run: python tools/diodesinc_bridge_fixture.py w
+      - name: Isolate exactly one requested current, Q12 or C14 test change
+        run: python tools/limiter_q12_bias_sweep_fixture.py ${{ matrix.variant }}
+      - name: Generate actual circuit from ngspice operating point
+        run: |
+          mkdir -p build/deck results
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - name: Build direct native read-only circuit diagnostic
+        run: |
+          g++ -O2 -std=c++20 -I build/deck native/LimiterNodeProbe.cpp -o build/LimiterNodeProbe
+      - name: Measure Q12 and C14 and bridge voltages/currents at 1kHz
+        run: |
+          build/LimiterNodeProbe > results/raw-${{ matrix.variant }}.csv 2> results/stderr-${{ matrix.variant }}.txt
+          python tools/limiter_nodal_probe_summary.py results/raw-${{ matrix.variant }}.csv results/summary-${{ matrix.variant }}.json ${{ matrix.variant }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: limiter-q12-native-current-${{ matrix.variant }}
+          path: results/*
+          retention-days: 14
+          if-no-files-found: warn
