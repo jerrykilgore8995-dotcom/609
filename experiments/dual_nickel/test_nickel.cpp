@@ -8,7 +8,7 @@
 #include <vector>
 static constexpr double pi=3.14159265358979323846;
 struct Spectrum {
-    double fundamental=0,thd=0,peak=0,mean=0;
+    double fundamental=0,thd=0,peak=0,mean=0,phaseDeg=0;
 };
 Spectrum measure(double freq,double dbu,bool highHeadroom) {
     nickel::Transformer transformer;
@@ -45,6 +45,15 @@ Spectrum measure(double freq,double dbu,bool highHeadroom) {
         return 2*std::hypot(re,im)/samples;
     };
     out.fundamental=harmonic(1);
+    // Relative phase: input is sin(w*t), so sin and cos projections yield
+    // phase = atan2(cos projection, sin projection).
+    double sine=0,cosine=0;
+    for(int n=0;n<samples;++n) {
+        const double a=2*pi*freq*n/fs;
+        sine+=y[n]*std::sin(a);
+        cosine+=y[n]*std::cos(a);
+    }
+    out.phaseDeg=std::atan2(cosine,sine)*180.0/pi;
     double powers=0;
     for(int k=2;k<=20 && k*freq<fs/2;++k) {
         auto a=harmonic(k);
@@ -62,6 +71,7 @@ int main() {
     // levels. All figures are *model results*, NOT measured transformer data.
     std::cout<<std::fixed<<std::setprecision(7);
     for(const bool clean:{false,true}) {
+        const auto reference=measure(1000,4.0,clean);
         for(const double freq:{20.0,30.0,50.0,100.0,1000.0,5000.0,10000.0}) {
             for(const double level:{-18.0,4.0,16.0,24.0}) {
                 const auto s=measure(freq,level,clean);
@@ -70,6 +80,11 @@ int main() {
                     return 2;
                 // Fail on gross magnetic instability or unphysical
                 // distortion in nominal-level clean output, not just NaNs.
+                if(level==4.0) {
+                    const auto response=20.0*std::log10(s.fundamental/reference.fundamental);
+                    if(!std::isfinite(response) || std::abs(response)>1.0)
+                        return 7; // expected normal-level FR within +/-1 dB
+                }
                 if(clean && level<=4.0) {
                     if(s.thd>0.002 || s.peak>0.2)
                         return 4;
