@@ -6,7 +6,8 @@ import json,math,pathlib,subprocess,sys
 host,bundle,pct,folder=sys.argv[1:]
 folder=pathlib.Path(folder);folder.mkdir(parents=True,exist_ok=True)
 def measure(name,source,compressor,limiter):
-    args=[6,3,3,0,8,3,int(compressor),int(limiter),0,0,1000,0,source,0,1.2,44100]
+    # Neve JD THD: +4 dBu limiter threshold is first detent (index 0), NOT +8 (index 8).
+    args=[6,3,3,0,0,3,int(compressor),int(limiter),0,0,1000,0,source,0,1.2,44100]
     cmd=[host,bundle,'--jd-case-80',*map(str,args)]
     p=subprocess.run(cmd,capture_output=True,text=True,timeout=900)
     (folder/f"{name}.stdout").write_text(p.stdout)
@@ -25,14 +26,14 @@ lim=measure("limiter_22dBu",22,False,True)
 comp4=measure("comp_4dBu",4,True,False)
 comp10=measure("comp_10dBu",10,True,False)
 through=measure("through_4dBu",4,False,False)
-result={"rv1_percent":int(pct),"rv2_ohms":200,"rv4_ohms":1669.66,
+result={"rv1_percent":int(pct),"rv2_ohms":200,"rv4_ohms":1669.66,"limiter_threshold_dBu":4, "limiter_recovery_ms":800, "limiter_attack":"slow",
   "diodes":"Diodes Incorporated 1N4148W x4","attack_resistors_ohms":[1600,1600],
   "limiter":lim,"compressor_4dBu":comp4,"compressor_10dBu":comp10,
   "through_4dBu":through,
   "comp_6dB_input_step_output_dB":comp10["output_dBu"]-comp4["output_dBu"]}
 (folder/f"rv1-{pct}.json").write_text(json.dumps(result,indent=2))
 print("RV1_RESULT",json.dumps({
- "pct":int(pct),"lim_thd":lim["thd_percent"],"lim_out":lim["output_dBu"],
+ "pct":int(pct),"limiter_threshold_dBu":4,"lim_thd":lim["thd_percent"],"lim_out":lim["output_dBu"],
  "comp4_thd":comp4["thd_percent"],"comp4_out":comp4["output_dBu"],
  "comp10_thd":comp10["thd_percent"],"comp10_out":comp10["output_dBu"],
  "comp_step":result["comp_6dB_input_step_output_dB"],
