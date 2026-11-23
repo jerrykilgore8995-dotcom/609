@@ -1,0 +1,80 @@
+name: 609 RV2 RV4 matrix limiter THD and compressor safety
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-rv2-rv4-grid.yml
+      - tools/limiter_rv2_rv4_grid_fixture.py
+      - tools/limiter_rv2_rv4_grid_measure.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        rv2: [100, 150, 200, 250, 300]
+        rv4: [1200, 1670, 2200]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ngspice to generate exact node topology/bias
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Select Diodes Inc 1N4148W bridge in disposable runner
+        run: python tools/diodesinc_bridge_fixture.py w
+      - name: Apply only RV2 and RV4 calibration values
+        run: python tools/limiter_rv2_rv4_grid_fixture.py ${{ matrix.rv2 }} ${{ matrix.rv4 }}
+      - name: Generate actual circuit using Ngspice DC operating point
+        run: |
+          mkdir -p build/deck
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv2-${{ matrix.rv2 }}-rv4-${{ matrix.rv4 }}-deck
+          path: build/deck/Deck.hpp
+          if-no-files-found: error
+          retention-days: 14
+  measured:
+    needs: deck
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        rv2: [100, 150, 200, 250, 300]
+        rv4: [1200, 1670, 2200]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv2-${{ matrix.rv2 }}-rv4-${{ matrix.rv4 }}-deck
+          path: build/deck
+      - name: Build complete native VST3 with exact selected deck
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-grid -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-grid --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: 44.1kHz 22kHz limiter THD AND compressor invariance at +4 and +10dBu
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse build-grid -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
+          $tester=Get-ChildItem -Recurse build-grid -File -Filter Vst3Smoke.exe | Select-Object -First 1 -ExpandProperty FullName
+          if(!$bundle -or !$tester){throw "Required VST3/host missing"}
+          python tools/limiter_rv2_rv4_grid_measure.py "$tester" "$bundle" "${{ matrix.rv2 }}" "${{ matrix.rv4 }}" results
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-rv2-${{ matrix.rv2 }}-rv4-${{ matrix.rv4 }}-measurement
+          path: results/*
+          retention-days: 14
+          if-no-files-found: warn
