@@ -68,6 +68,16 @@ int main() {
                 if(!std::isfinite(s.fundamental)||!std::isfinite(s.thd)
                    ||s.fundamental<=1.e-9 ||s.peak>100)
                     return 2;
+                // Fail on gross magnetic instability or unphysical
+                // distortion in nominal-level clean output, not just NaNs.
+                if(clean && level<=4.0) {
+                    if(s.thd>0.002 || s.peak>0.2)
+                        return 4;
+                }
+                if(clean && level==4.0 && freq==1000.0 && s.thd>0.0005)
+                    return 5;
+                if(!clean && level==4.0 && freq==50.0 && s.thd>0.05)
+                    return 6;
                 std::cout<<(clean?"OUTPUT":"INPUT")<<" "
                          <<freq<<"Hz "<<level<<"dBu"
                          <<" fundamental="<<s.fundamental
