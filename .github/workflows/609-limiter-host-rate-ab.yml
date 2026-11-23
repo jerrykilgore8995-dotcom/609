@@ -9,7 +9,35 @@ on:
 permissions:
   contents: read
 jobs:
-  verify-rate-comparison:
+  generate-deck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [generic, w, ws, wt]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ngspice for actual 609 operating point
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Select exact bridge diode model; do not change circuit values
+        run: python tools/diodesinc_bridge_fixture.py ${{ matrix.diode }}
+      - name: Generate SPICE deck from operating point and selected model
+        run: |
+          mkdir -p build/deck
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-rate-deck-${{ matrix.diode }}
+          path: build/deck/Deck.hpp
+          if-no-files-found: error
+          retention-days: 14
+  measure-final-vst3:
+    needs: generate-deck
     runs-on: windows-2022
     timeout-minutes: 115
     strategy:
@@ -18,21 +46,15 @@ jobs:
         diode: [generic, w, ws, wt]
     steps:
       - uses: actions/checkout@v4
-      - name: Install Ngspice and Python runtime for unchanged model
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-rate-deck-${{ matrix.diode }}
+          path: build/deck
+      - name: Build same exact model at all host rates
         shell: pwsh
         run: |
-          choco install ngspice --yes --no-progress
-          python -m pip install numpy
-          if($LASTEXITCODE){exit $LASTEXITCODE}
-      - name: Select exact circuit bridge-model test fixture
-        shell: pwsh
-        run: |
-          python tools/diodesinc_bridge_fixture.py "${{ matrix.diode }}"
-          exit $LASTEXITCODE
-      - name: Build independent VST3 and native solver
-        shell: pwsh
-        run: |
-          cmake -S plugin -B build-hostrate -A x64
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-hostrate -A x64 "-DNODAL_DECK_HEADER=$deck"
           if($LASTEXITCODE){exit $LASTEXITCODE}
           cmake --build build-hostrate --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
           exit $LASTEXITCODE
