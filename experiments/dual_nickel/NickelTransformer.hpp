@@ -145,7 +145,7 @@ public:
         // Bracket-preserving bisection, mandatory until a monotonic/
         // continuously differentiable magnetic residual is established.
         const bool increasing=fhi>flo;
-        for(int i=0;i<24;++i) {
+        for(int i=0;i<30;++i) {
             const double mid=.5*(lo+hi);
             const double f=candidate(mid);
             if(!std::isfinite(f))return 0.0f;
