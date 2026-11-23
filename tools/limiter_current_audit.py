@@ -34,6 +34,8 @@ def resistor(label,a,b,r):
             "voltage_drop_V":None if x is None or y is None else x-y}
 currents=[
  resistor("R43","vcc","scv",10),
+ resistor("R44","vcc","audiov",10),
+ resistor("R42","audiov","buffv",820),
  resistor("R10","scv","ldet_v",240),
  resistor("R3","ldet_v","ql6e",10000),
  resistor("R12","rv4_out","ql6e",5600),
@@ -62,7 +64,7 @@ for c in currents:
     if a in volts and b in volts and volts[a] is not None and volts[b] is not None:
         c["voltage_drop_V"]=volts[a]-volts[b]
         c["current_mA"]=1000*c["voltage_drop_V"]/c["ohms"]
-results=dict(volts=volts,resistor_currents=currents,
+amp_supply_mA=(None if any(volts.get(k) is None for k in ('vcc','audiov','buffv'))\n    else 1000*((volts['vcc']-volts['audiov'])/10-(volts['audiov']-volts['buffv'])/820))\nresults=dict(volts=volts,resistor_currents=currents,\n             approximate_10340c_supply_mA=amp_supply_mA,\n             reference_10340c_static_mA=22,\n             amplifier_supply_definition='R44 total audio current minus R42 buffer current; ignores any other taps',
              scope="DC operating point only; 1kHz dynamic current/ripple not measured",
              possible_problem="Check both steady diode bridge DC bias and Q12/C14 current and 2kHz ripple under signal; DC alone cannot establish distortion.")
 destination.parent.mkdir(parents=True,exist_ok=True)
