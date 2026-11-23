@@ -1,49 +1,85 @@
-# Dual Nickel Zener — magnetic circuit development
+# Dual-Nickel Magnetic Circuit — development branch
 
-**This branch does NOT modify the existing 609 plugin.** The experimental transformer
-module is separate. The earlier polynomial/nonlinear-inductor placeholder has been
-replaced by an actual **stateful Jiles–Atherton equation** (anhysteretic Langevin,
-irreversible domain-wall motion, reversible magnetisation, direction dependence).
-A bounded implicit numerical solve couples it to driver source resistance and
-the reflected secondary load. A **real chowdsp_wdf** resistor-capacitor network
-handles downstream winding/capacitive parasitic filtering.
+**Scope:** this is the two-transformer audio-color engine only. The 33609JD
+native engine and 609 VST3 sources are untouched. The zener limiter itself
+and a separate JUCE plug-in have not yet been integrated.
 
-The magnetic and WDF sections are **not yet a single fully coupled multiwinding
-WDF transformer**; that remains future engineering work. There are no claims of
-physical transformer accuracy, and there is not yet a limiter or compiled VST3.
-No hardware measurements or distortion validation have been run.
+## Implemented DSP
 
-## Signal chain
-Input drive -> 49%-nickel alloy-inspired nonlinear magnetic model ->
-source/load coupling -> WDF parasitic section -> [8:1 zener limiter TODO] ->
-independent interstage/makeup gain -> high-headroom 80%-nickel Jensen-inspired
-magnetic model -> WDF parasitic section -> clean final trim.
+- 1:1 49%-nickel-*alloy-inspired* character input stage and 1:1
+  high-nickel Jensen JT-11-BMCF-*inspired* low-distortion output stage.
+- Magnetization state with Langevin anhysteretic curve, reversible and
+  irreversible Jiles–Atherton-style terms, domain-wall pinning, branch
+  direction and stateful minor-loop response.
+- Implicit electric/magnetic coupling via Faraday's law and KCL of the
+  primary/secondary windings. Primary and secondary copper resistance,
+  leakage inductance, shunt winding capacitance, finite core-loss
+  resistance, source resistance, external load and winding current
+  history are in the **same** implicit solve.
+- A separate actual `chowdsp_wdf` RC receiving network, including correct
+  series adaptor, polarity inverter and ideal source reflection wiring.
+  **Not** yet a completely WDF-native magnetic multiport network: the
+  coupled nonlinear core uses MNA-style equations and safeguarded Newton
+  iterations with high-precision bisection fallback. That distinction is
+  intentional and must not be described as full-WDF.
+- Drive -12 to +18 dB before input core; interstage -24 to +24 dB and
+  makeup -12 to +24 dB before output core; gain compensation after the
+  output core, linked by default, can be unlinked.
+- Internal scale: normalized digital peak 1.0 represents a +24 dBu
+  full-scale RMS sine; nominal +4 dBu is -20 dBFS peak.
 
-The linked compensation is AFTER the output transformer. Set linked=false to
-disable automatic -inputDrive compensation. Default linked=true.
+## Measured simulation baseline (GitHub Linux runner)
 
-## Dependencies / build
-This is a standalone test project, separate from the existing JUCE CMake target.
-CMake 3.22+, a C++20 compiler, and Git access for chowdsp_wdf are needed:
+Latest fully measured reference before phase/report additions:
+[CI run](https://github.com/jerrykilgore8995-dotcom/609/actions/runs/45250003735).
+At +4 dBu:
+| Frequency | Character input THD | Clean output THD |
+|---|---:|---:|
+| 20 Hz | 1.4827% | 0.004164% |
+| 50 Hz | 0.39862% | 0.000715% |
+| 100 Hz | 0.12605% | about 0.00081% |
+| 1 kHz | 0.001714% | 0.0000020% |
 
-```
+One transformer channel: 1.55 ms per 512 samples on that runner at
+44.1 kHz, release build. Four equivalent channels would estimate about
+6.2 ms before the limiter; this estimate is **not** a measured stereo
+plugin benchmark and does not include oversampling, host or limiter.
+
+The CTest suite checks finite behavior, abnormal peaks, clean-core THD,
+response magnitude within +/-1 dB across the tested 20 Hz–10 kHz tones,
+and the two-stage linked/unlinked routing path. Raw THD is measured with
+a 44.1 kHz sampled, integer-cycle harmonic projection (K2–K20 within
+Nyquist). Phase is reported using sine/cosine projections. Very small
+THD values are limited by the solver and measurement precision.
+
+## Hardware fidelity limitations
+
+Neither core's real B-H curve, actual winding parasitics, magnetic
+dimensions, nor Jensen phase/THD curves have been fitted to physical
+hardware data. Parameters are **engineering estimates**, not factory
+specifications. The current clean-model 20 Hz THD is roughly twice the
+0.002% typical Jensen figure referenced in the design discussion.
+It would be inaccurate to claim this is an exact Jensen or N49
+recreation. Full load sweeps, 20 kHz magnitude and phase verification,
+multi-tone IMD, sample-rate/oversampling alias tests and actual SER8
+real-time VST3 testing remain necessary.
+
+## Build
+
+```sh
 cmake -S experiments/dual_nickel -B build/dual-nickel -DCMAKE_BUILD_TYPE=Release
 cmake --build build/dual-nickel --config Release
 ctest --test-dir build/dual-nickel --output-on-failure
+./build/dual-nickel/nickel_smoke
 ```
 
-## Limitations requiring correction before production
-1. Calibrate physical core parameters and dimensions, and correct input/output
-   winding network (leakage, interwinding C, eddy-current loss, core loss).
-2. Replace approximate fixed-point J-A state integration with converged stable
-   integration and document rate-dependent/hysteretic minor-loop behavior.
-3. Couple all magnetic and electrical WDF branches rather than using a downstream
-   RC WDF section; evaluate passivity and CPU cost.
-4. Pin chowdsp_wdf to tested tag/commit; check dependency headers/API.
-5. Test against physical N49 and Jensen 1:1 data (THD K2–K20, IMD,
-   FR, phase, burst response at 44.1/88.2 kHz).
-6. Implement 8:1 Zener control circuit and calibrated 1/8/15ms attack,
-   50/100/250/500/1000ms recovery, and ascending 0–20 dB GR meter.
-7. Build a separate JUCE plugin rather than changing 609's native engine.
+The standalone target fetches `chowdsp_wdf` from upstream. Pin the library
+to a tested commit before a release build.
 
-**No remote CI build or audio benchmark result exists for the new stage.**
+## Planned limiter integration
+
+8:1 circuit-derived zener limiting, threshold control,
+1/8/15 ms attack (8 default), 50/100/250/500/1000 ms
+recovery (100 default), and a large ascending 0–20 dB
+gain-reduction meter in a **new** JUCE plug-in target. None of these are
+implemented or claimed tested here.
