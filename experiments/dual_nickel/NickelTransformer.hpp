@@ -142,17 +142,41 @@ public:
         }
         if(!std::isfinite(flo)||!std::isfinite(fhi)||(flo>0)==(fhi>0))
             return 0.0f;
-        // Bracket-preserving bisection, mandatory until a monotonic/
-        // continuously differentiable magnetic residual is established.
+        // Fast locally differentiated Newton iterations, *always* bracketed.
+        // Unlike unguarded secant/false-position, a convergence check and
+        // high-accuracy bisection fallback prevent low-level harmonic glitches.
         const bool increasing=fhi>flo;
-        for(int i=0;i<30;++i) {
-            const double mid=.5*(lo+hi);
-            const double f=candidate(mid);
-            if(!std::isfinite(f))return 0.0f;
-            if((f>0)==increasing)hi=mid;
-            else lo=mid;
+        double guess=std::clamp(baseH,lo,hi);
+        double f=candidate(guess);
+        bool converged=std::isfinite(f) && std::abs(f)<1.e-11;
+        for(int i=0;i<9 && !converged;++i) {
+            const double eps=std::max(1.e-5,1.e-4*std::abs(guess));
+            const double fp=candidate(guess+eps);
+            const double fm=candidate(guess-eps);
+            const double slope=(fp-fm)/(2*eps);
+            double proposed=std::abs(slope)>1.e-12 && std::isfinite(slope)
+                ?guess-f/slope : .5*(lo+hi);
+            const double guard=1.e-7*(hi-lo);
+            if(!std::isfinite(proposed) || proposed<=lo+guard
+               || proposed>=hi-guard)
+                proposed=.5*(lo+hi);
+            const double nextF=candidate(proposed);
+            if(!std::isfinite(nextF))return 0.0f;
+            guess=proposed;f=nextF;
+            if((f>0)==increasing){hi=guess;fhi=f;}else{lo=guess;flo=f;}
+            converged=std::abs(f)<1.e-11;
         }
-        const auto state=core.evolve(.5*(lo+hi));
+        if(!converged) {
+            for(int i=0;i<30;++i) {
+                guess=.5*(lo+hi);
+                f=candidate(guess);
+                if(!std::isfinite(f))return 0.0f;
+                if((f>0)==increasing)hi=guess;
+                else lo=guess;
+            }
+            guess=.5*(lo+hi);
+        }
+        const auto state=core.evolve(guess);
         core.commit(state);
         const double v=p.turns*p.coreArea*(state.B-b0)/dt;
         primaryCurrent=y1*(input+induct1*primaryCurrent-v);
