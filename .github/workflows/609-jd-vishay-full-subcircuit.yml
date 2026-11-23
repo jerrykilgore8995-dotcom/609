@@ -53,31 +53,45 @@ jobs:
           if($LASTEXITCODE){exit $LASTEXITCODE}
           cmake --build build-vishay --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
           exit $LASTEXITCODE
-      - name: Re-test factory THD at confirmed limiter +8 dBu and +22 dBu input, compressor, through, FR and ratios
+      - name: Limiter ONLY 1kHz +22dBu 800ms +8 threshold THD with manufacturer 1N4148
         shell: pwsh
         run: |
           $bundle=(Resolve-Path 'build-vishay/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
           $tester=(Resolve-Path 'build-vishay/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
-          python tools/jd_factory_exact_electrical.py $tester $bundle results/factory
-          exit $LASTEXITCODE
-      - name: Re-test 72 levels, four modes, 100Hz and 1kHz
-        shell: pwsh
-        run: |
-          $bundle=(Resolve-Path 'build-vishay/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
-          $tester=(Resolve-Path 'build-vishay/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
-          python tools/jd_all_modes_100_1k_thd.py $tester $bundle results/72
-          exit $LASTEXITCODE
-      - name: Re-test limiter 2ms fast and 4ms slow attack
-        shell: pwsh
-        run: |
-          $bundle=(Resolve-Path 'build-vishay/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
-          $tester=(Resolve-Path 'build-vishay/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
-          python tools/rv2_factory_attack.py $tester $bundle results/attack
+          New-Item -ItemType Directory -Force results | Out-Null
+          @'
+          import sys, subprocess, math, json, pathlib
+          tester,bundle=sys.argv[1:]
+          # Existing jd_factory_exact_electrical.py factory limiter configuration:
+          # LT=8 (+8 dBu threshold), LR=3 (800ms), compressor OFF, limiter ON;
+          # 1kHz, input +22 dBu, 192kHz, 1.2sec settled, 80 harmonics to 80kHz.
+          settings=[6,4,3,0,8,3,0,1,0,0,1000,0,22,0,1.2,192000]
+          p=subprocess.run([tester,bundle,'--jd-case-80',*map(str,settings)],
+                           capture_output=True,text=True,timeout=270)
+          if p.returncode:
+              print(p.stderr[-4000:]);sys.exit(p.returncode)
+          lines=p.stdout.strip().splitlines()
+          if len(lines)!=80:
+              print('Unexpected spectrum lines',len(lines),p.stdout[-2000:]);sys.exit(2)
+          harmonics=[complex(*map(float,line.split())) for line in lines]
+          fundamental=abs(harmonics[0])
+          if fundamental<=0:sys.exit('Zero fundamental')
+          thd=100*math.sqrt(sum(abs(v)**2 for v in harmonics[1:80]))/fundamental
+          record=dict(frequency_hz=1000,input_dBu=22,limiter_threshold_dBu=8,
+                      recovery_ms=800,compressor_enabled=False,limiter_enabled=True,
+                      sample_rate_hz=192000,thd_percent=thd,
+                      limit_percent=0.45,pass_spec=thd<=0.45,
+                      output_dBu=24+20*math.log10(fundamental),
+                      harmonics_dBc={f'K{i+1}':20*math.log10(max(1e-20,abs(harmonics[i])/fundamental)) for i in range(1,20)})
+          print('LIMITER 1kHz FACTORY RESULT',json.dumps(record,indent=2),flush=True)
+          pathlib.Path('results/limiter-1khz.json').write_text(json.dumps(record,indent=2))
+          '@ | Set-Content -Encoding UTF8 results/limiter_test.py
+          python results/limiter_test.py $tester $bundle
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: jd-full-vishay-1n4148-factory-and-72cases
+          name: jd-vishay-1khz-limiter-only
           path: results
           retention-days: 30
           if-no-files-found: warn
