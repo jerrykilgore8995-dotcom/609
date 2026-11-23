@@ -1,4 +1,4 @@
-name: 609 limiter 1kHz - 44.1k vs 192k actual plugin THD
+name: 609 limiter 1kHz 22kHz bandwidth only
 on:
   push:
     branches: [609-diodesinc-four-model-1khz]
@@ -50,15 +50,16 @@ jobs:
         with:
           name: host-rate-deck-${{ matrix.diode }}
           path: build/deck
-      - name: Build same exact model at all host rates
+      - name: Build the limiter VST3 from the selected unchanged circuit
         shell: pwsh
         run: |
           $deck=(Resolve-Path build/deck/Deck.hpp).Path
           cmake -S plugin -B build-hostrate -A x64 "-DNODAL_DECK_HEADER=$deck"
           if($LASTEXITCODE){exit $LASTEXITCODE}
-          cmake --build build-hostrate --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
-          exit $LASTEXITCODE
-      - name: Run 44.1kHz (K2-K22) and 192kHz (K2-K80) limiter comparison
+          cmake --build build-hostrate --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4 2>&1 | Tee-Object -FilePath build-log.txt
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          Write-Host 'Built actual 609 limiter host and plugin'
+      - name: Measure ONLY 44.1kHz final plugin output 1kHz K2-K22
         shell: pwsh
         run: |
           $bundle=Get-ChildItem -Recurse -Path build-hostrate -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
@@ -69,7 +70,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: 609-limiter-host-rate-${{ matrix.diode }}
-          path: results/*
+          name: 609-limiter-22khz-${{ matrix.diode }}
+          path: |
+            results/*
+            build-log.txt
           retention-days: 14
           if-no-files-found: warn
