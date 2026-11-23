@@ -1,0 +1,39 @@
+name: 609 limiter supply bridge and sidechain DC current audit
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-limiter-current-audit.yml
+      - tools/limiter_current_audit.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [generic, w, ws, wt]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ngspice for existing unchanged 609 circuit
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          mkdir -p results
+      - name: Run real diode-model test fixture, preserving all other values
+        run: python tools/diodesinc_bridge_fixture.py ${{ matrix.diode }}
+      - name: Record original Ngspice operating point, supply and control current
+        run: |
+          python tools/native_seed.py results/seed.raw
+          python tools/limiter_current_audit.py results/seed.raw results/current-audit-${{ matrix.diode }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: limiter-current-audit-${{ matrix.diode }}
+          path: results/current-audit-*.json
+          if-no-files-found: warn
+          retention-days: 14
