@@ -1,0 +1,78 @@
+name: 609 1kHz limiter diagnostic Q12 control-current bridge C14
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-limiter-q12-bias-c14-diagnosis.yml
+      - tools/limiter_q12_bias_sweep_fixture.py
+      - tools/limiter_host_rate_ab.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, q12-bf250, q12-bf650, q12-bf800, law-002, law-006, rv4-012, rv4-022, c14-8u, c14-12u]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ngspice
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Keep manufacturer's Diodes Inc W model for D14 D15 D16 D17
+        run: python tools/diodesinc_bridge_fixture.py w
+      - name: Apply one isolated test-only change
+        run: python tools/limiter_q12_bias_sweep_fixture.py ${{ matrix.variant }}
+      - name: Generate actual nodal circuit and DC seed
+        run: |
+          mkdir -p build/deck
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: limiter-q12-deck-${{ matrix.variant }}
+          path: build/deck/Deck.hpp
+          if-no-files-found: error
+          retention-days: 14
+  measure:
+    needs: deck
+    runs-on: windows-2022
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, q12-bf250, q12-bf650, q12-bf800, law-002, law-006, rv4-012, rv4-022, c14-8u, c14-12u]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: limiter-q12-deck-${{ matrix.variant }}
+          path: build/deck
+      - name: Build selected exact SPICE-derived 609 VST3
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-diagnose -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-diagnose --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Limiter only - 44.1kHz final output to 22kHz
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse build-diagnose -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
+          $tester=Get-ChildItem -Recurse build-diagnose -File -Filter 'Vst3Smoke.exe' | Select-Object -First 1 -ExpandProperty FullName
+          if(!$bundle -or !$tester){throw "Missing VST3 bundle or host"}
+          python tools/limiter_host_rate_ab.py "$tester" "$bundle" "${{ matrix.variant }}" results
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: limiter-q12-diagnosis-${{ matrix.variant }}
+          path: results/*
+          retention-days: 14
+          if-no-files-found: warn
