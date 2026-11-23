@@ -1,4 +1,4 @@
-* EX11475 JD with 4x exact Vishay 1N4148 manufacturer SPICE3 subcircuits.
+* EX11475 MKV with 4 genuine Diodes Incorporated 1N4148W SPICE models, nominal junction IS staggered 0.5-1% for realistic tolerance.
 * P3.2 LINK and P1.6 METER are exported to the relay and meter harness.
 .subckt EX11475 HI LO OH OL VP GND LINK METER params: CT=1 CR=1 CM=1 CG=1 LT=9 LR=1 CE=1 LE=1 FAST=0 CATK=0 PRESET=0.345 LAW=0.04 MTR=0.5 LIMCAL=0.166966 COMPCAL=0.3 BIAS=0.445245
 * Transformer input and attenuator
@@ -9,10 +9,10 @@ R47 T2H T2L 2.2k
 R48 T2H PADH 47k
 R49 T2L PADL 47k
 R11 PADH PADL 5.6k
-XV14 VCTRL PADL VISHAY4148
-XV15 VCTRL PADH VISHAY4148
-XV16 PADL GND VISHAY4148
-XV17 PADH GND VISHAY4148
+D14 VCTRL PADL DI_1N4148W_14
+D15 VCTRL PADH DI_1N4148W_15
+D16 PADL GND DI_1N4148W_16
+D17 PADH GND DI_1N4148W_17
 * Four precisely matched NXP models, identical SPICE parameters, and manufacturer's 5.827G parallel leakage path.
 * R47-R49 and R11 are ahead of the bridge, per the original drawing.
 C20 PADH GND 100p
