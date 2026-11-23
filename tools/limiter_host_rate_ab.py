@@ -28,7 +28,7 @@ result=dict(model=model,host_sample_rate_hz=44100,internal_solver_rate_hz=88200,
             input_dBu=22,limiter_threshold_dBu=8,limiter_recovery_ms=800,
             compressor_in=False,compressor_makeup_dB=0,limiter_in=True,
             harmonic_range="K2-K22",measurement_bandwidth_hz=22000,
-            thd_22khz_percent=thd,
+            thd_22khz_percent=thd,\n            output_dBu=24+20*math.log10(fund),\n            dominant_k3_dBc=20*math.log10(max(ratios[3],1e-20)),
             k2_to_k20_percent=100*math.sqrt(sum(ratios[k]**2 for k in range(2,21))),
             harmonics_dBc={f"K{k}":20*math.log10(max(v,1e-20)) for k,v in ratios.items()})
 (folder/f"limiter-22khz-{model}.json").write_text(json.dumps(result,indent=2))
