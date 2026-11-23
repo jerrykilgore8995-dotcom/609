@@ -6,6 +6,7 @@ on:
       - .github/workflows/609-limiter-q12-bias-c14-diagnosis.yml
       - tools/limiter_q12_bias_sweep_fixture.py
       - tools/limiter_host_rate_ab.py
+      - native/compile_deck.py
   workflow_dispatch:
 permissions:
   contents: read
