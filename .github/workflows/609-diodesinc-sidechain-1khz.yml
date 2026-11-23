@@ -1,0 +1,42 @@
+name: 609 limiter 1kHz A-B: matched 1N4148 sidechain vs bridge-only
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-diodesinc-sidechain-1khz.yml
+      - tools/diodesinc_match_sidechain.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  current-and-thd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [bridge-only, all-1n4148]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install real Ngspice engine
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          mkdir -p results
+      - name: Select authentic Diodes Incorporated 1N4148W bridge
+        run: python tools/diodesinc_bridge_fixture.py w
+      - name: Match D1-D11 only when requested, no topology or value changes
+        if: matrix.scope == 'all-1n4148'
+        run: python tools/diodesinc_match_sidechain.py
+      - name: Measure limiter node currents, C14 ripple and 1kHz distortion
+        run: python tools/limiter_transient_current_audit.py ${{ matrix.scope }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: limiter-sidechain-${{ matrix.scope }}
+          path: |
+            results/limiter-current-wave-*.json
+            results/limiter-ngspice-*.log
+          if-no-files-found: warn
+          retention-days: 14
