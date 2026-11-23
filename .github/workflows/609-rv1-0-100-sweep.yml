@@ -1,0 +1,78 @@
+name: 609 RV1 0-100 percent joint limiter compressor THD
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-rv1-0-100-sweep.yml
+      - tools/rv1_full_sweep_fixture.py
+      - tools/rv1_full_sweep_measure.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        rv1: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ngspice and numpy
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Select exact Diodes Incorporated 1N4148W matched bridge
+        run: python tools/diodesinc_bridge_fixture.py w
+      - name: RV1 isolated 0-100 percent setting in temporary deck only
+        run: python tools/rv1_full_sweep_fixture.py ${{ matrix.rv1 }}
+      - name: Generate identical circuit except RV1
+        run: |
+          mkdir -p build/deck
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv1-${{ matrix.rv1 }}-deck
+          path: build/deck/Deck.hpp
+          retention-days: 14
+          if-no-files-found: error
+  measure:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        rv1: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv1-${{ matrix.rv1 }}-deck
+          path: build/deck
+      - name: Build same real VST3 from selected nodal deck
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-rv1 -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-rv1 --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Measure limiter and compressor with 22kHz THD bandwidth
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse build-rv1 -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
+          $tester=Get-ChildItem -Recurse build-rv1 -File -Filter 'Vst3Smoke.exe' | Select-Object -First 1 -ExpandProperty FullName
+          if(!$bundle -or !$tester){throw "Missing VST3 bundle or smoke host"}
+          python tools/rv1_full_sweep_measure.py "$tester" "$bundle" "${{ matrix.rv1 }}" results
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-rv1-${{ matrix.rv1 }}-joint-thd
+          path: results/*
+          retention-days: 14
+          if-no-files-found: warn
