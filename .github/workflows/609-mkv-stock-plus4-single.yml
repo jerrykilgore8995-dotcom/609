@@ -1,0 +1,76 @@
+name: 609 stock MKV single +4dBu factory limiter THD
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths: [.github/workflows/609-mkv-stock-plus4-single.yml, tools/mkv_stock_factory_plus4.py]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actual operating point simulator
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Select matched Diodes Inc genuine 1N4148W and assert stock MKV component values
+        run: |
+          python tools/diodesinc_bridge_fixture.py w
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          b=Path("circuit/ex11475.inc").read_text()
+          t=Path("circuit/609.cir").read_text()
+          assert "R28 QL12E ATTACK_TAP 1600" in b
+          assert "R30 ATTACK_TAP LIMIT_ENV 1600" in b
+          assert "R31 QC8E COMP_ENV {680+530*(CATK==1)+2065*(CATK==2)}" in b
+          assert ".param PRESET=0.345 LAW=0.04 MTR=0.5 LIMCAL=0.166966 COMPCAL=0.3 BIAS=0.445245" in t
+          assert all(re.search(rf"(?m)^D{k} \S+ \S+ DI_TEST_4148$",b) for k in (14,15,16,17))
+          print("VERIFIED: stock MKV component values and matched Diodes Inc 1N4148W bridge")
+          PY
+      - name: Generate circuit deck only once
+        run: |
+          mkdir -p build/deck
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stock-mkv-plus4-deck
+          path: build/deck/Deck.hpp
+          retention-days: 14
+  measure:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: stock-mkv-plus4-deck
+          path: build/deck
+      - name: Build single unchanged stock MKV VST3
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-stock -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-stock --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Run ONLY corrected factory +4dBu limiter THD
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse build-stock -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
+          $hostExe=Get-ChildItem -Recurse build-stock -File -Filter Vst3Smoke.exe | Select-Object -First 1 -ExpandProperty FullName
+          if(!$bundle -or !$hostExe){throw "VST3 or host missing"}
+          python tools/mkv_stock_factory_plus4.py "$hostExe" "$bundle" results
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-mkv-plus4-factory-thd
+          path: results/*
+          retention-days: 14
