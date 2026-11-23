@@ -1,0 +1,98 @@
+name: 609 limiter 1kHz - original generic and Diodes Inc W WS WT
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-diodesinc-four-model-1khz.yml
+      - tools/diodesinc_bridge_fixture.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [generic, w, ws, wt]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply test-only exact model and verify four bridge instances
+        run: python tools/diodesinc_bridge_fixture.py ${{ matrix.diode }}
+      - name: Generate unchanged-circuit SPICE and native deck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+          mkdir -p build
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diode-deck-${{ matrix.diode }}
+          path: build/Deck.hpp
+          retention-days: 14
+  measure:
+    needs: generate
+    runs-on: windows-2022
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [generic, w, ws, wt]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: diode-deck-${{ matrix.diode }}
+          path: build/deck
+      - name: Build same VST3 using exact selected diode deck
+        shell: pwsh
+        run: |
+          cmake -S plugin -B build-test -A x64 "-DNODAL_DECK_HEADER=$((Resolve-Path build/deck/Deck.hpp).Path)"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-test --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Limiter 1kHz +22dBu / +8 detent / 800ms / 192kHz
+        shell: pwsh
+        run: |
+          $bundle=(Resolve-Path 'build-test/Compressor609_artefacts/Release/VST3/609 MK IV Solver.vst3').Path
+          $tester=(Resolve-Path 'build-test/Vst3Smoke_artefacts/Release/Vst3Smoke.exe').Path
+          New-Item -ItemType Directory -Force results | Out-Null
+          @'
+          import subprocess,sys,math,json,pathlib
+          tester,bundle,label=sys.argv[1:]
+          # Exact existing factory limiter fixture: no compressor, limiter on.
+          settings=[6,4,3,0,8,3,0,1,0,0,1000,0,22,0,1.2,192000]
+          p=subprocess.run([tester,bundle,'--jd-case-80',*map(str,settings)],
+                           capture_output=True,text=True,timeout=360)
+          if p.returncode:
+              print(p.stderr[-4000:]);sys.exit(p.returncode)
+          rows=p.stdout.strip().splitlines()
+          if len(rows)!=80:sys.exit('Expected 80 harmonic bins: '+str(len(rows))+' '+p.stdout[-800:])
+          h=[complex(*map(float,line.split())) for line in rows]
+          f=abs(h[0])
+          if not f:sys.exit('Zero fundamental')
+          thd=100*math.sqrt(sum(abs(v)**2 for v in h[1:80]))/f
+          out=dict(model=label,frequency_hz=1000,input_dBu=22,
+                   limiter_threshold_dBu=8,recovery_ms=800,
+                   compressor_enabled=False,limiter_enabled=True,
+                   sample_rate_hz=192000,
+                   thd_percent=thd,neve_limit_pct=0.45,
+                   pass_factory_thd=thd<=0.45,
+                   output_dBu=24+20*math.log10(f),
+                   harmonic_dBc={f'K{k}':20*math.log10(max(1e-20,abs(h[k-1])/f))
+                                 for k in range(2,21)})
+          print(json.dumps(out,indent=2),flush=True)
+          pathlib.Path('results/1khz-limiter-'+label+'.json').write_text(json.dumps(out,indent=2))
+          '@ | Set-Content -Encoding UTF8 results/measure.py
+          python results/measure.py $tester $bundle "${{ matrix.diode }}"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: limiter-1khz-${{ matrix.diode }}
+          path: results/*.json
+          if-no-files-found: warn
+          retention-days: 14
