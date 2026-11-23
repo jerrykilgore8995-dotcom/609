@@ -124,6 +124,7 @@ struct Circuit {
     std::array<int,2> meter{};
     std::array<int,2> controlProbe{{-1,-1}};
     std::array<int,7> diagnosticNodes{{-1,-1,-1,-1,-1,-1,-1}};
+    std::array<int,14> extraDiagnosticNodes{};
     std::vector<Constant> constants;
     std::vector<R> resistors;
     std::vector<Contact> contact;
@@ -256,6 +257,11 @@ public:
     Frame meterVolts() const {return {v(deck.meter[0]),v(deck.meter[1])};}
     Frame controlVoltage() const {return {deck.controlProbe[0]<0?0:v(deck.controlProbe[0]),deck.controlProbe[1]<0?0:v(deck.controlProbe[1])};}
     std::array<double,7> diagnosticVoltages() const {std::array<double,7> values{}; for(int i=0;i<7;++i) values[i]=deck.diagnosticNodes[i]<0?0:v(deck.diagnosticNodes[i]);return values;}
+    std::array<double,14> limiterDiagnosticVoltages() const {
+        std::array<double,14> values{};
+        for(int i=0;i<14;++i) values[i]=deck.extraDiagnosticNodes[i]<0?0:v(deck.extraDiagnosticNodes[i]);
+        return values;
+    }
     int operations() const { return matrix.operationCount(); }
     bool usesGeneratedSolve() const { return matrix.usesGeneratedSolve(); }
     bool usesGeneratedResidual() const {
@@ -362,6 +368,7 @@ private:
         for (auto& n:deck.meter) n=std::max(-1,node(n));
         for (auto& n:deck.controlProbe) n=std::max(-1,node(n));
         for (auto& n:deck.diagnosticNodes) n=std::max(-1,node(n));
+        for (auto& n:deck.extraDiagnosticNodes) n=std::max(-1,node(n));
         deck.size=static_cast<int>(bias.size());
         deck.channel.assign(deck.size,lane);
         deck.bias=std::move(bias);
