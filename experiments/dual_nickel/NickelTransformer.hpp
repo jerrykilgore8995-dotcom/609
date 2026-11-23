@@ -178,7 +178,7 @@ public:
         input.Ms=5.e5;input.a=100;input.k=150; input.sourceR=50;
         character.prepare(fs,input);
         CoreParams clean;
-        clean.turns=1000;clean.coreArea=2.e-4;
+        clean.turns=2600;clean.coreArea=5.e-4;
         clean.Ms=7.e5;clean.a=30;clean.k=40;clean.c=.3;
         clean.sourceR=10;clean.primaryR=40;clean.secondaryR=40;
         clean.primaryLeak=20e-6;clean.secondaryLeak=20e-6;
