@@ -62,7 +62,7 @@ int main() {
     // levels. All figures are *model results*, NOT measured transformer data.
     std::cout<<std::fixed<<std::setprecision(7);
     for(const bool clean:{false,true}) {
-        for(const double freq:{50.0,100.0,1000.0,5000.0,10000.0}) {
+        for(const double freq:{20.0,30.0,50.0,100.0,1000.0,5000.0,10000.0}) {
             for(const double level:{-18.0,4.0,16.0,24.0}) {
                 const auto s=measure(freq,level,clean);
                 if(!std::isfinite(s.fundamental)||!std::isfinite(s.thd)
