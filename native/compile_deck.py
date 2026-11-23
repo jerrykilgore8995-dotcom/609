@@ -270,6 +270,7 @@ cpp = ["// Generated from 609.cir and the schematic transcriptions.",
        f"    c.output = {{{ix('olh')},{ix('oll')},{ix('orh')},{ix('orl')}}};",
        f"    c.meter = {{{ix('meterl')},{ix('meterr')}}};",
        f"    c.diagnosticNodes = {{{', '.join(str(ix('xleft.xboard.'+n)) for n in ('t2h','t2l','padh','padl','t1s','amp_out','linesend'))}}};",
+       f"    c.extraDiagnosticNodes = {{{', '.join(str(ix('xleft.xboard.'+n)) for n in ('scv','ldet_v','ql12b','ql12e','attack_tap','limit_env','release_ref','link','law_top','vctrl','law_knee','ql7e','ql7c','ql11c'))}}};",
        "    c.channel = {" + ", ".join(str(channel_owner(k)) for k in variables) + "};",
        "    c.bias = {" + ", ".join(fmt(bias(k)) for k in variables) + "};"]
 for kind,value in known.values():
