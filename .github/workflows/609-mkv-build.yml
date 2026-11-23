@@ -1,0 +1,87 @@
+name: 609 MkV complete VST3 build and verification
+on:
+  push:
+    branches: [609-mkv-matched-1n4148-attack-verified]
+    paths: [.github/workflows/609-mkv-build.yml, circuit/ex11475.inc, circuit/devices.inc, plugin/CMakeLists.txt, plugin/Plugin.cpp, tools/mkv_build_verify.py]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ngspice + numpy
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Validate stock MKV parameters and nonidentical genuine 1N4148W models
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          b=Path('circuit/ex11475.inc').read_text();d=Path('circuit/devices.inc').read_text()
+          t=Path('circuit/609.cir').read_text()
+          for k in (14,15,16,17):
+              assert re.search(rf'(?m)^D{k} \S+ \S+ DI_1N4148W_{k}$',b)
+              assert f'.model DI_1N4148W_{k} D(' in d
+          assert 'R28 QL12E ATTACK_TAP 1600' in b
+          assert 'R30 ATTACK_TAP LIMIT_ENV 1600' in b
+          assert 'R31 QC8E COMP_ENV {680+530*(CATK==1)+2065*(CATK==2)}' in b
+          assert '.param PRESET=0.345 LAW=0.04 MTR=0.5 LIMCAL=0.166966 COMPCAL=0.3 BIAS=0.445245' in t
+          print('Verified MKV 1N4148W mismatch and original factory calibration/attack values')
+          PY
+      - name: Generate unchanged MkV nodal deck
+        run: |
+          mkdir -p build/deck
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mkv-609-nodal-deck
+          path: build/deck/Deck.hpp
+          retention-days: 30
+          if-no-files-found: error
+  build:
+    needs: deck
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mkv-609-nodal-deck
+          path: build/deck
+      - name: Build distinct 609 MkV VST3 and 44.1kHz test host
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-mkv -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-mkv --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Run exact Neve +4dBu limiter THD and 3-position compressor attack checks
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse build-mkv -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
+          $hostExe=Get-ChildItem -Recurse build-mkv -File -Filter 'Vst3Smoke.exe' | Select-Object -First 1 -ExpandProperty FullName
+          if(!$bundle -or !$hostExe){throw "MkV VST3 or Vst3Smoke missing"}
+          python tools/mkv_build_verify.py "$hostExe" "$bundle" results
+          exit $LASTEXITCODE
+      - name: Collect packaged 609 MkV VST3
+        if: always()
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse build-mkv -Directory -Filter '*.vst3' | Select-Object -First 1
+          if($bundle){New-Item -Type Directory -Force artifact | Out-Null; Copy-Item $bundle.FullName artifact/ -Recurse}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 609-MkV-Windows-VST3-and-validation
+          path: |
+            artifact/*
+            results/*
+          retention-days: 30
+          if-no-files-found: warn
