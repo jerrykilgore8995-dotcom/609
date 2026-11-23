@@ -1,0 +1,75 @@
+name: 609 old-fit versus manufacturer bridge 1kHz limiter regression
+on:
+  push:
+    branches: [609-diodesinc-four-model-1khz]
+    paths:
+      - .github/workflows/609-bridge-regression.yml
+      - tools/limiter_bridge_regression_fixture.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deck:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [oldfit, diw]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ngspice
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python -m pip install numpy
+      - name: Swap only four bridge diode models in isolated checkout
+        run: python tools/limiter_bridge_regression_fixture.py ${{ matrix.diode }}
+      - name: Generate unchanged current 609 topology with selected diodes
+        run: |
+          mkdir -p build/deck
+          python tools/native_seed.py build/seed.raw
+          python native/compile_deck.py circuit build/seed.raw build/deck/Deck.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diode-regression-deck-${{ matrix.diode }}
+          path: build/deck/Deck.hpp
+          retention-days: 14
+          if-no-files-found: error
+  measure:
+    needs: deck
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        diode: [oldfit, diw]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: diode-regression-deck-${{ matrix.diode }}
+          path: build/deck
+      - name: Build unmodified current complete 609 VST3
+        shell: pwsh
+        run: |
+          $deck=(Resolve-Path build/deck/Deck.hpp).Path
+          cmake -S plugin -B build-regression -A x64 "-DNODAL_DECK_HEADER=$deck"
+          if($LASTEXITCODE){exit $LASTEXITCODE}
+          cmake --build build-regression --config Release --target Compressor609_VST3 Vst3Smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Read 1kHz limiter THD to 22kHz, +8dBu threshold
+        shell: pwsh
+        run: |
+          $bundle=Get-ChildItem -Recurse build-regression -Directory -Filter '*.vst3' | Select-Object -First 1 -ExpandProperty FullName
+          $tester=Get-ChildItem -Recurse build-regression -File -Filter 'Vst3Smoke.exe' | Select-Object -First 1 -ExpandProperty FullName
+          if(!$bundle -or !$tester){throw 'Missing executable'}
+          python tools/limiter_host_rate_ab.py "$tester" "$bundle" "${{ matrix.diode }}" results
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diode-regression-result-${{ matrix.diode }}
+          path: results/*
+          retention-days: 14
+          if-no-files-found: warn
