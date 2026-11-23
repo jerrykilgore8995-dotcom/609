@@ -98,7 +98,7 @@ int main() {
                          <<" fundamental="<<s.fundamental
                          <<" THD="<<s.thd*100<<"%"
                          <<" peak="<<s.peak
-                         <<" phase="<<s.phaseDeg<<"deg"<<" DC="<<s.mean<<"\\n";
+                         <<" phase="<<s.phaseDeg<<"deg"<<" DC="<<s.mean<<"\n";
             }
         }
     }
