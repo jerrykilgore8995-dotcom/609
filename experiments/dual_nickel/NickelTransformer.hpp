@@ -142,20 +142,17 @@ public:
         }
         if(!std::isfinite(flo)||!std::isfinite(fhi)||(flo>0)==(fhi>0))
             return 0.0f;
-        // Safeguarded false-position root: typically converges in far fewer
-        // magnetic evaluations than 22 fixed bisections. Bracket is preserved.
-        double guess=.5*(lo+hi);
-        for(int i=0;i<16;++i) {
-            const double linear=lo-flo*(hi-lo)/(fhi-flo);
-            const double guard=.05*(hi-lo);
-            guess=std::isfinite(linear) && linear>lo+guard && linear<hi-guard
-                ?linear:.5*(lo+hi);
-            const double f=candidate(guess);
+        // Bracket-preserving bisection, mandatory until a monotonic/
+        // continuously differentiable magnetic residual is established.
+        const bool increasing=fhi>flo;
+        for(int i=0;i<24;++i) {
+            const double mid=.5*(lo+hi);
+            const double f=candidate(mid);
             if(!std::isfinite(f))return 0.0f;
-            if(std::abs(f)<1.e-10 || hi-lo<1.e-8)break;
-            if((f>0)==(flo>0)){lo=guess;flo=f;}else{hi=guess;fhi=f;}
+            if((f>0)==increasing)hi=mid;
+            else lo=mid;
         }
-        const auto state=core.evolve(guess);
+        const auto state=core.evolve(.5*(lo+hi));
         core.commit(state);
         const double v=p.turns*p.coreArea*(state.B-b0)/dt;
         primaryCurrent=y1*(input+induct1*primaryCurrent-v);
@@ -181,7 +178,7 @@ public:
         input.Ms=5.e5;input.a=100;input.k=150; input.sourceR=50;
         character.prepare(fs,input);
         CoreParams clean;
-        clean.turns=2600;clean.coreArea=5.e-4;
+        clean.turns=1000;clean.coreArea=2.e-4;
         clean.Ms=7.e5;clean.a=30;clean.k=40;clean.c=.3;
         clean.sourceR=10;clean.primaryR=40;clean.secondaryR=40;
         clean.primaryLeak=20e-6;clean.secondaryLeak=20e-6;
