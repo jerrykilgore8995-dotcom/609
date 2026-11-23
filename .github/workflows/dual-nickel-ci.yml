@@ -1,0 +1,23 @@
+name: Dual Nickel Magnetic Model CI
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+  pull_request:
+    paths:
+      - 'experiments/dual_nickel/**'
+      - '.github/workflows/dual-nickel-ci.yml'
+  workflow_dispatch:
+jobs:
+  magnetic-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S experiments/dual_nickel -B build/dual-nickel -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build/dual-nickel --config Release --parallel 2
+      - name: Run numerical validation
+        run: ctest --test-dir build/dual-nickel --output-on-failure
+      - name: Benchmark
+        run: ./build/dual-nickel/nickel_smoke
