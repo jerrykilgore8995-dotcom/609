@@ -1,0 +1,40 @@
+name: Option C BJT reference and load-switch validation
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/DiscreteOutputDriver.hpp'
+      - 'experiments/dual_nickel/test_option_c.cpp'
+      - 'experiments/dual_nickel/2N5088_2N5087_models.lib'
+      - 'experiments/dual_nickel/option_c_reference.cir'
+      - '.github/workflows/option-c-ci.yml'
+  workflow_dispatch:
+jobs:
+  option-c:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure standalone C++ model
+        run: cmake -S experiments/dual_nickel -B build/option-c -DCMAKE_BUILD_TYPE=Release
+      - name: Compile Option C
+        run: cmake --build build/option-c --target nickel_option_c --parallel 2
+      - name: Measure audio gain, THD, phase, cap and loads
+        run: |
+          ./build/option-c/nickel_option_c > option-c-results.txt
+          grep -E 'level_dbu=4\\.000000|level_dbu=18\\.000000|CAP_COMPARE|DRIVER_CPU|OPTION_C_TEST' option-c-results.txt
+      - name: Install ngspice
+        run: sudo apt-get update -qq && sudo apt-get install -qq -y ngspice
+      - name: Run actual full-device SPICE circuit
+        working-directory: experiments/dual_nickel
+        run: |
+          ngspice -b option_c_reference.cir | tee ../../option-c-spice-reference.txt
+          grep -q 'RLOAD 10k' ../../option-c-spice-reference.txt
+          grep -q 'RLOAD 600' ../../option-c-spice-reference.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: option-c-transistor-load-validation
+          path: |
+            option-c-results.txt
+            option-c-spice-reference.txt
