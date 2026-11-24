@@ -27,3 +27,8 @@ add_executable(nickel_analog_opto test_analog_opto.cpp)
 target_compile_features(nickel_analog_opto PRIVATE cxx_std_20)
 target_link_libraries(nickel_analog_opto PRIVATE chowdsp_wdf)
 add_test(NAME analog_opto_pipeline COMMAND nickel_analog_opto)
+
+add_executable(nickel_nodal_bjt test_nodal_bjt.cpp)
+target_compile_features(nickel_nodal_bjt PRIVATE cxx_std_20)
+target_link_libraries(nickel_nodal_bjt PRIVATE chowdsp_wdf)
+add_test(NAME nodal_bjt_output COMMAND nickel_nodal_bjt)
