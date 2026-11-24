@@ -55,3 +55,7 @@ target_link_libraries(nickel_analog_character PRIVATE chowdsp_wdf)
 add_executable(nickel_analog_imd measure_analog_imd.cpp)
 target_compile_features(nickel_analog_imd PRIVATE cxx_std_20)
 target_link_libraries(nickel_analog_imd PRIVATE chowdsp_wdf)
+
+add_executable(nickel_stage_frequency_stability measure_stage_frequency_stability.cpp)
+target_compile_features(nickel_stage_frequency_stability PRIVATE cxx_std_20)
+target_link_libraries(nickel_stage_frequency_stability PRIVATE chowdsp_wdf)
