@@ -166,17 +166,23 @@ public:
         // inherited from an LED.
         return processIllumination(audioVolts,panelLight,0.,true);
     }
+    double ledForwardVoltage(double current) const noexcept {
+        // Excelitas VTL5C2 typical forward drop ~1.65V at 20mA.
+        // Select its own diode saturation current, leaving NSL-32 unchanged.
+        const double is=cellKind==CellKind::VTL5C2?2.8e-16:p.ledIs;
+        return std::max(.01,p.ledN*p.thermalV)*
+               std::log1p(std::max(0.,current)/is);
+    }
     double ledCurrent(double control) const noexcept {
         const double voltage=std::clamp(control,0.,p.ledSupply);
         if(voltage<=0.)return 0.;
-        const double ledVt=std::max(.01,p.ledN*p.thermalV);
         const double bjtVt=std::max(.01,p.ledLimiterN*p.thermalV);
         const double reference=p.ledLimiterRail*p.ledLimiterBottomOhms/
             std::max(1.,p.ledLimiterTopOhms+p.ledLimiterBottomOhms);
         double lo=0.,hi=cellKind==CellKind::VTL5C2?.040:p.maxLedA;
         for(int i=0;i<24;++i) {
             const double current=.5*(lo+hi);
-            const double ledNode=ledVt*std::log1p(current/p.ledIs)
+            const double ledNode=ledForwardVoltage(current)
                                   +current*p.ledSeriesOhms;
             const double vbe=ledNode-reference;
             const double shunt=p.ledLimiterIs*
