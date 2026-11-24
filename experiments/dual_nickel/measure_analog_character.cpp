@@ -25,7 +25,7 @@ int main(){
         analogopto::MonoEngine engine;engine.prepare(fs);
         engine.setLoadOhms(load);
         engine.setThresholdDb(compress?-18.:18.);
-        engine.setRatio(3.);engine.setAttackMs(15.);
+        engine.setAttackMs(15.);
         engine.setReleaseMs(250.);
         engine.setPalmMute(false);
         const double amplitude=std::sqrt(2.)*rmsInput(dbu);
