@@ -6,7 +6,7 @@ constexpr double fs=44100., pi=3.141592653589793;
 int main(){
  std::cout<<std::fixed<<std::setprecision(7);
  std::cout<<"mode,level,attack_ms,time_ms,gr_db,detector_V,led_V,led_mA,ldr_ohms\n";
- for(bool ff:{false,true})for(double dbu:{4.,8.,12.})for(double attack:{1.,5.,8.,15.,100.}){
+ for(bool ff:{false,true})for(double dbu:{4.,8.,12.})for(double attack:{10.,15.,30.,50.,100.}){
   optocircuit::OpticalCompressor c;c.prepare(fs);
   c.setThresholdDb(-18.);c.setRatio(3);c.setAttackMs(attack);c.setReleaseMs(250.);c.setFeedforward(ff);
   const double amp=std::sqrt(2.)*.775*std::pow(10.,dbu/20.)/17.3677;
