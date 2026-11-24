@@ -119,3 +119,39 @@ sample-rate sweeps must be validated before an accuracy/performance release.
   https://github.com/kicad-spice-library/KiCad-Spice-Library/blob/master/Models/Transistor/BJT/BJT.lib
 - Andy Sneap's original description of single-band C4 guitar ducking:
   https://www.waves.com/metal-mixing-tips-andy-sneap
+
+## Optical feedback-loop stabilization and selectable detector
+
+The model started as **post-LDR feedback**, like the classic T4-style
+topology. Fast (1 ms) detector attack with +12 dBu initially sent ~8 mA
+through the LED, forcing ~16.9 dB peak GR before settling near 9.7 dB.
+A **discrete shunt transistor LED current limiter**, represented by a
++15 V bias-divider reference, finite driver resistance and BJT junction
+current in the LED KCL, reduced that 16.9 dB peak to ~10.7 dB while
+preserving ~9.5 dB settled GR. The original one-millisecond timing was
+still unstable around +8 dBu (~3.8 dB GR overshoot), so the validated
+electrically controllable **Attack range is now 10–100 ms**. At 10 ms
+the +4/+8/+12 dBu excess is ~0.14/0.93/0.91 dB; at the default 15 ms
+it is ~0.08/0.57/0.77 dB. The release control remains 50–2000 ms;
+actual CdS recovery is history-dependent and not equal to the knob value.
+
+An attempted RC LED-current lead-compensation branch was **rejected**:
+the measured overshoot became worse at 8 dBu and some slower attack
+settings. It is not part of the present signal path.
+
+The new **Feedforward** switch changes the detector's source to audio
+*before* the opto attenuator (feedback remains the default). It also
+switches a passive 3.3k/10k detector input resistor divider and a
+**biased diode shunting the detector amplifier feedback resistor**
+for a smooth, physically derived nonlinear sidechain knee. The
+default 15 ms attack, 250 ms release steady GR values at
++4/+8/+12 dBu are feedback 2.34/5.77/9.08 dB and feedforward
+1.57/5.16/5.71 dB. Diode model parameters and the LED current-limit
+reference are development-calibrated, **not validated against a
+specific hardware assembly**.
+
+The dedicated `trace_opto_feedback.cpp` captures LED current,
+detector capacitor voltage, light-dependent resistance and GR in
+both modes. `test_opto_bursts.cpp` now includes overshoot and
+feedforward dynamic-range regressions; do not replace them with
+nominal-RC tests.
