@@ -115,9 +115,11 @@ int main() {
     };
     // Level dependency at every main attack position: fixed 250 ms release.
     for(double level:{-8.,0.,4.,8.,12.})
-        for(double a:{1.,8.,15.,50.,100.}) {
+        for(double a:{10.,15.,30.,50.,100.}) {
             const auto c=measure(level,a,250.,1200.);
             print("attack",level,a,250.,1200.,c);
+            // Smooth electrical feedback must not overcompress the optical cell.
+            if(level>=4. && c.peak-c.plateau>1.5)return 10;
         }
     // Release dependence at fixed 15ms attack. Two exposure durations
     // demonstrate whether slow light-trap population remembers the burst.
