@@ -93,3 +93,37 @@ Input Drive → clean source driver → existing 49%-nickel input transformer �
 This is a transistor-model **engineering prototype**, not a characterized real device or finished optical compressor. The BJT currents are Shockley/exponential with emitter resistors and a bounded nodal solve. Explicit capacitor state models are in the signal path, with ESR and a simple dielectric relaxation branch; the dielectric model needs hardware calibration. Bias and transistor parameters are provisional. The clean stage is intended to be measured at +4 dBu nominal line level with 10 kΩ and 600 Ω loads, and tested at increased levels and changed coupling capacitance. It does not claim a validated +24 dBu clean headroom on ±15 V rails.
 
 The C4-style dynamic low-mid circuit, selectable RC sidechain HPF, and LED/LDR optical compressor are separate future circuit modules. Do not mistake the current `processOpticalOutput` integration point for a modeled optical gain cell.
+
+## 2N5088 / 2N5087 output stage and load switch
+
+Option C's `DiscreteOutputDriver.hpp` now has a **600-ohm / 10-kohm load
+selector** (`setOutputLoadOhms(600)` / `setOutputLoadOhms(10000)`).
+The load affects the KCL of the emitter followers, the current demand, and the
+output electrolytic coupling-cap voltage/phase. The default is 10 kohm.
+It does **not** select between two fabricated harmonic curves.
+
+The transistor pair is 2N5088 (NPN) and 2N5087 (PNP), one each **per
+channel**, in a complementary push-pull emitter-follower configuration.
+The preliminary stage uses +/-15 V rails, 22-ohm emitter resistors,
+47-uF input and 100-uF output coupling caps, source/load impedances,
+series ESR, and a simplified dielectric-relaxation branch.
+
+`2N5088_2N5087_models.lib` contains complete published SPICE cards
+collected from the KiCad SPICE library (NSC-attributed 2N5088 and
+Fairchild-attributed 2N5087). See:
+https://github.com/kicad-spice-library/KiCad-Spice-Library/blob/master/Models/Transistor/BJT/BJT.lib
+These are **not device-characterized measurements of the particular
+transistors in this hypothetical circuit**.
+
+`option_c_reference.cir` is the **ngspice** transistor-level reference
+with both loads. Its base bias is currently idealized (+/-0.73 V) for
+comparison; it does not yet include a complete thermal-bias circuit.
+The *real-time* C++ processing uses Is, BF, IKF, VAF and some parasitic
+resistances from the cards but omits complete Gummel-Poon reverse-mode,
+charge-storage and depletion-capacitance dynamics. Accordingly it MUST
+NOT be called full-SPICE-accurate or manufacturer-validated. Next step:
+compare 600/10k sweeps against the SPICE reference, then fit and test
+the BJT nodal solver at +4, +12, +18, +22 dBu and 20 Hz–20 kHz,
+including device bias/collector-current limits and thermal behavior.
+The selected load is an **internal modeled impedance**; it does not
+change physical interface impedance at the DAW's hardware output.
