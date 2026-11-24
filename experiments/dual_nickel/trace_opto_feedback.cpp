@@ -8,7 +8,7 @@ int main(){
  std::cout<<"mode,level,attack_ms,time_ms,gr_db,detector_V,led_V,led_mA,ldr_ohms\n";
  for(bool ff:{false,true})for(double dbu:{4.,8.,12.})for(double attack:{10.,15.,30.,50.,100.}){
   optocircuit::OpticalCompressor c;c.prepare(fs);
-  c.setThresholdDb(-18.);c.setRatio(3);c.setAttackMs(attack);c.setReleaseMs(250.);c.setFeedforward(ff);
+  c.setThresholdDb(-18.);c.setAttackMs(attack);c.setReleaseMs(250.);c.setFeedforward(ff);
   const double amp=std::sqrt(2.)*.775*std::pow(10.,dbu/20.)/17.3677;
   for(int n=0;n<44100*2;++n) {
    c.process(float(amp*std::sin(2*pi*1000*n/fs)));
