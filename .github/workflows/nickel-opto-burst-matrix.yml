@@ -18,13 +18,15 @@ jobs:
       - name: Configure optical cell measurement
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Build only dedicated 1kHz optocell burst executable
-        run: cmake --build build/nickel --target nickel_opto_burst_matrix nickel_t4_recovery_tune nickel_t4_attack_tune --parallel 2
+        run: cmake --build build/nickel --target nickel_opto_burst_matrix nickel_t4_recovery_tune nickel_t4_attack_tune nickel_opto_character nickel_opto_bursts nickel_opto_memory nickel_opto_variants --parallel 2
       - name: Measure short and long attack and six-second recovery
         run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv
       - name: Measure T4B fast and trap recovery resistor-coupled CdS dynamics
         run: ./build/nickel/nickel_t4_recovery_tune | tee t4-physical-recovery-tune.csv
       - name: Measure T4B attack carrier times at three line levels
         run: ./build/nickel/nickel_t4_attack_tune | tee t4-carrier-attack-tune.csv
+      - name: Verify optical character, bursts, memory, and all cell variants
+        run: ctest --test-dir build/nickel --output-on-failure -R 'opto_characterization|opto_burst_characterization|opto_memory_calibration|opto_cell_variants'
       - name: Publish measurements
         uses: actions/upload-artifact@v4
         if: always()
