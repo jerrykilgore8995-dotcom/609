@@ -90,3 +90,6 @@ target_compile_features(nickel_opto_burst_matrix PRIVATE cxx_std_20)
 
 add_executable(nickel_t4_recovery_tune tune_t4_recovery.cpp)
 target_compile_features(nickel_t4_recovery_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_t4_attack_tune tune_t4_attack.cpp)
+target_compile_features(nickel_t4_attack_tune PRIVATE cxx_std_20)
