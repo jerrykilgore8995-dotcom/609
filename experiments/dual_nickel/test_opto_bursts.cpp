@@ -45,11 +45,12 @@ static double sampleAt(const std::vector<double>& curve,double ms) {
     return curve[sample];
 }
 static Curve measure(double dbu,double attack,double release,
-                     double burstMs, double recoveryMs=1800) {
+                     double burstMs, double recoveryMs=1800,bool feedforward=false) {
     optocircuit::OpticalCompressor cell;
     cell.prepare(rate);
     cell.setThresholdDb(-18.);
     cell.setRatio(3.);
+    cell.setFeedforward(feedforward);
     cell.setAttackMs(attack);
     cell.setReleaseMs(release);
     const int warmN=int(.25*rate);
@@ -130,6 +131,20 @@ int main() {
                 print(duration<200.?"short_release":"long_release",
                       level,15.,release,duration,c);
             }
+    // The switch engages a real input divider and nonlinear diode-feedback
+    // resistor network. Confirm useful compression rather than sudden
+    // hard optical saturation, and no detector/LED transient overshoot.
+    double ffPrev=-1.;
+    for(double level:{4.,8.,12.}){
+        const auto c=measure(level,15.,250.,1200.,1800,true);
+        print("feedforward",level,15.,250.,1200.,c);
+        if(c.peak-c.plateau>.5)return 11;
+        if(level==4. && !(c.plateau>.5 && c.plateau<4.))return 12;
+        if(level==8. && !(c.plateau>3. && c.plateau<8.))return 13;
+        if(level==12. && !(c.plateau>3. && c.plateau<8.))return 14;
+        if(ffPrev>=0. && c.plateau<ffPrev)return 15;
+        ffPrev=c.plateau;
+    }
     std::cerr<<"BURST_CHARACTERIZATION completed_points="<<n<<"\n";
-    return n==49?0:8;
+    return n==52?0:8;
 }
