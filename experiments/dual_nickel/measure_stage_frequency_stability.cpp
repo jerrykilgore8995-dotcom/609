@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <algorithm>
+#include <cstdlib>
 constexpr double sr=44100.,pi=3.1415926535897932384626433832795;
 constexpr int n=8820;
 struct Result {
@@ -42,7 +43,7 @@ static Result run(int stage,double load,double dbu,double hz) {
     float output=stage==0?transformer.process(float(input)):
        stage==1?driver.process(float(input)):complete.process(float(input));
     if(!std::isfinite(output)){std::cerr<<"NONFINITE stage="<<stage
-         <<" load="<<load<<" dbu="<<dbu<<" hz="<<hz<<" n="<<i<<"\\n";std::exit(3);}
+         <<" load="<<load<<" dbu="<<dbu<<" hz="<<hz<<" n="<<i<<"\n";std::exit(3);}
     if(i>=n){
       const int k=i-n;const double x=2*pi*hz*k/sr;
       si+=output*std::sin(x);co+=output*std::cos(x);
@@ -62,7 +63,7 @@ static Result run(int stage,double load,double dbu,double hz) {
 static void frequencySweep(){
  const std::array<double,12> hz{20,50,100,1000,5000,8000,10000,12000,15000,17000,19000,20000};
  std::cout<<"SECTION,stage,load_ohm,level_dbu,hz,gain_db,"
-             "relative_1k_db,phase_deg,peak_normalized,K2_percent,solver_failures\\n";
+             "relative_1k_db,phase_deg,peak_normalized,K2_percent,solver_failures\n";
  for(int stage=0;stage<3;++stage)
  for(double load:{10000.,600.})
  for(double level:{-18.,4.,12.,18.}) {
@@ -72,14 +73,14 @@ static void frequencySweep(){
      const double relative=r.gain-reference.gain;
      std::cout<<"FR,"<<stage<<","<<load<<","<<level<<","<<f<<","
               <<r.gain<<","<<relative<<","<<r.phase<<","<<r.peak
-              <<","<<r.thd<<","<<r.failures<<"\\n";
+              <<","<<r.thd<<","<<r.failures<<"\n";
      if(!std::isfinite(relative)||std::abs(relative)>60.)std::exit(4);
    }
  }
 }
 static void stability(){
  std::cout<<"SECTION,stage,load_ohm,level_dbu,case,peak,tail_peak,"
-             "tail_rms,solver_failures,discontinuity_max\\n";
+             "tail_rms,solver_failures,discontinuity_max\n";
  for(int stage=0;stage<3;++stage)
  for(double load:{10000.,600.})
  for(double level:{4.,18.})
@@ -122,7 +123,7 @@ static void stability(){
    const int failures=stage==1?driver.failureCount():0;
    const char* name=test==0?"impulse":test==1?"step":test==2?"18k_burst":"100_burst";
    std::cout<<"STABILITY,"<<stage<<","<<load<<","<<level<<","<<name<<","
-        <<peak<<","<<tailPeak<<","<<rms<<","<<failures<<","<<delta<<"\\n";
+        <<peak<<","<<tailPeak<<","<<rms<<","<<failures<<","<<delta<<"\n";
    // The output should not persist in large self-oscillation after silence.
    if(!std::isfinite(rms)||rms>1.5*a)std::exit(6);
  }
@@ -130,6 +131,6 @@ static void stability(){
 int main(){
  std::cout<<std::fixed<<std::setprecision(7);
  frequencySweep();stability();
- std::cerr<<"STAGE_FR_AND_STABILITY=PASS\\n";
+ std::cerr<<"STAGE_FR_AND_STABILITY=PASS\n";
  return 0;
 }
