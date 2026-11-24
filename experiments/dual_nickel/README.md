@@ -83,3 +83,13 @@ to a tested commit before a release build.
 recovery (100 default), and a large ascending 0–20 dB
 gain-reduction meter in a **new** JUCE plug-in target. None of these are
 implemented or claimed tested here.
+
+## Option C prototype (revised direction)
+
+The new `DiscreteOutputDriver.hpp` and `test_option_c.cpp` implement an **isolated** clean input-transformer / discrete makeup-output-driver candidate. The existing `DualTransformerGain` class and its previous test fixtures remain for regression and comparison, but are **not the desired final production topology**. The final path is:
+
+Input Drive → clean source driver → existing 49%-nickel input transformer → receiver/coupling → [C4-style band and optical gain cell, not yet implemented] → makeup → NPN+PNP emitter-follower output → series output capacitor → linked final trim. No output transformer.
+
+This is a transistor-model **engineering prototype**, not a characterized real device or finished optical compressor. The BJT currents are Shockley/exponential with emitter resistors and a bounded nodal solve. Explicit capacitor state models are in the signal path, with ESR and a simple dielectric relaxation branch; the dielectric model needs hardware calibration. Bias and transistor parameters are provisional. The clean stage is intended to be measured at +4 dBu nominal line level with 10 kΩ and 600 Ω loads, and tested at increased levels and changed coupling capacitance. It does not claim a validated +24 dBu clean headroom on ±15 V rails.
+
+The C4-style dynamic low-mid circuit, selectable RC sidechain HPF, and LED/LDR optical compressor are separate future circuit modules. Do not mistake the current `processOpticalOutput` integration point for a modeled optical gain cell.
