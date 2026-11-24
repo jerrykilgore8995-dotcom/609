@@ -1,18 +1,19 @@
-// Evaluate resistor-switched two-detector analog LED soft knees.
-// Nothing here sets a numerical compression ratio in the DSP.
+// Search physical detector summing resistors with a fixed gentle rectifier branch.
 #include "OpticalCell.hpp"
 #include <cmath>
 #include <iomanip>
 #include <iostream>
 constexpr double pi=3.14159265358979323846,fs=44100.,fspeak=17.3677;
-static double measure(double in,int kind,double gain,double rf,double bias) {
+static double measure(double in,int kind,double mainRf,double preTap) {
   optocircuit::OptoParts p{};
   if(kind==0) {
-    p.nslLeadDetectorRf=(gain-1.)*p.leadDetectorRg;
-    p.nslLeadDriverRf=rf;p.nslLeadClampBiasV=bias;
+    p.nslLeadDetectorRf=50000.;p.nslLeadDriverRf=4000.;p.nslLeadClampBiasV=.8;
+    p.ledCompFeedbackR=mainRf;
+    p.ledCompFeedbackTapR=preTap*p.ledCompInputTapR/(1.-preTap);
   } else {
-    p.vtlLeadDetectorRf=(gain-1.)*p.leadDetectorRg;
-    p.vtlLeadDriverRf=rf;p.vtlLeadClampBiasV=bias;
+    p.vtlLeadDetectorRf=50000.;p.vtlLeadDriverRf=4000.;p.vtlLeadClampBiasV=.8;
+    p.vtlCompFeedbackR=mainRf;
+    p.vtlCompFeedbackTapR=preTap*p.vtlCompInputTapR/(1.-preTap);
   }
   optocircuit::OpticalCompressor c;
   c.prepare(fs,p);c.setCellKind(static_cast<optocircuit::CellKind>(kind));
@@ -29,16 +30,15 @@ static double measure(double in,int kind,double gain,double rf,double bias) {
 }
 int main(){
  std::cout<<std::fixed<<std::setprecision(5);
- std::cout<<"cell,lead_detector_gain,lead_feedback_ohms,clamp_bias_volts,threshold_dbu,input_dbu,gr_db,interval_ratio\n";
+ std::cout<<"cell,main_feedback_ohms,pre_post_tap,threshold_dbu,input_dbu,gr_db,interval_ratio\n";
  for(int kind=0;kind<2;++kind)
- for(double gain:{2.,4.,6.,8.})
- for(double rf:{2000.,4000.,8000.,12000.})
- for(double bias:{.8,1.2,1.6}) {
+ for(double feedback:{2000.,3000.,4000.,5000.,6000.})
+ for(double tap:{0.,.025,.05,.10,.15,.20}){
    double oldIn=0.,oldOut=0.;bool first=true;
-   for(double in:{-8.,-4.,0.,2.,4.,6.,8.,10.,12.,16.,20.}) {
-     const double out=measure(in,kind,gain,rf,bias);
+   for(double in:{-4.,0.,2.,4.,6.,8.,10.,12.,16.,20.}) {
+     const double out=measure(in,kind,feedback,tap);
      const double ratio=first?0.:(in-oldIn)/(out-oldOut);
-     std::cout<<(kind==0?"NSL32":"VTL5C2")<<","<<gain<<","<<rf<<","<<bias<<",-18,"
+     std::cout<<(kind==0?"NSL32":"VTL5C2")<<","<<feedback<<","<<tap<<",-18,"
               <<in<<","<<in-out<<","<<ratio<<"\n";
      oldIn=in;oldOut=out;first=false;
    }
