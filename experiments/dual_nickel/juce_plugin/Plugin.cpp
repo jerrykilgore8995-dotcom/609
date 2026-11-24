@@ -43,6 +43,9 @@ Layout makeParameters(){
     p.add(std::make_unique<juce::AudioParameterBool>(
           juce::ParameterID{"ff",1},"Feedforward Detector",false));
     p.add(std::make_unique<juce::AudioParameterChoice>(
+          juce::ParameterID{"mode",1},"Operating Mode",
+          juce::StringArray{"Compressor","Limiter"},0));
+    p.add(std::make_unique<juce::AudioParameterChoice>(
           juce::ParameterID{"cell",1},"Optical Cell",
           juce::StringArray{"NSL-32","VTL5C2","T4B-style"},0));
     p.add(std::make_unique<juce::AudioParameterChoice>(
@@ -99,6 +102,7 @@ public:
             dsp.setLinkedAutoGain(v("link")>.5);
             dsp.setThresholdDb(v("threshold"));
             dsp.setFeedforward(v("ff")>.5);
+            dsp.setLimiter(v("mode")>.5);
             dsp.setOptoCell(int(v("cell")));
             dsp.setAttackMs(v("attack"));
             dsp.setReleaseMs(v("release"));
@@ -226,6 +230,10 @@ public:
             t.attach=std::make_unique<ButtonAttachment>(p.state,item.first,*t.button);
             toggles.push_back(std::move(t));
         }
+        mode.addItem("COMPRESSOR",1);
+        mode.addItem("LIMITER",2);
+        addAndMakeVisible(mode);
+        modeAttachment=std::make_unique<ComboAttachment>(p.state,"mode",mode);
         load.addItem("600 ohm",1);
         load.addItem("10 kOhm",2);
         addAndMakeVisible(load);
@@ -257,6 +265,7 @@ public:
         load.setBounds(388,685,174,30);
         cellModel.setBounds(388,654,174,28);
         options.setBounds(22,654,153,30);
+        mode.setBounds(22,685,153,30);
     }
     void paint(juce::Graphics& g) override {
         g.fillAll(juce::Colour(0xff1c1e22));
@@ -302,9 +311,9 @@ private:
     int channelIndex=0;
     std::vector<Control> controls;
     std::vector<Toggle> toggles;
-    juce::ComboBox load,cellModel;
+    juce::ComboBox load,cellModel,mode;
     juce::TextButton options;
-    std::unique_ptr<ComboAttachment> loadAttachment,cellAttachment;
+    std::unique_ptr<ComboAttachment> loadAttachment,cellAttachment,modeAttachment;
 };
 class NickelOptoEditor final : public juce::AudioProcessorEditor {
 public:
