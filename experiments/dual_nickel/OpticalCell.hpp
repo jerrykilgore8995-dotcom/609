@@ -221,7 +221,7 @@ public:
         const double rise=isPanel?.010:
                          cellKind==CellKind::VTL5C2?.0035:p.attackCellSeconds;
         const double fastDecay=isPanel?.065:
-                               cellKind==CellKind::VTL5C2?.086:
+                               cellKind==CellKind::VTL5C2?.065:
                                                      p.fastDarkRecoverySeconds;
         const double trapRise=isPanel?.65:
                               cellKind==CellKind::VTL5C2?.45:
