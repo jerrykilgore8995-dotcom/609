@@ -46,6 +46,10 @@ public:
     void reset() noexcept {
         inputCapV=outputCapV=daV=0.;
     }
+    void setOutputLoadOhms(double r) noexcept {
+        p.outputLoadR=(r<=1500.0)?600.0:10000.0;
+    }
+    double outputLoadOhms() const noexcept {return p.outputLoadR;}
     // DC-bias and signal-preserving cap network, with series ESR and a
     // slow first-order dielectric absorption branch (approximation).
     float process(float normalized) noexcept {
@@ -101,8 +105,8 @@ public:
         // KCL for follower output node. Note cap load is calculated as an
         // implicit backward-Euler capacitor companion, not an EQ or saturator.
         auto kcl=[&](double node) noexcept {
-            const double npn=transistorCurrent(upper-node);
-            const double pnp=transistorCurrent(node-lower);
+            const double npn=transistorCurrent(upper-node,p.rail-node,npn2N5088);
+            const double pnp=transistorCurrent(node-lower,p.rail+node,pnp2N5087);
             const double loadCurrent=(node-outputCapV)/capR;
             return npn-pnp-loadCurrent;
         };
