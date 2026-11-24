@@ -39,7 +39,7 @@ struct OptoParts {
     double ledDriverRin=10000., ledDriverRfeedback=25000.; // detector amplifier gain
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
-    double feedForwardSeriesR=2200., feedForwardShuntR=10000.;
+    double feedForwardSeriesR=3300., feedForwardShuntR=10000.;
 };
 class HighPassCircuit {
 public:
@@ -160,7 +160,7 @@ public:
     void reset() noexcept {filter.reset(); storageV=0.;}
     void setSidechainHpF(bool value) noexcept {hpEnabled=value;}
     void setCornerHz(double x) noexcept {filter.setCornerHz(x);}
-    void setAttackMs(double v) noexcept {attackMs=std::clamp(v,1.,100.);}
+    void setAttackMs(double v) noexcept {attackMs=std::clamp(v,10.,100.);}
     void setReleaseMs(double v) noexcept {releaseMs=std::clamp(v,50.,2000.);}
     double process(double volts) noexcept {
         const double ac=hpEnabled?filter.process(volts):volts;
