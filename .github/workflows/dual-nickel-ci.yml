@@ -1,56 +1,41 @@
-name: Dual Nickel Magnetic Model CI
+name: Nickel Opto circuit validation
 on:
   push:
     branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/**'
+      - '.github/workflows/dual-nickel-ci.yml'
   pull_request:
     paths:
       - 'experiments/dual_nickel/**'
       - '.github/workflows/dual-nickel-ci.yml'
   workflow_dispatch:
 jobs:
-  magnetic-validation:
+  circuit-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Install ngspice reference simulator
-        run: sudo apt-get update -qq && sudo apt-get install -qq -y ngspice
-      - name: Run full 2N5088/2N5087 SPICE reference circuit
-        working-directory: experiments/dual_nickel
-        run: |
-          ngspice -b option_c_reference.cir | tee ../../option-c-spice-reference.txt
-          grep -q 'RLOAD 600' ../../option-c-spice-reference.txt
-          grep -q 'RLOAD 10k' ../../option-c-spice-reference.txt
       - name: Configure
-        run: cmake -S experiments/dual_nickel -B build/dual-nickel -DCMAKE_BUILD_TYPE=Release
-      - name: Build
-        run: cmake --build build/dual-nickel --config Release --parallel 2
-      - name: Run numerical validation
-        run: ctest --test-dir build/dual-nickel --output-on-failure
-      - name: Measure Option C discrete output stage
-        run: |
-          ./build/dual-nickel/nickel_option_c > build/dual-nickel/option-c-measurements.txt
-          grep -E 'level_dbu=4\\.000000|level_dbu=18\\.000000|CAP_COMPARE|DRIVER_CPU|OPTION_C_TEST' build/dual-nickel/option-c-measurements.txt
+        run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+      - name: Compile transistor, optical and full-path models
+        run: cmake --build build/nickel --target nickel_smoke nickel_option_c nickel_analog_opto nickel_nodal_bjt --parallel 2
+      - name: Run full physics and signal-path tests
+        run: ctest --test-dir build/nickel --output-on-failure
+      - name: Output MNA convergence and CPU results
+        run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
+      - name: Optical, low-mid and stereo test results
+        run: ./build/nickel/nickel_analog_opto > opto-results.txt
+      - name: Install ngspice
+        run: sudo apt-get update -qq && sudo apt-get install -qq -y ngspice
+      - name: Run transistor-level SPICE reference
+        working-directory: experiments/dual_nickel
+        run: ngspice -b option_c_reference.cir > ../../reference-spice-results.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: option-c-discrete-output-measurements
-          path: build/dual-nickel/option-c-measurements.txt
-      - name: Benchmark
-        run: ./build/dual-nickel/nickel_smoke
-      - name: Full +4 dBu input-drive sweep (50 positions x frequencies)
-        run: |
-          ./build/dual-nickel/nickel_input_sweep > build/dual-nickel/input-drive-sweep.csv
-          cat build/dual-nickel/input-drive-sweep.csv
-      - uses: actions/upload-artifact@v4
-        with:
-          name: input-transformer-drive-sweep
-          path: build/dual-nickel/input-drive-sweep.csv
-      - name: Combined input and output transformer drive sweep
-        run: |
-          ./build/dual-nickel/nickel_dual_sweep > build/dual-nickel/dual-transformer-drive-sweep.csv
-          head -n 12 build/dual-nickel/dual-transformer-drive-sweep.csv
-          tail -n 10 build/dual-nickel/dual-transformer-drive-sweep.csv
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dual-transformer-drive-sweep
-          path: build/dual-nickel/dual-transformer-drive-sweep.csv
+          name: nickel-opto-circuit-measurements
+          path: |
+            nodal-bjt-results.txt
+            opto-results.txt
+            reference-spice-results.txt
