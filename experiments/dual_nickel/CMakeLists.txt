@@ -32,3 +32,7 @@ add_executable(nickel_nodal_bjt test_nodal_bjt.cpp)
 target_compile_features(nickel_nodal_bjt PRIVATE cxx_std_20)
 target_link_libraries(nickel_nodal_bjt PRIVATE chowdsp_wdf)
 add_test(NAME nodal_bjt_output COMMAND nickel_nodal_bjt)
+
+add_executable(nickel_opto_character test_opto_character.cpp)
+target_compile_features(nickel_opto_character PRIVATE cxx_std_20)
+add_test(NAME opto_characterization COMMAND nickel_opto_character)
