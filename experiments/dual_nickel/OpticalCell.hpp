@@ -101,11 +101,11 @@ struct OptoParts {
     double elPanelFallSeconds=.003;
     // T4B CdS carrier/trap lifetimes (not detector attack/release). Distinct
     // from NSL-32 and VTL5C2; calibration controls only the T4B photocell.
-    double t4CdSAttackSeconds=.010;
+    double t4CdSAttackSeconds=.030;
     double t4CdSFastRecoverySeconds=.065;
     double t4CdSTrapChargeSeconds=.65;
     double t4CdSTrapRecoverySeconds=2.8;
-    double t4CdSTrapConductanceFraction=.012;
+    double t4CdSTrapConductanceFraction=.15;
 
 };
 class HighPassCircuit {
