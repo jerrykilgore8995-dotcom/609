@@ -70,10 +70,10 @@ public:
         audioCapV=0.; lastResistance=p.cellDark; lastGain=1.;
     }
     double ledCurrent(double control) const noexcept {
-        const double voltage=std::clamp(control,0.,p.ledSupply);
+        const double voltage=std::clamp(control,0.,p.ledSupply);\n        if(voltage<=0.)return 0.;
         const double vt=std::max(.01,p.ledN*p.thermalV);
         double lo=0.,hi=p.maxLedA;
-        for(int i=0;i<16;++i) {
+        for(int i=0;i<24;++i) {
             const double current=.5*(lo+hi);
             const double vf=vt*std::log1p(current/p.ledIs);
             const double f=vf+current*p.ledSeriesOhms-voltage;
