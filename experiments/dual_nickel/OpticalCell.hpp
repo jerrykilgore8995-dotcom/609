@@ -333,20 +333,20 @@ private:
 class OpticalCompressor {
 public:
     void prepare(double hz,OptoParts part={}) noexcept {
-        p=part;fs=hz;detector.prepare(fs,p);cell.prepare(fs,p);reset();
+        p=part;fs=hz;detector.prepare(fs,p);t4Sidechain.prepare(fs,p);cell.prepare(fs,p);reset();
     }
-    void reset() noexcept {detector.reset();cell.reset();ledControl=lastOutput=0.;}
+    void reset() noexcept {detector.reset();t4Sidechain.reset();cell.reset();ledControl=lastOutput=0.;}
     void setAttackMs(double x) noexcept {detector.setAttackMs(x);}
     void setReleaseMs(double x) noexcept {detector.setReleaseMs(x);}
-    void setSidechainHpF(bool x) noexcept {detector.setSidechainHpF(x);}
-    void setSidechainHz(double x) noexcept {detector.setCornerHz(x);}
+    void setSidechainHpF(bool x) noexcept {hpfEnabled=x;detector.setSidechainHpF(x);}
+    void setSidechainHz(double x) noexcept {detector.setCornerHz(x);t4Sidechain.setCornerHz(x);}
     void setThresholdDb(double x) noexcept {threshold=std::clamp(x,-45.,18.);}
     void setRatio(double x) noexcept {ratio=std::clamp(x,1.5,8.);}
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     void setCellKind(CellKind kind) noexcept {
         if(cell.selected()==kind)return;
-        cell.select(kind);detector.reset();ledControl=lastOutput=0.;
+        cell.select(kind);detector.reset();t4Sidechain.reset();ledControl=lastOutput=0.;
     }
     CellKind selectedCellKind() const noexcept {return cell.selected();}
     float process(float x,float sidechain) noexcept {
@@ -357,7 +357,10 @@ public:
             // Threshold controls sidechain amplifier sensitivity.
             const double gain=p.elPanelVoltageGain*
                  dB(-18.-threshold)*(1.+(ratio-1.)*.25);
-            const double panelAc=double(sidechain)*17.3677*gain;
+            const double side=hpfEnabled?t4Sidechain.process(
+                               double(sidechain)*17.3677):
+                               double(sidechain)*17.3677;
+            const double panelAc=side*gain;
             const double y=cell.processAtPanelVac(double(x)*17.3677,
                                                   panelAc);
             lastOutput=y/17.3677;
@@ -415,8 +418,9 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
-    bool feedforward=false;
+    bool feedforward=false,hpfEnabled=false;
     OpticalDetector detector;
+    HighPassCircuit t4Sidechain;
     LdrCell cell;
 };
 } // namespace optocircuit
