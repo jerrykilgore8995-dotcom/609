@@ -22,3 +22,8 @@ add_executable(nickel_option_c test_option_c.cpp)
 target_compile_features(nickel_option_c PRIVATE cxx_std_20)
 target_link_libraries(nickel_option_c PRIVATE chowdsp_wdf)
 add_test(NAME option_c_driver COMMAND nickel_option_c)
+
+add_executable(nickel_analog_opto test_analog_opto.cpp)
+target_compile_features(nickel_analog_opto PRIVATE cxx_std_20)
+target_link_libraries(nickel_analog_opto PRIVATE chowdsp_wdf)
+add_test(NAME analog_opto_pipeline COMMAND nickel_analog_opto)
