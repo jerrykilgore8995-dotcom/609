@@ -57,6 +57,7 @@ struct OptoParts {
     // EL limiter relay adds a resistively summed pre-attenuator tap,
     // reducing negative feedback without changing EL or CdS device models.
     double elLimitInputTapR=110000., elLimitFeedbackTapR=4700.;
+    double elCompInputTapR=470000., elCompFeedbackTapR=4700.;
     double ledDriverRfeedback=25000.; // legacy FF feedback-diode branch reference
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
@@ -365,9 +366,11 @@ public:
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     void setLimiter(bool enabled) noexcept {limiter=enabled;cell.setLimiter(enabled);}
-    double limiterPreFraction() const noexcept {
-        return p.elLimitFeedbackTapR/
-               (p.elLimitFeedbackTapR+p.elLimitInputTapR);
+    double detectorPreFraction() const noexcept {
+        return limiter?p.elLimitFeedbackTapR/
+                    (p.elLimitFeedbackTapR+p.elLimitInputTapR):
+                    p.elCompFeedbackTapR/
+                    (p.elCompFeedbackTapR+p.elCompInputTapR);
     }
     void setCellKind(CellKind kind) noexcept {
         if(cell.selected()==kind)return;
@@ -450,8 +453,8 @@ public:
     // A physical feedback compressor senses its attenuator output. The
     // previous output sample is fed to the RC detector (one-sample loop delay).
     float process(float x) noexcept {
-        if(limiter && cell.selected()==CellKind::T4B && !feedforward) {
-            const double f=limiterPreFraction();
+        if(cell.selected()==CellKind::T4B && !feedforward) {
+            const double f=detectorPreFraction();
             return process(x,float(f*x+(1.-f)*lastOutput));
         }
         return process(x,feedforward?x:float(lastOutput));
