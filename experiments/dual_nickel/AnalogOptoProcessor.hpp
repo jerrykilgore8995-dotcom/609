@@ -49,6 +49,7 @@ public:
     void setPalmAttackMs(double v) noexcept {low.setAttackMs(v);}
     void setPalmReleaseMs(double v) noexcept {low.setReleaseMs(v);}
     double opticalGr() const noexcept {return comp.reductionDb();}
+    double limiterPreFraction() const noexcept {return comp.limiterPreFraction();}
     double lowMidGr() const noexcept {return low.reductionDb();}
     double photocellResistance() const noexcept {return comp.ldrOhms();}
     float lastOpticalOutput() const noexcept {return comp.lastAttenuatorOutput();}
@@ -98,8 +99,8 @@ public:
     void setReleaseMs(double v) noexcept {left.setReleaseMs(v);right.setReleaseMs(v);}
     void setThresholdDb(double v) noexcept {left.setThresholdDb(v);right.setThresholdDb(v);}
     void setFeedforward(bool b) noexcept {feedforward=b;left.setFeedforward(b);right.setFeedforward(b);}
-    void setLimiter(bool b) noexcept {left.setLimiter(b);right.setLimiter(b);}
-    void setOptoCell(int kind) noexcept {left.setOptoCell(kind);right.setOptoCell(kind);}
+    void setLimiter(bool b) noexcept {limiter=b;left.setLimiter(b);right.setLimiter(b);}
+    void setOptoCell(int kind) noexcept {optoCell=kind;left.setOptoCell(kind);right.setOptoCell(kind);}
     void setScHpf(bool v) noexcept {left.setScHpf(v);right.setScHpf(v);}
     void setScHpfHz(double v) noexcept {left.setScHpfHz(v);right.setScHpfHz(v);}
     void setPalmMute(bool v) noexcept {left.setPalmMute(v);right.setPalmMute(v);}
@@ -139,8 +140,12 @@ public:
         // Linked feedback is taken after each LDR attenuator, not from
         // its input. Preserve one sample of detector delay for the physical
         // rectifier/storage capacitor loop.
-        const float detector=feedforward?
-            (std::abs(pl)>=std::abs(pr)?pl:pr):previousDetector;
+        const float beforeOpto=std::abs(pl)>=std::abs(pr)?pl:pr;
+        float detector=feedforward?beforeOpto:previousDetector;
+        if(limiter && optoCell==2 && !feedforward) {
+            const double f=left.limiterPreFraction();
+            detector=float(f*beforeOpto+(1.-f)*previousDetector);
+        }
         l=left.processFromOpto(pl,detector,true);
         r=right.processFromOpto(pr,detector,true);
         const float ol=left.lastOpticalOutput(),or_=right.lastOpticalOutput();
@@ -153,6 +158,7 @@ public:
 private:
     MonoEngine left,right;
     float previousDetector=0.f;
-    bool feedforward=false;
+    bool feedforward=false,limiter=false;
+    int optoCell=0;
 };
 } // namespace analogopto
