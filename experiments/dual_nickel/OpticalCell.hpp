@@ -72,7 +72,7 @@ struct OptoParts {
     // In compressor mode this is a real voltage offset, not a dB knee.
     double compKneeBiasV=0.0;
     double ledCompInputTapR=100000., ledCompFeedbackTapR=25000.;
-    double vtlCompInputTapR=100000.,vtlCompFeedbackTapR=25000.;
+    double vtlCompInputTapR=100000.,vtlCompFeedbackTapR=11111.111;
     double compKneeSeriesR=68000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
