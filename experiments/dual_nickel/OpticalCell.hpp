@@ -162,9 +162,13 @@ public:
             }
             charging=.5*(lo+hi);
         }
-        // Capacitor KCL; discharge through release resistor.
+        // Diode steering: the attack branch charges only during bridge
+        // conduction; otherwise the storage capacitor discharges through the
+        // release pot. A permanently parallel release shunt incorrectly
+        // changes the compressor's steady-state threshold at every setting.
+        const double releaseCurrent=charging>1.e-7?0.:storageV/rRelease;
         storageV=std::max(0.,storageV+
-              dt*(charging-storageV/rRelease)/p.detectorHoldCapF);
+              dt*(charging-releaseCurrent)/p.detectorHoldCapF);
         return storageV;
     }
     double voltage() const noexcept {return storageV;}
