@@ -19,9 +19,9 @@ jobs:
       - name: Configure
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Compile transistor, optical and full-path models
-        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts nickel_opto_trace --parallel 2
+        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts nickel_opto_trace nickel_opto_memory --parallel 2
       - name: Run full physics and signal-path tests
-        run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization'
+        run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization|opto_memory_calibration'
       - name: Output MNA convergence and CPU results
         run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
       - name: Optical, low-mid and stereo test results
@@ -32,6 +32,8 @@ jobs:
         run: ./build/nickel/nickel_opto_bursts > opto-burst-response.csv
       - name: Trace LED/photocell high-level overshoot
         run: ./build/nickel/nickel_opto_trace > opto-feedback-trace.csv
+      - name: Characterize cell light history and 500ms off resistance
+        run: ./build/nickel/nickel_opto_memory > opto-memory-results.csv
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -42,3 +44,4 @@ jobs:
             opto-character-results.txt
             opto-burst-response.csv
             opto-feedback-trace.csv
+            opto-memory-results.csv
