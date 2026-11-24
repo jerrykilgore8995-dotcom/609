@@ -31,6 +31,11 @@ int main(){
   std::cout<<"VTL5C2_OFF lit_40mA="<<lit40
            <<" after_500ms_R="<<after500<<"\\n";
   check(after500>=100000.,10);
+  optocircuit::LdrCell electrical;electrical.prepare(fs);
+  electrical.select(optocircuit::CellKind::VTL5C2);
+  const double vf=electrical.ledForwardVoltage(.020);
+  std::cout<<"VTL5C2 typical_forward_20mA_V="<<vf<<"\\n";
+  check(vf>1.60&&vf<1.70,13);
   optocircuit::LdrCell c;c.prepare(fs);
   c.select(optocircuit::CellKind::T4B);
   check(c.selected()==optocircuit::CellKind::T4B,5);
