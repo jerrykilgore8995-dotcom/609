@@ -47,3 +47,7 @@ target_compile_features(nickel_opto_trace PRIVATE cxx_std_20)
 add_executable(nickel_opto_memory test_opto_memory.cpp)
 target_compile_features(nickel_opto_memory PRIVATE cxx_std_20)
 add_test(NAME opto_memory_calibration COMMAND nickel_opto_memory)
+
+add_executable(nickel_analog_character measure_analog_character.cpp)
+target_compile_features(nickel_analog_character PRIVATE cxx_std_20)
+target_link_libraries(nickel_analog_character PRIVATE chowdsp_wdf)
