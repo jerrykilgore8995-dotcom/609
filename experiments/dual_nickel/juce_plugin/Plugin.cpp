@@ -40,6 +40,8 @@ Layout makeParameters(){
           juce::ParameterID{"palm",1},"Dynamic Low-Mid",false));
     p.add(std::make_unique<juce::AudioParameterBool>(
           juce::ParameterID{"link",1},"Linked Input/Output",true));
+    p.add(std::make_unique<juce::AudioParameterBool>(
+          juce::ParameterID{"ff",1},"Feedforward Detector",false));
     p.add(std::make_unique<juce::AudioParameterChoice>(
           juce::ParameterID{"load",1},"Output Load",
           juce::StringArray{"600 ohm","10k ohm"},1));
@@ -94,6 +96,7 @@ public:
             dsp.setLinkedAutoGain(v("link")>.5);
             dsp.setThresholdDb(v("threshold"));
             dsp.setRatio(v("ratio"));
+            dsp.setFeedforward(v("ff")>.5);
             dsp.setAttackMs(v("attack"));
             dsp.setReleaseMs(v("release"));
             dsp.setScHpf(v("hpf")>.5);
@@ -171,8 +174,9 @@ public:
                                                          *c.slider);
             controls.push_back(std::move(c));
         }
-        const std::array<std::pair<const char*,const char*>,3> switches{{
-            {"hpf","SIDECHAIN HPF"},{"palm","LOW-MID ON"},{"link","LINK OUTPUT"}
+        const std::array<std::pair<const char*,const char*>,4> switches{{
+            {"hpf","SIDECHAIN HPF"},{"palm","LOW-MID ON"},
+            {"link","LINK OUTPUT"},{"ff","FEEDFORWARD"}
         }};
         for(const auto& item:switches) {
             Toggle t{};
@@ -199,8 +203,8 @@ public:
             controls[i].slider->setBounds(x,y+20,124,94);
         }
         for(int i=0;i<int(toggles.size());++i)
-            toggles[i].button->setBounds(28+i*177,625,172,26);
-        load.setBounds(388,669,174,30);
+            toggles[i].button->setBounds(28+(i%2)*275,615+(i/2)*28,252,26);
+        load.setBounds(388,685,174,30);
     }
     void paint(juce::Graphics& g) override {
         g.fillAll(juce::Colour(0xff1c1e22));
@@ -226,7 +230,7 @@ public:
         g.drawText("20 dB GR",490,92,78,16,juce::Justification::right);
         g.setColour(juce::Colour(0xffd6a456));
         g.setFont(juce::FontOptions(14.f,juce::Font::bold));
-        g.drawText("600 / 10k OUTPUT LOAD",190,674,190,20,
+        g.drawText("600 / 10k OUTPUT LOAD",190,688,190,20,
                    juce::Justification::right);
     }
 private:
