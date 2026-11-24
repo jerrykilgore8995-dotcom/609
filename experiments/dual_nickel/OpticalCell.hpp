@@ -59,7 +59,7 @@ struct OptoParts {
     // T4 electroluminescent panel coupling (not an LED). These are
     // explicitly provisional driver parameters until a T4 sample is swept:
     // high-voltage panel amplifier / AC excitation threshold.
-    double elPanelVoltageGain=80., elPanelTurnOnVac=35.;
+    double elPanelVoltageGain=45., elPanelTurnOnVac=35.;
     double elPanelReferenceVac=115.,elPanelCapF=5e-9;
     double elPanelDriveR=47000., elPanelRiseSeconds=.0008;
     double elPanelFallSeconds=.003;
@@ -145,10 +145,12 @@ public:
         // excitation voltage above its activation threshold. Driver gain
         // feeds the panel through an actual RC electrical network.
         const double dt=1./fs;
-        const double targetVoltage=std::max(0.,panelVac);
+        // EL plates are driven by alternating voltage; keep polarity
+        // through the panel RC, then convert excitation magnitude to light.
+        const double targetVoltage=std::clamp(panelVac,-500.,500.);
         panelVoltage+=tauRC(p.elPanelDriveR*p.elPanelCapF,dt)*
                           (targetVoltage-panelVoltage);
-        const double supply=panelVoltage;
+        const double supply=std::abs(panelVoltage);
         const double lightTarget=std::pow(std::max(0.,supply-
                  p.elPanelTurnOnVac)/std::max(1.,p.elPanelReferenceVac-
                  p.elPanelTurnOnVac),2.);
@@ -348,6 +350,19 @@ public:
     }
     CellKind selectedCellKind() const noexcept {return cell.selected();}
     float process(float x,float sidechain) noexcept {
+        if(cell.selected()==CellKind::T4B) {
+            // A T4B is illuminated by an *AC*-excited EL panel, not by
+            // rectified DC LED current. Feed the high-voltage driver with
+            // sidechain audio (pre- or post-cell, according to FF switch).
+            // Threshold controls sidechain amplifier sensitivity.
+            const double gain=p.elPanelVoltageGain*
+                 dB(-18.-threshold)*(1.+(ratio-1.)*.25);
+            const double panelAc=double(sidechain)*17.3677*gain;
+            const double y=cell.processAtPanelVac(double(x)*17.3677,
+                                                  panelAc);
+            lastOutput=y/17.3677;
+            return float(lastOutput);
+        }
         const double detectorPad=feedforward?
             p.feedForwardShuntR/(p.feedForwardSeriesR+
                                 p.feedForwardShuntR):1.0;
@@ -383,14 +398,7 @@ public:
             source=.5*(lo+hi);
         }
         ledControl=std::clamp(source,0.,p.ledSupply);
-        // T4 is an AC-excited electroluminescent panel, NOT an LED.
-        // Driver approximation uses physical panel voltage and distinct
-        // EL phosphor dynamics. It needs panel voltage/light measurements
-        // before one can claim device-specific T4B matching.
-        const double y=cell.selected()==CellKind::T4B?
-             cell.processAtPanelVac(double(x)*17.3677,
-                        ledControl*p.elPanelVoltageGain):
-             cell.process(double(x)*17.3677,ledControl);
+        const double y=cell.process(double(x)*17.3677,ledControl);
         lastOutput=y/17.3677;
         return float(lastOutput);
     }
