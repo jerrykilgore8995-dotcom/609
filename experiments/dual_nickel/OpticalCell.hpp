@@ -16,7 +16,7 @@ inline double tauRC(double seconds,double sampleTime) noexcept {
     return sampleTime/(std::max(1.e-7,seconds)+sampleTime);
 }
 struct OptoParts {
-    double rSeries=10000.0, rReceive=47000.0, cellDark=5e5;
+    double rSeries=10000.0, rReceive=47000.0, cellDark=1e6;
     double rAt20mA=500.0, ledReferenceA=0.020, maxLedA=.025;
     double ledIs=2.0e-18, ledN=2., thermalV=.02585;
     double ledSeriesOhms=220., ledSupply=12.;
@@ -30,11 +30,12 @@ struct OptoParts {
 
     // NSL-32 at ~16mA: 3.5ms to 63% illuminated conductance, and
     // ~500ms to 100k after LED turn-off (not an exponential tau).
+    // Datasheet dark resistance is >=500k at 10s, NOT an asymptotic 500k.
     // Separate slow trap population has a much longer charge time.
     // Fast/slow parameters beyond those two datasheet points are provisional
     // fitting values, NOT measured individual-cell curves.
     double attackCellSeconds=.0035, fastDarkRecoverySeconds=.085;
-    double trapChargeSeconds=.70, trapRecoverySeconds=2.20;
+    double trapChargeSeconds=.70, trapRecoverySeconds=1.50;
     double trapConductanceFraction=.005, conductanceExponent=1.0;
     double rectifierIs=2.e-9, rectifierN=1.7;
     double detectorSeriesR=100., detectorLoadR=100000.;
