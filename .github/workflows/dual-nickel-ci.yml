@@ -19,13 +19,15 @@ jobs:
       - name: Configure
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Compile transistor, optical and full-path models
-        run: cmake --build build/nickel --target nickel_smoke nickel_option_c nickel_analog_opto nickel_nodal_bjt --parallel 2
+        run: cmake --build build/nickel --target nickel_smoke nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character --parallel 2
       - name: Run full physics and signal-path tests
         run: ctest --test-dir build/nickel --output-on-failure
       - name: Output MNA convergence and CPU results
         run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
       - name: Optical, low-mid and stereo test results
         run: ./build/nickel/nickel_analog_opto > opto-results.txt
+      - name: Report level-dependent opto GR and attack/release
+        run: ./build/nickel/nickel_opto_character > opto-character-results.txt
       - name: Install ngspice
         run: sudo apt-get update -qq && sudo apt-get install -qq -y ngspice
       - name: Run transistor-level SPICE reference
@@ -38,4 +40,5 @@ jobs:
           path: |
             nodal-bjt-results.txt
             opto-results.txt
+            opto-character-results.txt
             reference-spice-results.txt
