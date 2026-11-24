@@ -27,6 +27,7 @@ Layout makeParameters(){
     add("release","Opto Release (ms)",50,2000,250,1);
     add("makeup","Makeup Gain",-12,18,0,.1f);
     add("output","Output Trim",-24,24,0,.1f);
+    add("mix","Dry / Wet Mix (%)",0,100,100,.1f);
     add("hpfhz","Sidechain HPF (Hz)",40,300,120,1);
     add("pmcenter","Low-Mid Center (Hz)",80,400,170,1);
     add("pmwidth","Low-Mid Width (oct)",.5f,2.5f,1.3f,.01f);
@@ -114,11 +115,17 @@ public:
             dsp.setPalmReleaseMs(v("pmrelease"));
             dsp.setLoadOhms(v("load")<.5?600.:10000.);
         };
+        const float wetAmount=juce::jlimit(0.f,1.f,float(v("mix")*.01));
+        const float dryAmount=1.f-wetAmount;
         const int n=audio.getNumSamples();
         if(isMono()) {
             apply(mono);
             float* l=audio.getWritePointer(0);
-            for(int i=0;i<n;++i)l[i]=mono.process(l[i]);
+            for(int i=0;i<n;++i) {
+                const float dry=l[i];
+                const float wet=mono.process(dry);
+                l[i]=dryAmount*dry+wetAmount*wet;
+            }
             gr[0].store(float(mono.opticalGr()),std::memory_order_relaxed);
             lowGr[0].store(float(mono.lowMidGr()),std::memory_order_relaxed);
             gr[1].store(0.f,std::memory_order_relaxed);
@@ -127,7 +134,12 @@ public:
             apply(stereo);
             auto* l=audio.getWritePointer(0);
             auto* r=audio.getWritePointer(1);
-            for(int i=0;i<n;++i)stereo.process(l[i],r[i]);
+            for(int i=0;i<n;++i) {
+                const float dryL=l[i],dryR=r[i];
+                stereo.process(l[i],r[i]);
+                l[i]=dryAmount*dryL+wetAmount*l[i];
+                r[i]=dryAmount*dryR+wetAmount*r[i];
+            }
             gr[0].store(float(stereo.grLeft()),std::memory_order_relaxed);
             gr[1].store(float(stereo.grRight()),std::memory_order_relaxed);
             lowGr[0].store(0.f,std::memory_order_relaxed);
@@ -145,6 +157,31 @@ public:
 private:
     analogopto::MonoEngine mono;
     analogopto::StereoEngine stereo;
+};
+
+// Popup content owns its own APVTS attachment.  It outlives the click handler,
+// and the shared processor parameter keeps mono/stereo views synchronized.
+class OptionsPopup final : public juce::Component {
+public:
+    explicit OptionsPopup(NickelOptoProcessor& processor) {
+        addAndMakeVisible(mixLabel);
+        mixLabel.setText("MIX  /  DRY - WET  (%)",juce::dontSendNotification);
+        mixLabel.setJustificationType(juce::Justification::centred);
+        mix.setSliderStyle(juce::Slider::LinearHorizontal);
+        mix.setTextBoxStyle(juce::Slider::TextBoxRight,false,65,22);
+        mix.setTextValueSuffix(" %");
+        addAndMakeVisible(mix);
+        mixAttachment=std::make_unique<SliderAttachment>(processor.state,"mix",mix);
+        setSize(310,92);
+    }
+    void resized() override {
+        mixLabel.setBounds(10,8,getWidth()-20,24);
+        mix.setBounds(12,37,getWidth()-24,42);
+    }
+private:
+    juce::Label mixLabel;
+    juce::Slider mix;
+    std::unique_ptr<SliderAttachment> mixAttachment;
 };
 
 class HardwarePanel final : public juce::Component,private juce::Timer {
@@ -200,6 +237,12 @@ public:
         cellModel.addItem("T4B-style",3);
         addAndMakeVisible(cellModel);
         cellAttachment=std::make_unique<ComboAttachment>(p.state,"cell",cellModel);
+        options.setButtonText("OPTIONS  /  MIX");
+        options.onClick=[this] {
+            juce::CallOutBox::launchAsynchronously(
+                std::make_unique<OptionsPopup>(p),options.getScreenBounds(),nullptr);
+        };
+        addAndMakeVisible(options);
         startTimerHz(25);
     }
     void resized() override {
@@ -215,6 +258,7 @@ public:
             toggles[i].button->setBounds(22+i*148,615,143,26);
         load.setBounds(388,685,174,30);
         cellModel.setBounds(388,654,174,28);
+        options.setBounds(22,654,153,30);
     }
     void paint(juce::Graphics& g) override {
         g.fillAll(juce::Colour(0xff1c1e22));
@@ -261,6 +305,7 @@ private:
     std::vector<Control> controls;
     std::vector<Toggle> toggles;
     juce::ComboBox load,cellModel;
+    juce::TextButton options;
     std::unique_ptr<ComboAttachment> loadAttachment,cellAttachment;
 };
 class NickelOptoEditor final : public juce::AudioProcessorEditor {
