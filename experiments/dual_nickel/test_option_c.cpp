@@ -12,7 +12,7 @@ TestResult measure(double freq,double dbu,double load=10000.,double cap=100.e-6)
     nickel::DiscreteOutputDriver d;
     nickel::OutputStageParams config{};
     config.outputLoadR=load;config.outputCapF=cap;
-    d.prepare(fs,config);
+    d.prepare(fs,config);\n    d.setOutputLoadOhms(load);\n    if(d.outputLoadOhms()!=(load<=1500.0?600.0:10000.0))std::exit(6);
     constexpr int n=22050;
     const double amp=std::sqrt(2.)*.775*std::pow(10.,dbu/20.)/nickel::fullScalePeakVolts;
     std::vector<double> y(n);
@@ -68,7 +68,7 @@ int main(){
              <<" phase="<<large.phase<<"\n";
     if(!(large.gainDb>small.gainDb+3.0))pass=false;
     nickel::OptionCSignalPath chain;
-    chain.prepare(fs);chain.setInputDriveDb(12);chain.setMakeupDb(0);
+    chain.prepare(fs);chain.setInputDriveDb(12);chain.setMakeupDb(0);\n    chain.setOutputLoadOhms(600.);\n    if(chain.outputLoadOhms()!=600.)pass=false;
     double signal=0;
     for(int i=0;i<8192;++i) {
         const float s=float(.1*std::sin(2*pi*100*i/fs));
@@ -76,7 +76,7 @@ int main(){
         if(!std::isfinite(z))pass=false;
         signal+=z*z;
     }
-    if(signal<1.e-12)pass=false;
+    if(signal<1.e-12)pass=false;\n    chain.setOutputLoadOhms(10000.);\n    if(chain.outputLoadOhms()!=10000.)pass=false;
     nickel::DiscreteOutputDriver bench;bench.prepare(fs);
     float value=0;
     const auto start=std::chrono::steady_clock::now();
