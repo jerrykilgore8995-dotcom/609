@@ -13,6 +13,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Install ngspice reference simulator
+        run: sudo apt-get update -qq && sudo apt-get install -qq -y ngspice
+      - name: Run full 2N5088/2N5087 SPICE reference circuit
+        working-directory: experiments/dual_nickel
+        run: |
+          ngspice -b option_c_reference.cir | tee ../../option-c-spice-reference.txt
+          grep -q 'RLOAD 600' ../../option-c-spice-reference.txt
+          grep -q 'RLOAD 10k' ../../option-c-spice-reference.txt
       - name: Configure
         run: cmake -S experiments/dual_nickel -B build/dual-nickel -DCMAKE_BUILD_TYPE=Release
       - name: Build
