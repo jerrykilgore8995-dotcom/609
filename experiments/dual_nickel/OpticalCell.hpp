@@ -110,6 +110,7 @@ public:
     }
     double process(double audioVolts,double ledControlVolts) noexcept {
         const double current=ledCurrent(ledControlVolts);
+        lastLedCurrent=current;
         const double lightTarget=std::pow(std::max(0.,current)/
                             std::max(1e-8,p.ledReferenceA),
                             p.conductanceExponent);
