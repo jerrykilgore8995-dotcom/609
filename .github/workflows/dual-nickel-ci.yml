@@ -19,15 +19,17 @@ jobs:
       - name: Configure
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Compile transistor, optical and full-path models
-        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character --parallel 2
+        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts --parallel 2
       - name: Run full physics and signal-path tests
-        run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization'
+        run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization'
       - name: Output MNA convergence and CPU results
         run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
       - name: Optical, low-mid and stereo test results
         run: ./build/nickel/nickel_analog_opto > opto-results.txt
       - name: Report level-dependent opto GR and attack/release
         run: ./build/nickel/nickel_opto_character > opto-character-results.txt
+      - name: Record optical cell burst step responses
+        run: ./build/nickel/nickel_opto_bursts > opto-burst-response.csv
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -36,3 +38,4 @@ jobs:
             nodal-bjt-results.txt
             opto-results.txt
             opto-character-results.txt
+            opto-burst-response.csv
