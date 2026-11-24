@@ -102,7 +102,7 @@ public:
     }
     void reset() noexcept {
         lightFast=lightSlow=illumination=0.;
-        audioCapV=0.;panelLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
+        audioCapV=0.;panelLight=panelVoltage=meterLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
     }
     void select(CellKind kind) noexcept {
         if(kind==cellKind)return;
@@ -145,13 +145,20 @@ public:
         // excitation voltage above its activation threshold. Driver gain
         // feeds the panel through an actual RC electrical network.
         const double dt=1./fs;
-        const double supply=std::max(0.,panelVac);
+        const double targetVoltage=std::max(0.,panelVac);
+        panelVoltage+=tauRC(p.elPanelDriveR*p.elPanelCapF,dt)*
+                          (targetVoltage-panelVoltage);
+        const double supply=panelVoltage;
         const double lightTarget=std::pow(std::max(0.,supply-
                  p.elPanelTurnOnVac)/std::max(1.,p.elPanelReferenceVac-
                  p.elPanelTurnOnVac),2.);
         const double time=lightTarget>panelLight?p.elPanelRiseSeconds:
                                                   p.elPanelFallSeconds;
         panelLight+=tauRC(time,dt)*(lightTarget-panelLight);
+        // Separate CdS metering element illuminated by the SAME EL source.
+        // Its dark recovery is independent of the audio attenuation cell.
+        meterLight+=tauRC(lightTarget>meterLight?.012:.19,dt)*
+                             (panelLight-meterLight);
         // The T4 has two photocells; the gain photocell is modeled here.
         // EL and CdS response are separate states, so its recovery is not
         // inherited from an LED.
@@ -245,6 +252,11 @@ public:
     }
     double resistance() const noexcept {return lastResistance;}
     double actualLedAmps() const noexcept {return lastLedCurrent;}
+    double meterPhotocellOhms() const noexcept {
+        return cellKind==CellKind::T4B?
+           1./(1./darkResistance()+std::max(0.,meterLight)/1200.):
+           lastResistance;
+    }
     double gainReduction() const noexcept {
         const double g=1./p.rSeries,r=1./p.rReceive,gd=1./darkResistance();
         const double on=g/(g+r+1./lastResistance);
@@ -254,7 +266,7 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,lightFast=0.,lightSlow=0.,illumination=0.,
-           audioCapV=0.,panelLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
+           audioCapV=0.,panelLight=0.,panelVoltage=0.,meterLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
     CellKind cellKind=CellKind::NSL32;
 };
 // Detector consists of physical AC coupling, Shockley-like rectifier,
@@ -381,6 +393,7 @@ public:
     float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
     double reductionDb() const noexcept {return cell.gainReduction();}
     double ldrOhms() const noexcept {return cell.resistance();}
+    double meterCellOhms() const noexcept {return cell.meterPhotocellOhms();}
     double detectorVolts() const noexcept {return detector.voltage();}
     double ledDriveVolts() const noexcept {return ledControl;}
     double ledAmps() const noexcept {return cell.actualLedAmps();}
