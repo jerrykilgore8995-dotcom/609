@@ -24,7 +24,7 @@ int main(){
    analogopto::MonoEngine engine;engine.prepare(sr);
    engine.setLoadOhms(load);engine.setPalmMute(false);
    engine.setThresholdDb(optical?-18.:18.);
-   engine.setRatio(3.);engine.setAttackMs(15.);engine.setReleaseMs(250.);
+   engine.setAttackMs(15.);engine.setReleaseMs(250.);
    const double eachDbu=level-3.01029995664;
    const double amplitude=std::sqrt(2.)*.775*
                  std::pow(10.,eachDbu/20.)/nickel::fullScalePeakVolts;
