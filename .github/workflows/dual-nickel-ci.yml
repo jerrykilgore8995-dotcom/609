@@ -21,3 +21,11 @@ jobs:
         run: ctest --test-dir build/dual-nickel --output-on-failure
       - name: Benchmark
         run: ./build/dual-nickel/nickel_smoke
+      - name: Full +4 dBu input-drive sweep (50 positions x frequencies)
+        run: |
+          ./build/dual-nickel/nickel_input_sweep > build/dual-nickel/input-drive-sweep.csv
+          cat build/dual-nickel/input-drive-sweep.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: input-transformer-drive-sweep
+          path: build/dual-nickel/input-drive-sweep.csv
