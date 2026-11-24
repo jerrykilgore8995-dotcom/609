@@ -171,7 +171,7 @@ public:
         const double bjtVt=std::max(.01,p.ledLimiterN*p.thermalV);
         const double reference=p.ledLimiterRail*p.ledLimiterBottomOhms/
             std::max(1.,p.ledLimiterTopOhms+p.ledLimiterBottomOhms);
-        double lo=0.,hi=p.maxLedA;
+        double lo=0.,hi=cellKind==CellKind::VTL5C2?.040:p.maxLedA;
         for(int i=0;i<24;++i) {
             const double current=.5*(lo+hi);
             const double ledNode=ledVt*std::log1p(current/p.ledIs)
@@ -194,7 +194,8 @@ public:
     // optical LED. This isolates the CdS photocell from the compressor's
     // intentionally current-limited LED driver.
     double processAtLedCurrent(double audioVolts,double ledAmps) noexcept {
-        const double current=std::clamp(ledAmps,0.,p.maxLedA);
+        const double current=std::clamp(ledAmps,0.,
+            cellKind==CellKind::VTL5C2?.040:p.maxLedA);
         lastLedCurrent=current;
         if(cellKind==CellKind::T4B)
             return processAtPanelVac(audioVolts,0.);
