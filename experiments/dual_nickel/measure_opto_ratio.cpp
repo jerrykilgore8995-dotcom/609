@@ -4,12 +4,11 @@
 #include <iomanip>
 #include <iostream>
 constexpr double fs=44100., pi=3.14159265358979323846, voltsPerPeak=17.3677;
-static double measure(double inputDbu,double threshold,double ratio) {
+static double measure(double inputDbu,double threshold) {
     optocircuit::OpticalCompressor compressor;
     compressor.prepare(fs);
     compressor.setCellKind(optocircuit::CellKind::NSL32);
     compressor.setThresholdDb(threshold);
-    compressor.setRatio(ratio);
     compressor.setAttackMs(15.);
     compressor.setReleaseMs(250.);
     compressor.setFeedforward(false);
@@ -28,14 +27,14 @@ int main() {
     const std::array<double,10> levels{-24.,-18.,-12.,-6.,0.,4.,8.,12.,16.,20.};
     const std::array<double,7> thresholds{-36.,-30.,-24.,-18.,-12.,-6.,0.};
     std::cout<<std::fixed<<std::setprecision(5);
-    std::cout<<"threshold_dbu,ratio_setting,input_dbu,output_dbu,gain_reduction_db,interval_ratio\n";
-    for(double threshold:thresholds)for(double ratio:{2.,3.,4.}) {
+    std::cout<<"threshold_dbu,input_dbu,output_dbu,gain_reduction_db,interval_ratio\n";
+    for(double threshold:thresholds) {
         double prevIn=0.,prevOut=0.;
         bool first=true;
         for(double input:levels) {
-            const double out=measure(input,threshold,ratio);
+            const double out=measure(input,threshold);
             const double interval=first?0.:(input-prevIn)/(out-prevOut);
-            std::cout<<threshold<<","<<ratio<<","<<input<<","<<out<<","
+            std::cout<<threshold<<","<<input<<","<<out<<","
                      <<input-out<<","<<(first?0.:interval)<<"\n";
             prevIn=input;prevOut=out;first=false;
         }
