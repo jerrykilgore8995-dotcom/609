@@ -71,12 +71,12 @@ static Result measure(int kind,double dbu,double burstMs,double referenceGr){
  r.burstGr=attack.back();r.peakGr=peakGr;r.refGr=referenceGr;
  // Reference to 2-second steady-burst gain reduction, NOT an artificially
  // short-burst normalization. If not reached, report -1 as NA.
- r.a10=timeCross(attack,.10*referenceGr,true);
- r.a50=timeCross(attack,.50*referenceGr,true);
- r.a63=timeCross(attack,.632*referenceGr,true);
- r.a90=timeCross(attack,.90*referenceGr,true);
- r.r50=timeCross(release,.50*r.burstGr,false);
- r.r10=timeCross(release,.10*r.burstGr,false);
+ r.a10=(referenceGr>=.1)?timeCross(attack,.10*referenceGr,true):-1.;
+ r.a50=(referenceGr>=.1)?timeCross(attack,.50*referenceGr,true):-1.;
+ r.a63=(referenceGr>=.1)?timeCross(attack,.632*referenceGr,true):-1.;
+ r.a90=(referenceGr>=.1)?timeCross(attack,.90*referenceGr,true):-1.;
+ r.r50=(r.burstGr>=.1)?timeCross(release,.50*r.burstGr,false):-1.;
+ r.r10=(r.burstGr>=.1)?timeCross(release,.10*r.burstGr,false):-1.;
  r.r1db=(r.burstGr>=1.)?timeCross(release,1.0,false):-1.;
  r.remaining100=atTime(release,100.);
  r.remaining500=atTime(release,500.);
@@ -102,6 +102,14 @@ int main(){
    const double ref=longResult.burstGr;
    for(double burst:{30.,150.,500.,2000.}){
     const Result r=measure(kind,level,burst,ref);
+    if(kind==2 && burst==2000. && level>=8.) {
+      // Physics regression guard: rapid first half recovery while
+      // occupied deep CdS traps continue to recover over seconds.
+      if(!(r.r50>=40. && r.r50<=125. && r.r10>=500.
+             && r.r10<=5000. && r.remaining2000>.10
+             && r.a90>=2. && r.a90<=35.))
+        return 8;
+    }
     std::cout<<label(kind)<<",Compressor,-18,15,250,"
      <<level<<","<<burst<<","<<ref<<","<<r.burstGr<<","<<r.peakGr<<","
      <<r.a10<<","
