@@ -58,12 +58,12 @@ struct OptoParts {
     // Each cell relay selects its own detector input feedback resistor.
     double leadDetectorRg=10000.;
     double nslLeadDetectorRf=50000.,vtlLeadDetectorRf=50000.;
-    double leadDriverRin=10000.,nslLeadDriverRf=4000.,vtlLeadDriverRf=4000.;
+    double leadDriverRin=10000.,nslLeadDriverRf=4000.,vtlLeadDriverRf=3000.;
     double nslLeadClampBiasV=.8,vtlLeadClampBiasV=.8;
     double leadClampDiodeIs=2e-9,leadClampDiodeN=1.7;
     // VTL5C2 only: biased diode, source resistor and summing resistor
     // admitting additional pre-LDR current at HIGH input levels.
-    double vtlHighTapBiasV=3.0,vtlHighTapSeriesR=40000.,vtlHighTapSummingR=10000.;
+    double vtlHighTapBiasV=3.0,vtlHighTapSeriesR=80000.,vtlHighTapSummingR=5000.;
     double ledCompFeedbackR=5000., ledLimitFeedbackR=68000.;
     // Ganged resistor deck selected with the optical cell cartridge.
     double vtlCompFeedbackR=5000., vtlCompKneeSeriesR=68000.;
