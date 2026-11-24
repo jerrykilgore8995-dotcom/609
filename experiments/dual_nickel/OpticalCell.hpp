@@ -99,6 +99,13 @@ struct OptoParts {
     double elPanelReferenceVac=115.,elPanelCapF=5e-9;
     double elPanelDriveR=47000., elPanelRiseSeconds=.0008;
     double elPanelFallSeconds=.003;
+    // T4B CdS carrier/trap lifetimes (not detector attack/release). Distinct
+    // from NSL-32 and VTL5C2; calibration controls only the T4B photocell.
+    double t4CdSAttackSeconds=.010;
+    double t4CdSFastRecoverySeconds=.065;
+    double t4CdSTrapChargeSeconds=.65;
+    double t4CdSTrapRecoverySeconds=2.8;
+    double t4CdSTrapConductanceFraction=.012;
 
 };
 class HighPassCircuit {
@@ -263,22 +270,22 @@ public:
         // The trap's small conductance fraction controls residual recovery
         // without slowing initial conduction or faking an output envelope.
         const double dt=1./fs;
-        const double rise=isPanel?.010:
+        const double rise=isPanel?p.t4CdSAttackSeconds:
                          cellKind==CellKind::VTL5C2?.0035:p.attackCellSeconds;
-        const double fastDecay=isPanel?.065:
+        const double fastDecay=isPanel?p.t4CdSFastRecoverySeconds:
                                cellKind==CellKind::VTL5C2?.065:
                                                      p.fastDarkRecoverySeconds;
-        const double trapRise=isPanel?.65:
+        const double trapRise=isPanel?p.t4CdSTrapChargeSeconds:
                               cellKind==CellKind::VTL5C2?.45:
                                                     p.trapChargeSeconds;
-        const double trapDecay=isPanel?2.8:
+        const double trapDecay=isPanel?p.t4CdSTrapRecoverySeconds:
                                cellKind==CellKind::VTL5C2?1.0:
                                                     p.trapRecoverySeconds;
         const double tFast=lightTarget>lightFast?rise:fastDecay;
         const double tTrap=lightTarget>lightSlow?trapRise:trapDecay;
         lightFast+=tauRC(tFast,dt)*(lightTarget-lightFast);
         lightSlow+=tauRC(tTrap,dt)*(lightTarget-lightSlow);
-        const double w=isPanel?.012:
+        const double w=isPanel?p.t4CdSTrapConductanceFraction:
              cellKind==CellKind::VTL5C2?.002:
              std::clamp(p.trapConductanceFraction,0.,.1);
         illumination=std::max(0.,(1.-w)*lightFast+w*lightSlow);
