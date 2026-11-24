@@ -77,3 +77,6 @@ target_compile_features(nickel_opto_resistor_tune PRIVATE cxx_std_20)
 
 add_executable(nickel_t4_limiter_tune tune_t4_limiter.cpp)
 target_compile_features(nickel_t4_limiter_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_line_level_knee_tune tune_line_level_knee.cpp)
+target_compile_features(nickel_line_level_knee_tune PRIVATE cxx_std_20)
