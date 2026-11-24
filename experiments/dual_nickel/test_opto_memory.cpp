@@ -27,7 +27,7 @@ static Results measure(double ms,double milliamps) {
   Results r{};
   const auto current=milliamps*.001;
   r.ledMilliamps=current*1000.;
-  const auto targetConductance=1./500.e3+(1./500.-1./500.e3)*
+  const auto targetConductance=1./1.e6+(1./500.-1./1.e6)*
                                     (current/.020);
   const int onSamples=int(ms*.001*sampleRate);
   for(int n=0;n<onSamples;++n) {
@@ -75,7 +75,7 @@ int main(){
   // representative specs, not guaranteed min/max limits.
   if(!(medium.rise63ms>2.0&&medium.rise63ms<5.5))return 4;
   if(!(medium.off500>70000.&&medium.off500<150000.))return 5;
-  if(!(medium.off10000>450000.))return 6;
+  if(!(medium.off10000>=500000.))return 6;
   // Prolonged illumination must fill traps so 500ms and 1s later
   // it leaves distinctly more residual light conductance than a
   // short pulse, even though the bright state itself reaches nearly
