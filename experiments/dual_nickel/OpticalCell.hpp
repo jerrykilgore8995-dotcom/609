@@ -49,14 +49,14 @@ struct OptoParts {
     // Sidechain resistor networks selected by a mechanical-style mode switch.
     // Audio gain reduction still comes solely from the modeled photocell.
     double ledDriverRin=10000.;
-    double ledCompFeedbackR=12000., ledLimitFeedbackR=68000.;
+    double ledCompFeedbackR=10000., ledLimitFeedbackR=68000.;
     double kneeDiodeIs=2e-9, kneeDiodeN=1.7;
     double compKneeSeriesR=33000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
     // EL limiter relay adds a resistively summed pre-attenuator tap,
     // reducing negative feedback without changing EL or CdS device models.
-    double elLimitInputTapR=33000., elLimitFeedbackTapR=15000.;
+    double elLimitInputTapR=110000., elLimitFeedbackTapR=4700.;
     double ledDriverRfeedback=25000.; // legacy FF feedback-diode branch reference
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
