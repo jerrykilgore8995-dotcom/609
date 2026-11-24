@@ -5,6 +5,8 @@ on:
     paths:
       - 'experiments/dual_nickel/DiscreteOutputDriver.hpp'
       - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/NodalBjtOutput.hpp'
+      - 'experiments/dual_nickel/test_nodal_bjt.cpp'
       - 'experiments/dual_nickel/DynamicLowMid.hpp'
       - 'experiments/dual_nickel/AnalogOptoProcessor.hpp'
       - 'experiments/dual_nickel/test_analog_opto.cpp'
@@ -24,6 +26,10 @@ jobs:
         run: cmake -S experiments/dual_nickel -B build/option-c -DCMAKE_BUILD_TYPE=Release
       - name: Compile Option C
         run: cmake --build build/option-c --target nickel_option_c --parallel 2
+      - name: Compile 5-node transistor MNA
+        run: cmake --build build/option-c --target nickel_nodal_bjt --parallel 2
+      - name: Test Gummel-Poon MNA, device charge and 600/10k loading
+        run: ./build/option-c/nickel_nodal_bjt | tee nodal-bjt-results.txt
       - name: Compile full analog optical DSP
         run: cmake --build build/option-c --target nickel_analog_opto --parallel 2
       - name: Validate LED/CdS, loaded RC, C4-style band and mono signal path
@@ -46,4 +52,5 @@ jobs:
           name: option-c-transistor-load-validation
           path: |
             option-c-results.txt
+            nodal-bjt-results.txt
             option-c-spice-reference.txt
