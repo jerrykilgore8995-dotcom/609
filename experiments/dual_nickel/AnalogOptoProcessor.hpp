@@ -47,6 +47,7 @@ public:
     double opticalGr() const noexcept {return comp.reductionDb();}
     double lowMidGr() const noexcept {return low.reductionDb();}
     double photocellResistance() const noexcept {return comp.ldrOhms();}
+    float lastOpticalOutput() const noexcept {return comp.lastAttenuatorOutput();}
     double outputLoad() const noexcept {return output.outputLoadOhms();}
     float processMagnetic(float input) noexcept {
         return xfmr.process(float(input*nickel::dbGain(drive)));
@@ -86,7 +87,7 @@ private:
 class StereoEngine {
 public:
     void prepare(double sr) noexcept {left.prepare(sr);right.prepare(sr);}
-    void reset() noexcept {left.reset();right.reset();}
+    void reset() noexcept {left.reset();right.reset();previousDetector=0.;}
     void setInputDb(double v) noexcept {left.setInputDb(v);right.setInputDb(v);}
     void setMakeupDb(double v) noexcept {left.setMakeupDb(v);right.setMakeupDb(v);}
     void setAttackMs(double v) noexcept {left.setAttackMs(v);right.setAttackMs(v);}
@@ -129,9 +130,14 @@ public:
         const float linkedLow=std::abs(dl)>=std::abs(dr)?dl:dr;
         const float pl=left.processLowMid(ml,linkedLow,true);
         const float pr=right.processLowMid(mr,linkedLow,true);
-        const float detector=std::abs(pl)>=std::abs(pr)?pl:pr;
+        // Linked feedback is taken after each LDR attenuator, not from
+        // its input. Preserve one sample of detector delay for the physical
+        // rectifier/storage capacitor loop.
+        const float detector=previousDetector;
         l=left.processFromOpto(pl,detector,true);
         r=right.processFromOpto(pr,detector,true);
+        const float ol=left.lastOpticalOutput(),or_=right.lastOpticalOutput();
+        previousDetector=std::abs(ol)>=std::abs(or_)?ol:or_;
     }
     double grLeft() const noexcept {return left.opticalGr();}
     double grRight() const noexcept {return right.opticalGr();}
@@ -139,5 +145,6 @@ public:
     double lowGrRight() const noexcept {return right.lowMidGr();}
 private:
     MonoEngine left,right;
+    float previousDetector=0.f;
 };
 } // namespace analogopto
