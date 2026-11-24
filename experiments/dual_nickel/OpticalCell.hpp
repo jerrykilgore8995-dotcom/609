@@ -39,12 +39,7 @@ struct OptoParts {
     double ledDriverRin=10000., ledDriverRfeedback=25000.; // detector amplifier gain
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
-    double feedForwardSeriesR=10000., feedForwardShuntR=10000.;
-    // Real RC lead compensation from LED sense resistor to the inverting
-    // summing input of its driver. This acts on *changes* in LED current
-    // without moving its steady operating point.
-    double ledSenseOhms=220.,ledLeadCapF=4.7e-6,ledLeadR=10000.;
-    double ledLeadAmpRin=10000.,ledLeadAmpRf=15000.;
+    double feedForwardSeriesR=2200., feedForwardShuntR=10000.;
 };
 class HighPassCircuit {
 public:
@@ -211,7 +206,7 @@ public:
     void prepare(double hz,OptoParts part={}) noexcept {
         p=part;fs=hz;detector.prepare(fs,p);cell.prepare(fs,p);reset();
     }
-    void reset() noexcept {detector.reset();cell.reset();ledControl=lastOutput=leadCapV=0.;}
+    void reset() noexcept {detector.reset();cell.reset();ledControl=lastOutput=0.;}
     void setAttackMs(double x) noexcept {detector.setAttackMs(x);}
     void setReleaseMs(double x) noexcept {detector.setReleaseMs(x);}
     void setSidechainHpF(bool x) noexcept {detector.setSidechainHpF(x);}
@@ -238,18 +233,7 @@ public:
         const double ratioFeedback=1.+(ratio-1.)*.25;
         const double source=std::clamp(above*amplifierGain*ratioFeedback,
                                      0.,p.ledSupply);
-        // LED sense resistor + series capacitor / shunt resistor generate
-        // an AC voltage proportional to changes in the LED current.
-        // The inverting feedback amplifier reduces rapid overdrive while
-        // allowing the original DC steady-state optical compression.
-        const double dt=1./fs;
-        const double sensing=cell.actualLedAmps()*p.ledSenseOhms;
-        const double leadCurrent=(sensing-leadCapV)/
-            (std::max(1.,p.ledLeadR)+dt/std::max(1.e-9,p.ledLeadCapF));
-        leadCapV+=dt*leadCurrent/std::max(1.e-9,p.ledLeadCapF);
-        const double leadVolts=leadCurrent*p.ledLeadR;
-        const double leadGain=p.ledLeadAmpRf/std::max(1.,p.ledLeadAmpRin);
-        ledControl=std::clamp(source-leadGain*leadVolts,0.,p.ledSupply);
+        ledControl=source;
         const double y=cell.process(double(x)*17.3677,ledControl);
         lastOutput=y/17.3677;
         return float(lastOutput);
@@ -265,7 +249,7 @@ public:
     double ledAmps() const noexcept {return cell.actualLedAmps();}
 private:
     OptoParts p{};
-    double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.,lastOutput=0.,leadCapV=0.;
+    double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
     bool feedforward=false;
     OpticalDetector detector;
     LdrCell cell;
