@@ -51,3 +51,7 @@ add_test(NAME opto_memory_calibration COMMAND nickel_opto_memory)
 add_executable(nickel_analog_character measure_analog_character.cpp)
 target_compile_features(nickel_analog_character PRIVATE cxx_std_20)
 target_link_libraries(nickel_analog_character PRIVATE chowdsp_wdf)
+
+add_executable(nickel_analog_imd measure_analog_imd.cpp)
+target_compile_features(nickel_analog_imd PRIVATE cxx_std_20)
+target_link_libraries(nickel_analog_imd PRIVATE chowdsp_wdf)
