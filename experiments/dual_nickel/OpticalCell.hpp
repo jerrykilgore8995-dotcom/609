@@ -46,7 +46,15 @@ struct OptoParts {
     double detectorCapESR=0.25;
     double detectorPotR=100000., detectorPotWiper=0.5;
     double detectorHoldCapF=1e-6;
-    double ledDriverRin=10000., ledDriverRfeedback=25000.; // detector amplifier gain
+    // Sidechain resistor networks selected by a mechanical-style mode switch.
+    // Audio gain reduction still comes solely from the modeled photocell.
+    double ledDriverRin=10000.;
+    double ledCompFeedbackR=17000., ledLimitFeedbackR=68000.;
+    double kneeDiodeIs=2e-9, kneeDiodeN=1.7;
+    double compKneeSeriesR=6800., limitKneeSeriesR=3300.;
+    double compClampTopR=68000., limitClampTopR=47000.;
+    double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
+    double ledDriverRfeedback=25000.; // legacy FF feedback-diode branch reference
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
     double feedForwardSeriesR=3300., feedForwardShuntR=10000.;
@@ -104,6 +112,7 @@ public:
         lightFast=lightSlow=illumination=0.;
         audioCapV=panelAudioV=0.;panelLight=panelVoltage=meterLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
     }
+    void setLimiter(bool enabled) noexcept { limiter=enabled; }
     void select(CellKind kind) noexcept {
         if(kind==cellKind)return;
         cellKind=kind;reset();
@@ -178,7 +187,7 @@ public:
         if(voltage<=0.)return 0.;
         const double bjtVt=std::max(.01,p.ledLimiterN*p.thermalV);
         const double reference=p.ledLimiterRail*p.ledLimiterBottomOhms/
-            std::max(1.,p.ledLimiterTopOhms+p.ledLimiterBottomOhms);
+            std::max(1.,(limiter?p.limitClampTopR:p.compClampTopR)+p.ledLimiterBottomOhms);
         double lo=0.,hi=cellKind==CellKind::VTL5C2?.040:p.maxLedA;
         for(int i=0;i<24;++i) {
             const double current=.5*(lo+hi);
@@ -285,6 +294,7 @@ private:
     double fs=44100.,lightFast=0.,lightSlow=0.,illumination=0.,
            audioCapV=0.,panelAudioV=0.,panelLight=0.,panelVoltage=0.,meterLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
     CellKind cellKind=CellKind::NSL32;
+    bool limiter=false;
 };
 // Detector consists of physical AC coupling, Shockley-like rectifier,
 // and asymmetric charge/discharge of an actual RC storage capacitor.
@@ -351,6 +361,7 @@ public:
     void setThresholdDb(double x) noexcept {threshold=std::clamp(x,-45.,18.);}
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
+    void setLimiter(bool enabled) noexcept {limiter=enabled;cell.setLimiter(enabled);}
     void setCellKind(CellKind kind) noexcept {
         if(cell.selected()==kind)return;
         cell.select(kind);detector.reset();t4Sidechain.reset();ledControl=lastOutput=0.;
@@ -363,7 +374,8 @@ public:
             // sidechain audio (pre- or post-cell, according to FF switch).
             // Threshold controls sidechain amplifier sensitivity.
             const double gain=p.elPanelVoltageGain*
-                 dB(-18.-threshold);
+                 dB(-18.-threshold)*
+                 (limiter?p.elLimitFeedbackR/p.elCompFeedbackR:1.);
             const double side=hpfEnabled?t4Sidechain.process(
                                double(sidechain)*17.3677):
                                double(sidechain)*17.3677;
@@ -380,13 +392,31 @@ public:
                                                   17.3677*detectorDrive*
                                                   detectorPad);
         const double thresholdV=.775*dB(threshold);
-        // Detector amplifier drives physical LED through a 220R resistor.
-        const double above=std::max(0.,detected-thresholdV);
-        // Noninverting detector driver gain is determined by an actual
-        // physical input and feedback resistors, without a ratio control.
-        const double amplifierGain=p.ledDriverRfeedback/
-                                    std::max(1.,p.ledDriverRin);
-        const double target=std::max(0.,above*amplifierGain);
+        // Two physical branches feed the LED-driver summing junction:
+        // a linear Rin branch and a forward-biased diode + series resistor
+        // branch.  The latter increases transconductance progressively,
+        // creating an electrical soft knee without a digital dB curve.
+        const double overdrive=detected-thresholdV;
+        const double feedbackR=limiter?p.ledLimitFeedbackR:p.ledCompFeedbackR;
+        const double kneeR=limiter?p.limitKneeSeriesR:p.compKneeSeriesR;
+        double diodeCurrent=0.;
+        if(overdrive>0.) {
+            // Shockley diode KCL: V=I*R+n*Vt*ln(1+I/Is).
+            // Fixed-count bisection keeps real-time CPU bounded.
+            double lo=0.,hi=overdrive/kneeR;
+            const double diodeVt=std::max(.01,p.kneeDiodeN*p.thermalV);
+            for(int n=0;n<12;++n) {
+                const double current=.5*(lo+hi);
+                const double junction=diodeVt*
+                    std::log1p(current/p.kneeDiodeIs);
+                if(current*kneeR+junction>overdrive)hi=current;
+                else lo=current;
+            }
+            diodeCurrent=.5*(lo+hi);
+        }
+        const double inputCurrent=std::max(0.,overdrive)/p.ledDriverRin+
+                                  diodeCurrent;
+        const double target=inputCurrent*feedbackR;
         double source=target;
         if(feedforward) {
             // The detector amplifier's inverting resistor-feedback branch is
@@ -423,7 +453,7 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,threshold=-18.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
-    bool feedforward=false,hpfEnabled=false;
+    bool feedforward=false,hpfEnabled=false,limiter=false;
     OpticalDetector detector;
     HighPassCircuit t4Sidechain;
     LdrCell cell;
