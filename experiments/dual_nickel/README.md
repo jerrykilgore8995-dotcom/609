@@ -1,129 +1,121 @@
-# Dual-Nickel Magnetic Circuit — development branch
+# Nickel Opto — Option C guitar-bus / bass optical compressor
 
-**Scope:** this is the two-transformer audio-color engine only. The 33609JD
-native engine and 609 VST3 sources are untouched. The zener limiter itself
-and a separate JUCE plug-in have not yet been integrated.
+Development branch: `feature/dual-nickel-zener-prototype`. **The original 609
+plugin, native DLL and production sources on main are not modified.** The branch
+name is historical; the current design is no longer a dual-transformer zener
+limiter.
 
-## Implemented DSP
+## Production-intended mono signal path
 
-- 1:1 49%-nickel-*alloy-inspired* character input stage and 1:1
-  high-nickel Jensen JT-11-BMCF-*inspired* low-distortion output stage.
-- Magnetization state with Langevin anhysteretic curve, reversible and
-  irreversible Jiles–Atherton-style terms, domain-wall pinning, branch
-  direction and stateful minor-loop response.
-- Implicit electric/magnetic coupling via Faraday's law and KCL of the
-  primary/secondary windings. Primary and secondary copper resistance,
-  leakage inductance, shunt winding capacitance, finite core-loss
-  resistance, source resistance, external load and winding current
-  history are in the **same** implicit solve.
-- A separate actual `chowdsp_wdf` RC receiving network, including correct
-  series adaptor, polarity inverter and ideal source reflection wiring.
-  **Not** yet a completely WDF-native magnetic multiport network: the
-  coupled nonlinear core uses MNA-style equations and safeguarded Newton
-  iterations with high-precision bisection fallback. That distinction is
-  intentional and must not be described as full-WDF.
-- Drive -12 to +18 dB before input core; interstage -24 to +24 dB and
-  makeup -12 to +24 dB before output core; gain compensation after the
-  output core, linked by default, can be unlinked.
-- Internal scale: normalized digital peak 1.0 represents a +24 dBu
-  full-scale RMS sine; nominal +4 dBu is -20 dBFS peak.
+1. Input Drive -18 to +18 dB (clean source driver)
+2. 1:1 49%-nickel-alloy-*inspired* magnetic input transformer (Jiles–Atherton
+   state, nonlinear implicit magnetic KCL, resistive/capacitive winding loading
+   and a chowdsp_wdf receiver)
+3. Switchable C4-*style* single dynamic low-mid band, 80–400 Hz center,
+   adjustable width, threshold, max attenuation, attack and release;
+   phase-aligned three-band Linkwitz–Riley-4 topology
+4. Sidechain: passive loaded-pot RC high-pass (40–300 Hz), diode full-wave
+   rectifier, physical timing capacitors with variable charge/discharge
+   resistances, LED driver amplifier
+5. LED/CdS photocell attenuation: actual diode Shockley current solution,
+   photoconductance with history-dependent light-state charge and release,
+   resistor-network KCL; not a synthetic distortion curve
+6. Makeup gain
+7. 2N5088 NPN + 2N5087 PNP complementary class-AB emitter follower on
+   +/-15 V rails, **five-node nonlinear MNA** (base, emitter and output
+   potentials), model-card transport/charge terms, coupling capacitors with
+   ESR, dielectric-history approximation, and selectable modeled 600-ohm /
+   10-kohm load
+8. Post-circuit Output Trim with Input-Drive-linked gain compensation by
+   default; link can be disabled
 
-## Measured simulation baseline (GitHub Linux runner)
+Stereo: two independent magnetic/audio circuits, matched and **linked low-mid
+detectors and optical detectors** to avoid image movement. Mono: only one
+processing channel and the left half of the VST3 editor. The new VST3 is
+`juce_plugin/` and is an independent target/product ID.
 
-Latest fully measured reference before phase/report additions:
-[CI run](https://github.com/jerrykilgore8995-dotcom/609/actions/runs/45250003735).
-At +4 dBu:
-| Frequency | Character input THD | Clean output THD |
-|---|---:|---:|
-| 20 Hz | 1.4827% | 0.004164% |
-| 50 Hz | 0.39862% | 0.000715% |
-| 100 Hz | 0.12605% | about 0.00081% |
-| 1 kHz | 0.001714% | 0.0000020% |
+## Main source files
 
-One transformer channel: 1.55 ms per 512 samples on that runner at
-44.1 kHz, release build. Four equivalent channels would estimate about
-6.2 ms before the limiter; this estimate is **not** a measured stereo
-plugin benchmark and does not include oversampling, host or limiter.
+- `NickelTransformer.hpp`: magnetic input, and **legacy** dual-transformer
+  regression code. The new `MonoEngine` uses just the input transformer.
+- `OpticalCell.hpp`: optocell, LED diode, LDR KCL, physical sidechain.
+- `DynamicLowMid.hpp`: active, phase-aligned low-mid multiband compression.
+- `NodalBjtOutput.hpp`: **current** five-node BJT nonlinear solver.
+- `DiscreteOutputDriver.hpp`: **legacy reduced BJT reference**, not used
+  in the new Nickel Opto engine.
+- `2N5088_2N5087_models.lib`: published NSC/Fairchild-attributed full
+  SPICE card parameters.
+- `option_c_reference.cir`: transistor-level ngspice reference circuit.
+- `AnalogOptoProcessor.hpp`: full mono and stereo DSP wiring.
+- `juce_plugin/Plugin.cpp`: VST3 processing, parameters and half-width
+  mono / dual-panel stereo GUI.
+- `test_nodal_bjt.cpp`, `test_analog_opto.cpp`, `test_opto_character.cpp`:
+  nodal current/charge, optocell, detector, crossover, stereo and CPU checks.
 
-The CTest suite checks finite behavior, abnormal peaks, clean-core THD,
-response magnitude within +/-1 dB across the tested 20 Hz–10 kHz tones,
-and the two-stage linked/unlinked routing path. Raw THD is measured with
-a 44.1 kHz sampled, integer-cycle harmonic projection (K2–K20 within
-Nyquist). Phase is reported using sine/cosine projections. Very small
-THD values are limited by the solver and measurement precision.
+## Build and validation
 
-## Hardware fidelity limitations
-
-Neither core's real B-H curve, actual winding parasitics, magnetic
-dimensions, nor Jensen phase/THD curves have been fitted to physical
-hardware data. Parameters are **engineering estimates**, not factory
-specifications. The current clean-model 20 Hz THD is roughly twice the
-0.002% typical Jensen figure referenced in the design discussion.
-It would be inaccurate to claim this is an exact Jensen or N49
-recreation. Full load sweeps, 20 kHz magnitude and phase verification,
-multi-tone IMD, sample-rate/oversampling alias tests and actual SER8
-real-time VST3 testing remain necessary.
-
-## Build
-
+Standalone DSP:
 ```sh
-cmake -S experiments/dual_nickel -B build/dual-nickel -DCMAKE_BUILD_TYPE=Release
-cmake --build build/dual-nickel --config Release
-ctest --test-dir build/dual-nickel --output-on-failure
-./build/dual-nickel/nickel_smoke
+cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+cmake --build build/nickel --parallel 2
+ctest --test-dir build/nickel --output-on-failure
 ```
 
-The standalone target fetches `chowdsp_wdf` from upstream. Pin the library
-to a tested commit before a release build.
+Windows VST3:
+```powershell
+cmake -S experiments/dual_nickel/juce_plugin -B build/nickel-vst3 -G "Visual Studio 17 2022" -A x64
+cmake --build build/nickel-vst3 --config Release --parallel 2
+```
 
-## Planned limiter integration
+GitHub Actions:
+- `Nickel Opto circuit validation` (Linux C++, ngspice reference, CTest,
+  complete mono/stereo full DSP benchmarks).
+- `Nickel Opto VST3 Windows build` (JUCE 8 Windows x64 build and artifact).
+- Legacy dual-output-transformer tests remain in source for prior comparison
+  but are intentionally not used by the new analog opto production path.
 
-8:1 circuit-derived zener limiting, threshold control,
-1/8/15 ms attack (8 default), 50/100/250/500/1000 ms
-recovery (100 default), and a large ascending 0–20 dB
-gain-reduction meter in a **new** JUCE plug-in target. None of these are
-implemented or claimed tested here.
+## Calibration and fidelity limitations
 
-## Option C prototype (revised direction)
+This is a real stateful electrical DSP implementation, **not** a vendor
+hardware clone. The nickel core lacks measured B/H geometry or samples.
+The selected optical reference is NSL-32 family: published approximate 500
+ohms at 20 mA, off-resistance 500 kohms, 3.5 ms rise and
+approximately 500 ms decay to 100 kohms under specified datasheet
+conditions. The transfer curve and multi-time-constant light-memory
+states use engineering fitting assumptions; *full measured cell curves,
+temperature, aging and lot-to-lot spread are not yet characterized*.
 
-The new `DiscreteOutputDriver.hpp` and `test_option_c.cpp` implement an **isolated** clean input-transformer / discrete makeup-output-driver candidate. The existing `DualTransformerGain` class and its previous test fixtures remain for regression and comparison, but are **not the desired final production topology**. The final path is:
+The MNA circuit stamps forward/reverse transistor transport, Early voltage,
+high-injection current, depletion and transit-charge branches, series
+base/emitter resistances, nodal current KCL and capacitive history.
+Some full SPICE card secondary features (e.g. collector bulk node and
+bias-dependent transit parameter XTF/VTF/ITF, temperature scaling)
+are still simplified. Do not describe its output as **exactly** full
+ngspice or as validated within 5% without an explicit numerical comparison.
+The SPICE netlist contains idealized bias references, so separate bias,
+DC operating point and temperature calibration are also required.
 
-Input Drive → clean source driver → existing 49%-nickel input transformer → receiver/coupling → [C4-style band and optical gain cell, not yet implemented] → makeup → NPN+PNP emitter-follower output → series output capacitor → linked final trim. No output transformer.
+The optical attack/release knobs change detector RC resistances. The
+actual gain-reduction timing is limited by nonlinear light rise,
+multi-stage release and history. The optical ratio control changes
+sidechain amplifier feedback; **actual steady-state compression slope
+must be measured**, rather than assuming the printed ratio is exact.
 
-This is a transistor-model **engineering prototype**, not a characterized real device or finished optical compressor. The BJT currents are Shockley/exponential with emitter resistors and a bounded nodal solve. Explicit capacitor state models are in the signal path, with ESR and a simple dielectric relaxation branch; the dielectric model needs hardware calibration. Bias and transistor parameters are provisional. The clean stage is intended to be measured at +4 dBu nominal line level with 10 kΩ and 600 Ω loads, and tested at increased levels and changed coupling capacitance. It does not claim a validated +24 dBu clean headroom on ±15 V rails.
+An optocell by itself doesn't necessarily generate even-order harmonics.
+Distortion must emerge from its actual nonlinear device/current/circuit
+behavior, not injected K2 values.
 
-The C4-style dynamic low-mid circuit, selectable RC sidechain HPF, and LED/LDR optical compressor are separate future circuit modules. Do not mistake the current `processOpticalOutput` integration point for a modeled optical gain cell.
+Measured time in the GitHub Linux CI runner is **not** a Windows Reaper
+or SER8 worst-case real-time result. 44.1k/512 processing budget is
+approximately 11.61 ms. Dynamic control changes, 600-ohm loading,
+stereo bursts, variable attack/recovery, multitone aliasing and final
+sample-rate sweeps must be validated before an accuracy/performance release.
 
-## 2N5088 / 2N5087 output stage and load switch
+## References
 
-Option C's `DiscreteOutputDriver.hpp` now has a **600-ohm / 10-kohm load
-selector** (`setOutputLoadOhms(600)` / `setOutputLoadOhms(10000)`).
-The load affects the KCL of the emitter followers, the current demand, and the
-output electrolytic coupling-cap voltage/phase. The default is 10 kohm.
-It does **not** select between two fabricated harmonic curves.
-
-The transistor pair is 2N5088 (NPN) and 2N5087 (PNP), one each **per
-channel**, in a complementary push-pull emitter-follower configuration.
-The preliminary stage uses +/-15 V rails, 22-ohm emitter resistors,
-47-uF input and 100-uF output coupling caps, source/load impedances,
-series ESR, and a simplified dielectric-relaxation branch.
-
-`2N5088_2N5087_models.lib` contains complete published SPICE cards
-collected from the KiCad SPICE library (NSC-attributed 2N5088 and
-Fairchild-attributed 2N5087). See:
-https://github.com/kicad-spice-library/KiCad-Spice-Library/blob/master/Models/Transistor/BJT/BJT.lib
-These are **not device-characterized measurements of the particular
-transistors in this hypothetical circuit**.
-
-`option_c_reference.cir` is the **ngspice** transistor-level reference
-with both loads. Its base bias is currently idealized (+/-0.73 V) for
-comparison; it does not yet include a complete thermal-bias circuit.
-The *real-time* C++ processing uses Is, BF, IKF, VAF and some parasitic
-resistances from the cards but omits complete Gummel-Poon reverse-mode,
-charge-storage and depletion-capacitance dynamics. Accordingly it MUST
-NOT be called full-SPICE-accurate or manufacturer-validated. Next step:
-compare 600/10k sweeps against the SPICE reference, then fit and test
-the BJT nodal solver at +4, +12, +18, +22 dBu and 20 Hz–20 kHz,
-including device bias/collector-current limits and thermal behavior.
-The selected load is an **internal modeled impedance**; it does not
-change physical interface impedance at the DAW's hardware output.
+- NSL-32 optocoupler datasheet (Silonex family):
+  https://www.alldatasheet.fr/html-pdf/205826/SILONEX/NSL-32/293/1/NSL-32.html
+- Published BJT cards:
+  https://github.com/kicad-spice-library/KiCad-Spice-Library/blob/master/Models/Transistor/BJT/BJT.lib
+- Andy Sneap's original description of single-band C4 guitar ducking:
+  https://www.waves.com/metal-mixing-tips-andy-sneap
