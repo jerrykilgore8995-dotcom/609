@@ -48,8 +48,17 @@ public:
     double lowMidGr() const noexcept {return low.reductionDb();}
     double photocellResistance() const noexcept {return comp.ldrOhms();}
     double outputLoad() const noexcept {return output.outputLoadOhms();}
+    float processMagnetic(float input) noexcept {
+        return xfmr.process(float(input*nickel::dbGain(drive)));
+    }
+    float processLowMid(float magnetic,float external,bool useExternal) noexcept {
+        return low.process(magnetic,external,useExternal);
+    }
+    float lowMidDetector(float magnetic) noexcept {
+        return float(low.detectBand(magnetic));
+    }
     float processBeforeOpto(float input) noexcept {
-        const float magnetic=xfmr.process(float(input*nickel::dbGain(drive)));
+        const float magnetic=processMagnetic(input);
         return low.process(magnetic);
     }
     float processFromOpto(float prepared,float stereoDetector,
@@ -113,14 +122,21 @@ public:
         left.setOutputTrimDb(v);right.setOutputTrimDb(v);
     }
     void process(float& l,float& r) noexcept {
-        const float pl=left.processBeforeOpto(l);
-        const float pr=right.processBeforeOpto(r);
+        const float ml=left.processMagnetic(l);
+        const float mr=right.processMagnetic(r);
+        const float dl=left.lowMidDetector(ml);
+        const float dr=right.lowMidDetector(mr);
+        const float linkedLow=std::abs(dl)>=std::abs(dr)?dl:dr;
+        const float pl=left.processLowMid(ml,linkedLow,true);
+        const float pr=right.processLowMid(mr,linkedLow,true);
         const float detector=std::abs(pl)>=std::abs(pr)?pl:pr;
         l=left.processFromOpto(pl,detector,true);
         r=right.processFromOpto(pr,detector,true);
     }
     double grLeft() const noexcept {return left.opticalGr();}
     double grRight() const noexcept {return right.opticalGr();}
+    double lowGrLeft() const noexcept {return left.lowMidGr();}
+    double lowGrRight() const noexcept {return right.lowMidGr();}
 private:
     MonoEngine left,right;
 };
