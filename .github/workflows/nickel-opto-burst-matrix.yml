@@ -1,0 +1,26 @@
+name: Nickel Opto 1kHz burst matrix
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/measure_opto_burst_matrix.cpp'
+      - '.github/workflows/nickel-opto-burst-matrix.yml'
+  workflow_dispatch:
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure optical cell measurement
+        run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+      - name: Build only dedicated 1kHz optocell burst executable
+        run: cmake --build build/nickel --target nickel_opto_burst_matrix --parallel 2
+      - name: Measure short and long attack and six-second recovery
+        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv
+      - name: Publish measurements
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opto-cell-short-long-bursts-1khz
+          path: opto-cell-burst-matrix.csv
