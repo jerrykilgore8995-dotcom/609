@@ -13,7 +13,7 @@ TestResult measure(double freq,double dbu,double load=10000.,double cap=100.e-6)
     nickel::OutputStageParams config{};
     config.outputLoadR=load;config.outputCapF=cap;
     d.prepare(fs,config);
-    constexpr int n=44100;
+    constexpr int n=11025;
     const double amp=std::sqrt(2.)*.775*std::pow(10.,dbu/20.)/nickel::fullScalePeakVolts;
     std::vector<double> y(n);
     for(int i=0;i<2*n;++i){
