@@ -4,6 +4,8 @@ on:
     branches: [feature/dual-nickel-zener-prototype]
     paths:
       - 'experiments/dual_nickel/measure_opto_burst_matrix.cpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/tune_t4_recovery.cpp'
       - '.github/workflows/nickel-opto-burst-matrix.yml'
   workflow_dispatch:
 jobs:
@@ -15,12 +17,16 @@ jobs:
       - name: Configure optical cell measurement
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Build only dedicated 1kHz optocell burst executable
-        run: cmake --build build/nickel --target nickel_opto_burst_matrix --parallel 2
+        run: cmake --build build/nickel --target nickel_opto_burst_matrix nickel_t4_recovery_tune --parallel 2
       - name: Measure short and long attack and six-second recovery
         run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv
+      - name: Measure T4B fast and trap recovery resistor-coupled CdS dynamics
+        run: ./build/nickel/nickel_t4_recovery_tune | tee t4-physical-recovery-tune.csv
       - name: Publish measurements
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: opto-cell-short-long-bursts-1khz
-          path: opto-cell-burst-matrix.csv
+          path: |
+            opto-cell-burst-matrix.csv
+            t4-physical-recovery-tune.csv
