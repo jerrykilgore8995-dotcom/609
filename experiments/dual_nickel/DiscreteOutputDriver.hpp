@@ -3,17 +3,33 @@
 // (integration point) -> complementary BJT makeup/output buffer.
 // Experimental discrete circuit equations, NOT measured transistor hardware.
 // No nonlinear waveshaper/harmonic injection. Output waveform is obtained by
-// solving parameterized BJT emitter currents against coupling-cap and output loads.\n// Published 2N5088/2N5087 SPICE cards are in 2N5088_2N5087_models.lib.\n// This is a reduced real-time BJT approximation, not a full SPICE simulator.
+// solving parameterized BJT emitter currents against coupling-cap and output loads.
+// Published 2N5088/2N5087 SPICE cards are in 2N5088_2N5087_models.lib.
+// This is a reduced real-time BJT approximation, not a full SPICE simulator.
 #include <algorithm>
 #include <cmath>
 #include "NickelTransformer.hpp"
 namespace nickel {
+struct SpiceBjtAudioParams {
+    double is, bf, ikf, vaf, rb, re, rc, cje, cjc, tf;
+};
+// Core model parameters transcribed from published SPICE cards, not
+// independently calibrated against physical transistor samples.
+inline constexpr SpiceBjtAudioParams npn2N5088{
+    5.911e-15,1122.,0.01492,62.37,10.,0.15,1.61,
+    4.973e-12,4.017e-12,821.7e-12
+};
+inline constexpr SpiceBjtAudioParams pnp2N5087{
+    6.734e-15,254.1,0.1962,45.7,10.,0.,1.67,
+    7.5e-12,6.2e-12,467.8e-12
+};
 struct OutputStageParams {
     double rail=15.0;            // +/-15 V rails
     double biasVbe=0.73;         // nominal base bias per transistor
     double saturationMargin=1.5; // safe initial voltage limit per rail
     double thermalVoltage=0.02585;
-    // BJT IS, BF, IKF, VAF, RB/RC and junction C are device-specific.\n    // bias is set by the actual driver resistor network, not by the .model card.
+    // BJT IS, BF, IKF, VAF, RB/RC and junction C are device-specific.
+    // bias is set by the actual driver resistor network, not by the .model card.
     double emitterR=22.0;       // NPN/PNP local degeneration
     double inputCapF=47e-6, inputESR=0.4, inputLeakR=2e6;
     double inputSourceR=100.0, inputLoadR=47000.0;
@@ -123,7 +139,9 @@ public:
     void setInputDriveDb(double x) noexcept {drive=std::clamp(x,-18.,18.);}
     void setMakeupDb(double x) noexcept {makeup=std::clamp(x,-12.,18.);}
     void setOutputTrimDb(double x) noexcept {trim=std::clamp(x,-24.,24.);}
-    void setLinked(bool x) noexcept {linked=x;}\n    void setOutputLoadOhms(double r) noexcept {driver.setOutputLoadOhms(r);}\n    double outputLoadOhms() const noexcept {return driver.outputLoadOhms();}
+    void setLinked(bool x) noexcept {linked=x;}
+    void setOutputLoadOhms(double r) noexcept {driver.setOutputLoadOhms(r);}
+    double outputLoadOhms() const noexcept {return driver.outputLoadOhms();}
     float processInput(float x) noexcept {
         return transformer.process(float(x*dbGain(drive)));
     }
