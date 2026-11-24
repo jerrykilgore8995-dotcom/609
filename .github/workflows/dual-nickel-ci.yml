@@ -19,7 +19,7 @@ jobs:
       - name: Configure
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Compile transistor, optical and full-path models
-        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts nickel_opto_trace nickel_opto_memory nickel_analog_character nickel_analog_imd nickel_stage_frequency_stability nickel_ultrasonic_response nickel_opto_variants nickel_opto_ratio_sweep nickel_opto_resistor_tune nickel_t4_limiter_tune nickel_line_level_knee_tune nickel_full_line_level --parallel 2
+        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts nickel_opto_trace nickel_opto_memory nickel_analog_character nickel_analog_imd nickel_stage_frequency_stability nickel_ultrasonic_response nickel_opto_variants nickel_opto_ratio_sweep nickel_opto_resistor_tune nickel_t4_limiter_tune nickel_line_level_knee_tune nickel_full_line_level nickel_opto_burst_matrix --parallel 2
       - name: Sweep Compressor and Limiter 1kHz curves for all optocells
         run: ./build/nickel/nickel_opto_ratio_sweep | tee opto-ratio-1khz.csv
       - name: Sweep candidate compressor feedback and diode series resistors
@@ -30,7 +30,7 @@ jobs:
         run: ./build/nickel/nickel_line_level_knee_tune | tee line-level-knee-calibration.csv
       - name: Measure full nickel transformer output compression at 1kHz with INPUT 0dB
         run: ./build/nickel/nickel_full_line_level | tee nickel-full-path-line-level.csv
-      - name: Run full physics and signal-path tests
+      - name: Measure all three optical cells with short and long 1kHz bursts\n        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv\n      - name: Run full physics and signal-path tests
         run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization|opto_memory_calibration|opto_cell_variants'
       - name: Output MNA convergence and CPU results
         run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
@@ -74,4 +74,4 @@ jobs:
             opto-compressor-resistors.csv
             t4-limiter-resistors.csv
             line-level-knee-calibration.csv
-            nickel-full-path-line-level.csv
+            nickel-full-path-line-level.csv\n            opto-cell-burst-matrix.csv
