@@ -6,11 +6,11 @@
 #include <iostream>
 #include <iomanip>
 constexpr double pi=3.14159265358979323846,fs=44100.,fsPeak=17.3677;
-static double eval(double input,double threshold,double feedbackR,double fraction) {
+static double eval(double input,double threshold,double feedbackR,double kneeR) {
     optocircuit::OptoParts p;
     p.ledCompFeedbackR=feedbackR;
-    p.compKneeSeriesR=33000.;
-    p.ledCompFeedbackTapR=100000.*fraction/(1.-fraction);
+    p.compKneeSeriesR=kneeR;
+    p.ledCompFeedbackTapR=0.;
     optocircuit::OpticalCompressor c;
     c.prepare(fs,p);c.setCellKind(optocircuit::CellKind::NSL32);
     c.setLimiter(false);c.setThresholdDb(threshold);
@@ -27,15 +27,15 @@ static double eval(double input,double threshold,double feedbackR,double fractio
 int main(){
     constexpr std::array<double,8> inputs{4.,6.,8.,10.,12.,14.,16.,20.};
     std::cout<<std::fixed<<std::setprecision(4);
-    std::cout<<"feedback_ohm,pre_detector_fraction,threshold_dbu,input_dbu,gr_db,interval_ratio\n";
-    for(double feedback:{3000.,4000.,5000.,6000.,8000.})
-    for(double fraction:{0.,.02,.05,.10,.20}) {
+    std::cout<<"feedback_ohm,knee_series_ohm,threshold_dbu,input_dbu,gr_db,interval_ratio\n";
+    for(double feedback:{4300.,4500.,4700.,5000.,5200.})
+    for(double knee:{22000.,33000.,47000.,68000.}) {
         double oldIn=0.,oldOut=0.;
         bool first=true;
         for(double in:inputs) {
-            const double out=eval(in,-18.,feedback,fraction);
+            const double out=eval(in,-18.,feedback,knee);
             const double local=first?0.:(in-oldIn)/(out-oldOut);
-            std::cout<<feedback<<","<<fraction<<",-18,"
+            std::cout<<feedback<<","<<knee<<",-18,"
                      <<in<<","<<in-out<<","<<local<<"\n";
             oldIn=in;oldOut=out;first=false;
         }
