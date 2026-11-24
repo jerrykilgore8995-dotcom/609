@@ -35,6 +35,7 @@ public:
     void setReleaseMs(double x) noexcept {comp.setReleaseMs(x);}
     void setThresholdDb(double x) noexcept {comp.setThresholdDb(x);}
     void setRatio(double x) noexcept {comp.setRatio(x);}
+    void setFeedforward(bool b) noexcept {comp.setFeedforward(b);}
     void setScHpf(bool enable) noexcept {comp.setSidechainHpF(enable);}
     void setScHpfHz(double hz) noexcept {comp.setSidechainHz(hz);}
     void setPalmMute(bool enable) noexcept {low.setEnabled(enable);}
@@ -94,6 +95,7 @@ public:
     void setReleaseMs(double v) noexcept {left.setReleaseMs(v);right.setReleaseMs(v);}
     void setThresholdDb(double v) noexcept {left.setThresholdDb(v);right.setThresholdDb(v);}
     void setRatio(double v) noexcept {left.setRatio(v);right.setRatio(v);}
+    void setFeedforward(bool b) noexcept {feedforward=b;left.setFeedforward(b);right.setFeedforward(b);}
     void setScHpf(bool v) noexcept {left.setScHpf(v);right.setScHpf(v);}
     void setScHpfHz(double v) noexcept {left.setScHpfHz(v);right.setScHpfHz(v);}
     void setPalmMute(bool v) noexcept {left.setPalmMute(v);right.setPalmMute(v);}
@@ -133,7 +135,8 @@ public:
         // Linked feedback is taken after each LDR attenuator, not from
         // its input. Preserve one sample of detector delay for the physical
         // rectifier/storage capacitor loop.
-        const float detector=previousDetector;
+        const float detector=feedforward?
+            (std::abs(pl)>=std::abs(pr)?pl:pr):previousDetector;
         l=left.processFromOpto(pl,detector,true);
         r=right.processFromOpto(pr,detector,true);
         const float ol=left.lastOpticalOutput(),or_=right.lastOpticalOutput();
@@ -146,5 +149,6 @@ public:
 private:
     MonoEngine left,right;
     float previousDetector=0.f;
+    bool feedforward=false;
 };
 } // namespace analogopto
