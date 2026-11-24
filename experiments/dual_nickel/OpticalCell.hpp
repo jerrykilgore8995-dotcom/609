@@ -61,6 +61,9 @@ struct OptoParts {
     double leadDriverRin=10000.,nslLeadDriverRf=4000.,vtlLeadDriverRf=4000.;
     double nslLeadClampBiasV=.8,vtlLeadClampBiasV=.8;
     double leadClampDiodeIs=2e-9,leadClampDiodeN=1.7;
+    // VTL5C2 only: biased diode, source resistor and summing resistor
+    // admitting additional pre-LDR current at HIGH input levels.
+    double vtlHighTapBiasV=3.0,vtlHighTapSeriesR=40000.,vtlHighTapSummingR=10000.;
     double ledCompFeedbackR=5000., ledLimitFeedbackR=68000.;
     // Ganged resistor deck selected with the optical cell cartridge.
     double vtlCompFeedbackR=5000., vtlCompKneeSeriesR=68000.;
@@ -429,9 +432,30 @@ public:
         const double preampGain=limiter?1.:(1.+
                   (cell.selected()==CellKind::VTL5C2?
                    p.vtlCompPreampRf:p.nslCompPreampRf)/p.detectorPreampRg);
-        const double detected=detector.process(double(sidechain)*
-                                                  17.3677*detectorDrive*
-                                                  detectorPad*preampGain);
+        double diodeHighTapVolts=0.;
+        if(!limiter && !feedforward && cell.selected()==CellKind::VTL5C2) {
+            // Real rectified diode branch from the attenuator input:
+            // Vpre - Vbias = I*Rseries + nVt*ln(1+I/Is).
+            // This feeds the detector summing node, NOT the audio signal.
+            const double pre=std::abs(double(x)*17.3677);
+            const double excess=pre-p.vtlHighTapBiasV;
+            if(excess>0.) {
+                double lo=0.,hi=excess/p.vtlHighTapSeriesR;
+                const double vt=p.kneeDiodeN*p.thermalV;
+                for(int n=0;n<12;++n) {
+                    const double i=.5*(lo+hi);
+                    if(i*p.vtlHighTapSeriesR+
+                       vt*std::log1p(i/p.kneeDiodeIs)>excess)hi=i;
+                    else lo=i;
+                }
+                const double current=.5*(lo+hi);
+                diodeHighTapVolts=std::copysign(
+                    current*p.vtlHighTapSummingR,double(x));
+            }
+        }
+        const double detected=detector.process(
+             (double(sidechain)*17.3677*detectorPad+
+              diodeHighTapVolts)*detectorDrive*preampGain);
         const double thresholdV=.775*dB(threshold);
         // Two physical branches feed the LED-driver summing junction:
         // a linear Rin branch and a forward-biased diode + series resistor
