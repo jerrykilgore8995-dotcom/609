@@ -28,8 +28,14 @@ struct OptoParts {
     double ledLimiterTopOhms=117000.,ledLimiterBottomOhms=15000.;
     double ledLimiterIs=5.911e-15,ledLimiterN=1.;
 
-    double attackCellSeconds=.0035, recoveryCellSeconds=.50;
-    double chargeFast=.45, conductanceExponent=1.0;
+    // NSL-32 at ~16mA: 3.5ms to 63% illuminated conductance, and
+    // ~500ms to 100k after LED turn-off (not an exponential tau).
+    // Separate slow trap population has a much longer charge time.
+    // Fast/slow parameters beyond those two datasheet points are provisional
+    // fitting values, NOT measured individual-cell curves.
+    double attackCellSeconds=.0035, fastDarkRecoverySeconds=.085;
+    double trapChargeSeconds=.70, trapRecoverySeconds=2.20;
+    double trapConductanceFraction=.005, conductanceExponent=1.0;
     double rectifierIs=2.e-9, rectifierN=1.7;
     double detectorSeriesR=100., detectorLoadR=100000.;
     double detectorCapF=100e-9;  // physical coupling high-pass
@@ -115,19 +121,21 @@ public:
         const double lightTarget=std::pow(std::max(0.,current)/
                             std::max(1e-8,p.ledReferenceA),
                             p.conductanceExponent);
-        // Two physical photoconductive relaxation states. Their light-memory
-        // evolution is slower when discharging, with the slow trap population
-        // additionally dependent on accumulated illumination.
+        // CdS photoconductance consists of a prompt carrier population
+        // and a physically separate slowly occupied trap population.
+        // Crucially the slow trap CHARGES over hundreds of milliseconds
+        // rather than being fully charged after a short musical transient.
+        // The trap's small conductance fraction controls residual recovery
+        // without slowing initial conduction or faking an output envelope.
         const double dt=1./fs;
-        const bool charging=lightTarget>illumination;
-        const double tFast=charging?p.attackCellSeconds:
-            std::max(p.recoveryCellSeconds*.13,.006);
-        const double tSlow=charging?p.attackCellSeconds*2.:
-            p.recoveryCellSeconds*(1.+std::min(2.,lightSlow));
+        const double tFast=lightTarget>lightFast?p.attackCellSeconds:
+                                                  p.fastDarkRecoverySeconds;
+        const double tTrap=lightTarget>lightSlow?p.trapChargeSeconds:
+                                                  p.trapRecoverySeconds;
         lightFast+=tauRC(tFast,dt)*(lightTarget-lightFast);
-        lightSlow+=tauRC(tSlow,dt)*(lightTarget-lightSlow);
-        illumination=std::max(0.,p.chargeFast*lightFast+
-                                   (1.-p.chargeFast)*lightSlow);
+        lightSlow+=tauRC(tTrap,dt)*(lightTarget-lightSlow);
+        const double w=std::clamp(p.trapConductanceFraction,0.,.1);
+        illumination=std::max(0.,(1.-w)*lightFast+w*lightSlow);
         const double gdark=1./p.cellDark;
         const double gfull=1./p.rAt20mA;
         const double conductance=gdark+(gfull-gdark)*illumination;
