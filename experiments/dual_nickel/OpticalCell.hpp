@@ -102,7 +102,7 @@ public:
     }
     void reset() noexcept {
         lightFast=lightSlow=illumination=0.;
-        audioCapV=0.;panelLight=panelVoltage=meterLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
+        audioCapV=panelAudioV=0.;panelLight=panelVoltage=meterLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
     }
     void select(CellKind kind) noexcept {
         if(kind==cellKind)return;
@@ -245,8 +245,14 @@ public:
         // LDR to ground, and receiver impedance to ground.
         const double sourceG=1./p.rSeries;
         const double loadG=1./p.rReceive;
-        const double v=audioVolts*sourceG/
-                       (sourceG+loadG+1./lastResistance);
+        // VTL5C2 manufacturer specifies about 5 pF output-cell
+        // capacitance. Stamp its finite dynamic admittance alongside
+        // the LDR shunt, rather than adding a post-audio filter.
+        const double cellCap=cellKind==CellKind::VTL5C2?5.e-12:0.;
+        const double capG=cellCap*fs;
+        const double v=(audioVolts*sourceG+capG*panelAudioV)/
+                       (sourceG+loadG+1./lastResistance+capG);
+        panelAudioV=v;
         const double clean=sourceG/(sourceG+loadG+gdark);
         lastGain=(v/(std::abs(audioVolts)>1e-15?audioVolts:1.))/clean;
         return v/clean; // normalize only fixed passive insertion loss
@@ -267,7 +273,7 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,lightFast=0.,lightSlow=0.,illumination=0.,
-           audioCapV=0.,panelLight=0.,panelVoltage=0.,meterLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
+           audioCapV=0.,panelAudioV=0.,panelLight=0.,panelVoltage=0.,meterLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
     CellKind cellKind=CellKind::NSL32;
 };
 // Detector consists of physical AC coupling, Shockley-like rectifier,
