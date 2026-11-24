@@ -407,7 +407,8 @@ public:
         // branch.  The latter increases transconductance progressively,
         // creating an electrical soft knee without a digital dB curve.
         const double overdrive=detected-thresholdV;
-        const double feedbackR=limiter?p.ledLimitFeedbackR:p.ledCompFeedbackR;
+        const double feedbackR=feedforward?p.ledDriverRfeedback:
+                               (limiter?p.ledLimitFeedbackR:p.ledCompFeedbackR);
         const double kneeR=limiter?p.limitKneeSeriesR:p.compKneeSeriesR;
         double diodeCurrent=0.;
         if(overdrive>0.) {
