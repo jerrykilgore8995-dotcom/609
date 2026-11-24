@@ -100,7 +100,8 @@ int main(){
     const auto quiet=run(-18.,100.,44100,false,false);
     const auto hot=run(4.,100.,44100,false,false);
     const auto hotWithHpf=run(4.,100.,44100,false,true);
-    const auto palm=run(4.,170.,44100,true,false);\n    const auto maxLevel=run(16.,100.,44100,false,false);
+    const auto palm=run(4.,170.,44100,true,false);
+    const auto maxLevel=run(16.,100.,44100,false,false);
     std::cout<<"CHAIN quiet optical="<<quiet.optical<<" cell="<<quiet.r<<"\n";
     std::cout<<"CHAIN hot optical="<<hot.optical<<" cell="<<hot.r<<"\n";
     std::cout<<"CHAIN sidechain_120Hz optical="<<hotWithHpf.optical
