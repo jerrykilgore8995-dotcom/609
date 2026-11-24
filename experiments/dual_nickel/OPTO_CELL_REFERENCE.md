@@ -48,8 +48,9 @@ References:
 - https://igsaudio.com/t4bx/
 
 Current **T4B-style engineering prototype** implements:
-- An electrical RC EL-panel voltage drive state rather than an LED
-  Shockley-current-to-light source
+- A separately routed **AC sidechain signal** feeding an EL panel
+  electrical RC and high-voltage driver approximation, instead of
+  routing rectified DC through an LED Shockley-current light source
 - An approximate nonlinear AC voltage-to-phosphor brightness response
   with activation voltage and separate light rise/fall states
 - Two separate CdS illumination/memory states, one for audio
@@ -61,8 +62,11 @@ Current **T4B-style engineering prototype** implements:
 **Important limits**: the panel drive gain, voltage threshold,
 CDS resistance-versus-EL-voltage characteristic, phosphor transient
 and meter cell parameters are NOT yet grounded in a manufacturer
-T4B voltage sweep, and this architecture still shares Nickel Opto's
-general detector and programmable attack/release circuitry.
+T4B voltage sweep, and this architecture uses an independent AC sidechain path
+instead of Nickel Opto's LED diode-bridge detector. Consequently the
+T4B-style attack/release settings are governed predominantly by the
+EL/CDS physics, rather than falsely pretending that the old LED
+detector RC can command any T4B recovery time.
 It is not an exact LA-2A/T4B clone and does NOT claim the original
 6AQ5/12AX7 tube driver, the T4 internal CdS material, matched
 two-cell metering calibration, EL aging, or temperature response.
@@ -81,7 +85,8 @@ not a guessed resistor preset masquerading as a measured T4.
 - `juce_plugin/Plugin.cpp` owns the automation-capable dropdown.
   The current generic GUI is deliberately retained pending the
   user's preferred physical faceplate.
-- `test_opto_variants.cpp` checks datasheet VTL5C2 points, T4 panel
+- `test_opto_variants.cpp` checks datasheet VTL5C2 points and
+  its 40mA/500ms turn-off limit, a **120 Vrms AC / 1kHz** T4 panel
   turn-on/recovery and second photocell, and real runtime switching.
 - Existing NSL-32 reference and 600/10k transistor/audio tests are
   unchanged and remain regression gates.
