@@ -1,0 +1,6 @@
+* Referenced manufacturer-attributed transistor SPICE cards (not invented).
+* Source: kicad-spice-library/KiCad-Spice-Library Models/Transistor/BJT/BJT.lib
+* 2N5088 NSC model (L2555); 2N5087 Fairchild model (L2447).
+* These cards are reference SPICE definitions, not yet executed by the real-time DSP.
+.model 2N5088 NPN(IS=5.911f ISE=5.911f ISC=0 XTI=3 BF=1122 BR=1.271 IKF=14.92m IKR=0 XTB=1.5 VAF=62.37 VAR=21.5 VJE=0.65 VJC=0.65 RE=0.15 RC=1.61 RB=10 CJE=4.973p CJC=4.017p XCJC=0.75 FC=0.5 NF=1 NR=1 NE=1.394 NC=2 MJE=0.4146 MJC=0.3174 TF=821.7p TR=4.673n ITF=0.35 VTF=4 XTF=7 EG=1.11 VCEO=35)
+.model 2N5087 PNP(Is=6.734f Xti=3 Eg=1.11 Vaf=45.7 Bf=254.1 Ne=1.741 Ise=6.734f Ikf=.1962 Xtb=1.5 Br=2.683 Nc=2 Isc=0 Ikr=0 Rc=1.67 Cjc=6.2p Mjc=.301 Vjc=.75 Fc=.5 Cje=7.5p Mje=.2861 Vje=.75 Tr=10.1n Tf=467.8p Itf=.17 Vtf=5 Xtf=8 Rb=10 Vceo=50)
