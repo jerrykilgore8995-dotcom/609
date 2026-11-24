@@ -19,6 +19,17 @@ int main(){
     if(mA==10.)check(r>730 && r<900,3);
     if(mA==40.)check(r>185 && r<220,4);
   }
+  // Test VTL5C2 maximum turn-off specification following 40mA
+  // illumination. Datasheet calls out 100k ohms in <=500ms.
+  optocircuit::LdrCell vtl;vtl.prepare(fs);
+  vtl.select(optocircuit::CellKind::VTL5C2);
+  for(int i=0;i<int(fs);++i)vtl.processAtLedCurrent(1.,.040);
+  const double lit40=vtl.resistance();
+  for(int i=0;i<int(.5*fs);++i)vtl.processAtLedCurrent(1.,0.);
+  const double after500=vtl.resistance();
+  std::cout<<"VTL5C2_OFF lit_40mA="<<lit40
+           <<" after_500ms_R="<<after500<<"\\n";
+  check(after500>=100000.,10);
   optocircuit::LdrCell c;c.prepare(fs);
   c.select(optocircuit::CellKind::T4B);
   check(c.selected()==optocircuit::CellKind::T4B,5);
