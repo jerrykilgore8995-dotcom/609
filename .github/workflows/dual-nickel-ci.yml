@@ -43,7 +43,7 @@ jobs:
       - name: Check 96kHz BJT and magnetic ultrasonic resonance to 45kHz
         run: ./build/nickel/nickel_ultrasonic_response > ultrasonic-response-96khz.csv
       - name: Validate VTL5C2 resistance curve and T4B EL photocell assembly
-        run: ./build/nickel/nickel_opto_variants > optical-cell-variants.txt
+        run: ./build/nickel/nickel_opto_variants | tee optical-cell-variants.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
