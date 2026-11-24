@@ -179,7 +179,7 @@ public:
     void prepare(double hz,OptoParts part={}) noexcept {
         p=part;fs=hz;detector.prepare(fs,p);cell.prepare(fs,p);reset();
     }
-    void reset() noexcept {detector.reset();cell.reset();ledControl=0.;}
+    void reset() noexcept {detector.reset();cell.reset();ledControl=lastOutput=0.;}
     void setAttackMs(double x) noexcept {detector.setAttackMs(x);}
     void setReleaseMs(double x) noexcept {detector.setReleaseMs(x);}
     void setSidechainHpF(bool x) noexcept {detector.setSidechainHpF(x);}
@@ -205,13 +205,14 @@ public:
         const double y=cell.process(double(x)*17.3677,ledControl);
         return float(y/17.3677);
     }
-    float process(float x) noexcept {return process(x,x);}
+    // A physical feedback compressor senses its attenuator output. The\n    // previous output sample is fed to the RC detector (one-sample loop delay).
+    float process(float x) noexcept {return process(x,float(lastOutput));}\n    float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
     double reductionDb() const noexcept {return cell.gainReduction();}
     double ldrOhms() const noexcept {return cell.resistance();}
     double detectorVolts() const noexcept {return detector.voltage();}
 private:
     OptoParts p{};
-    double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.;
+    double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
     OpticalDetector detector;
     LdrCell cell;
 };
