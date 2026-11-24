@@ -71,3 +71,6 @@ add_test(NAME opto_cell_variants COMMAND nickel_opto_variants)
 # Dedicated stock NSL-32 1kHz input/threshold static ratio measurement.
 add_executable(nickel_opto_ratio_sweep measure_opto_ratio.cpp)
 target_compile_features(nickel_opto_ratio_sweep PRIVATE cxx_std_20)
+
+add_executable(nickel_opto_resistor_tune tune_opto_compressor.cpp)
+target_compile_features(nickel_opto_resistor_tune PRIVATE cxx_std_20)
