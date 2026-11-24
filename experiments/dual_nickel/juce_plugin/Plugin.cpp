@@ -43,6 +43,9 @@ Layout makeParameters(){
     p.add(std::make_unique<juce::AudioParameterBool>(
           juce::ParameterID{"ff",1},"Feedforward Detector",false));
     p.add(std::make_unique<juce::AudioParameterChoice>(
+          juce::ParameterID{"cell",1},"Optical Cell",
+          juce::StringArray{"NSL-32","VTL5C2","T4B-style"},0));
+    p.add(std::make_unique<juce::AudioParameterChoice>(
           juce::ParameterID{"load",1},"Output Load",
           juce::StringArray{"600 ohm","10k ohm"},1));
     return p;
@@ -97,6 +100,7 @@ public:
             dsp.setThresholdDb(v("threshold"));
             dsp.setRatio(v("ratio"));
             dsp.setFeedforward(v("ff")>.5);
+            dsp.setOptoCell(int(v("cell")));
             dsp.setAttackMs(v("attack"));
             dsp.setReleaseMs(v("release"));
             dsp.setScHpf(v("hpf")>.5);
@@ -191,6 +195,11 @@ public:
         load.addItem("10 kOhm",2);
         addAndMakeVisible(load);
         loadAttachment=std::make_unique<ComboAttachment>(p.state,"load",load);
+        cellModel.addItem("NSL-32",1);
+        cellModel.addItem("VTL5C2",2);
+        cellModel.addItem("T4B-style",3);
+        addAndMakeVisible(cellModel);
+        cellAttachment=std::make_unique<ComboAttachment>(p.state,"cell",cellModel);
         startTimerHz(25);
     }
     void resized() override {
@@ -205,6 +214,7 @@ public:
         for(int i=0;i<int(toggles.size());++i)
             toggles[i].button->setBounds(28+(i%2)*275,615+(i/2)*28,252,26);
         load.setBounds(388,685,174,30);
+        cellModel.setBounds(388,654,174,28);
     }
     void paint(juce::Graphics& g) override {
         g.fillAll(juce::Colour(0xff1c1e22));
@@ -230,6 +240,8 @@ public:
         g.drawText("20 dB GR",490,92,78,16,juce::Justification::right);
         g.setColour(juce::Colour(0xffd6a456));
         g.setFont(juce::FontOptions(14.f,juce::Font::bold));
+        g.drawText("OPTO CELL",190,654,190,25,
+                   juce::Justification::right);
         g.drawText("600 / 10k OUTPUT LOAD",190,688,190,20,
                    juce::Justification::right);
     }
@@ -248,8 +260,8 @@ private:
     int channelIndex=0;
     std::vector<Control> controls;
     std::vector<Toggle> toggles;
-    juce::ComboBox load;
-    std::unique_ptr<ComboAttachment> loadAttachment;
+    juce::ComboBox load,cellModel;
+    std::unique_ptr<ComboAttachment> loadAttachment,cellAttachment;
 };
 class NickelOptoEditor final : public juce::AudioProcessorEditor {
 public:
