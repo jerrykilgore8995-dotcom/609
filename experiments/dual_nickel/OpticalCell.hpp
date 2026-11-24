@@ -116,7 +116,13 @@ public:
         return .5*(lo+hi);
     }
     double process(double audioVolts,double ledControlVolts) noexcept {
-        const double current=ledCurrent(ledControlVolts);
+        return processAtLedCurrent(audioVolts,ledCurrent(ledControlVolts));
+    }
+    // Datasheet calibration injects the specified current DIRECTLY into the
+    // optical LED. This isolates the CdS photocell from the compressor's
+    // intentionally current-limited LED driver.
+    double processAtLedCurrent(double audioVolts,double ledAmps) noexcept {
+        const double current=std::clamp(ledAmps,0.,p.maxLedA);
         lastLedCurrent=current;
         const double lightTarget=std::pow(std::max(0.,current)/
                             std::max(1e-8,p.ledReferenceA),
