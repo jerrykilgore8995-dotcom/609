@@ -17,4 +17,8 @@ target_compile_features(nickel_dual_sweep PRIVATE cxx_std_20)
 target_link_libraries(nickel_dual_sweep PRIVATE chowdsp_wdf)
 enable_testing()
 add_test(NAME nickel_smoke COMMAND nickel_smoke)
-\nadd_executable(nickel_option_c test_option_c.cpp)\ntarget_compile_features(nickel_option_c PRIVATE cxx_std_20)\ntarget_link_libraries(nickel_option_c PRIVATE chowdsp_wdf)\nadd_test(NAME option_c_driver COMMAND nickel_option_c)\n
+
+add_executable(nickel_option_c test_option_c.cpp)
+target_compile_features(nickel_option_c PRIVATE cxx_std_20)
+target_link_libraries(nickel_option_c PRIVATE chowdsp_wdf)
+add_test(NAME option_c_driver COMMAND nickel_option_c)
