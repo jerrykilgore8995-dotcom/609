@@ -212,7 +212,7 @@ public:
             controls[i].slider->setBounds(x,y+20,124,94);
         }
         for(int i=0;i<int(toggles.size());++i)
-            toggles[i].button->setBounds(28+(i%2)*275,615+(i/2)*28,252,26);
+            toggles[i].button->setBounds(22+i*148,615,143,26);
         load.setBounds(388,685,174,30);
         cellModel.setBounds(388,654,174,28);
     }
