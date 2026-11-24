@@ -26,6 +26,7 @@ tran 5u 100m 50m
 meas tran outmax max v(loaded) from=80m to=100m
 meas tran outmin min v(loaded) from=80m to=100m
 echo ===== RLOAD 10k =====
+four 1000 v(loaded)
 print outmax outmin
 alter Rload = 600
 reset
@@ -33,6 +34,7 @@ tran 5u 100m 50m
 meas tran outmax600 max v(loaded) from=80m to=100m
 meas tran outmin600 min v(loaded) from=80m to=100m
 echo ===== RLOAD 600 =====
+four 1000 v(loaded)
 print outmax600 outmin600
 quit
 .endc
