@@ -44,7 +44,7 @@ public:
         p=params; reset();
     }
     void reset() noexcept {
-        inputCapV=outputCapV=daV=0.;
+        inputCapV=outputCapV=daV=previousNode=0.;
     }
     void setOutputLoadOhms(double r) noexcept {
         p.outputLoadR=(r<=1500.0)?600.0:10000.0;
@@ -71,53 +71,75 @@ public:
         const double rc=std::max(1.,p.outputLoadR+p.outputESR);
         const double co=std::max(1.e-9,p.outputCapF);
         const double capR=rc+dt/co;
-        auto transistorCurrent=[&](double overdrive,double collectorToEmitter,
-                                  const SpiceBjtAudioParams& transistor) noexcept {
-            // Real-time Gummel-Poon-derived forward-active approximation:
-            // individual Is, finite beta, beta rolloff IKF, Early VAF, internal
-            // resistances. Explicit full-SPICE reverse junction/charge equations
-            // are NOT used here; reference cards are retained for calibration.
-            if(overdrive<=0.0)return 0.0;
+        struct CurrentSlope {double i=0.0, slope=0.0;};
+        auto transistorCurrent=[&](double overdrive,double vce,
+                    const SpiceBjtAudioParams& d) noexcept -> CurrentSlope {
+            // Log-domain solution of reduced Gummel-Poon forward-active
+            // branch with series emitter resistance and beta roll-off.
+            // Solving logarithms avoids repeated exponential overflows.
             const double vt=std::max(.005,p.thermalVoltage);
-            const double re=std::max(.01,p.emitterR+transistor.re
-                                      +transistor.rb/std::max(1.,transistor.bf));
-            const double early=std::clamp(1.+std::max(0.,collectorToEmitter)/
-                                          std::max(1.,transistor.vaf),1.,2.);
-            double i=std::clamp(overdrive/re,0.,.2);
-            for(int j=0;j<8;++j) {
-                const double z=std::clamp((overdrive-i*re)/vt,-40.,35.);
-                const double g=transistor.is*std::exp(z)*early;
-                const double knee=std::max(1e-6,transistor.ikf);
-                const double factor=1.0+i/knee;
-                const double beta=transistor.bf/factor;
-                const double correction=1.0+1.0/std::max(1.,beta);
-                const double modeled=g*correction/factor;
-                const double f=i-modeled;
-                const double dg=modeled*(-re/vt - 1.0/(knee*factor))
-                    +g/(factor*transistor.bf*knee);
-                const double df=1.0-dg;
-                const double step=std::clamp(f/std::max(1e-12,df),-.1,.1);
-                i=std::clamp(i-step,0.,.2);
-                if(std::abs(step)<1.e-12)break;
+            const double re=std::max(.01,p.emitterR+d.re
+                           +d.rb/std::max(1.,d.bf));
+            const double knee=std::max(1e-6,d.ikf);
+            const double early=std::clamp(1.+std::max(0.,vce)/
+                                     std::max(1.,d.vaf),1.,2.);
+            const double initial=std::max(1e-13,
+                 (overdrive-0.62)/re+std::max(0.,overdrive)*1e-5);
+            double i=std::clamp(initial,1e-13,0.2);
+            for(int n=0;n<8;++n) {
+                const double inverseBeta=(1.+i/knee)/std::max(1.,d.bf);
+                const double corr=1.+inverseBeta;
+                const double f=std::log(i/d.is)+i*re/vt
+                   +std::log1p(i/knee)-std::log(early)
+                   -std::log(corr)-overdrive/vt;
+                const double df=1./i+re/vt+1./(knee+i)
+                   -1./(knee*std::max(1.,d.bf)*corr);
+                double proposal=i-f/df;
+                if(!std::isfinite(proposal))proposal=i*0.5;
+                // Safeguard positivity and fast convergence for low currents.
+                proposal=std::clamp(proposal,i*.2,i*4.);
+                proposal=std::clamp(proposal,1e-16,.2);
+                if(std::abs(proposal-i)<1e-13) {i=proposal;break;}
+                i=proposal;
             }
-            return i;
+            const double beta=d.bf/(1.+i/knee);
+            const double corr=1.+1./std::max(1.,beta);
+            const double deriv=1./i+re/vt+1./(knee+i)
+                        -1./(knee*std::max(1.,d.bf)*corr);
+            return {i,1./(vt*std::max(1e-12,deriv))};
         };
-        // KCL for follower output node. Note cap load is calculated as an
-        // implicit backward-Euler capacitor companion, not an EQ or saturator.
         auto kcl=[&](double node) noexcept {
-            const double npn=transistorCurrent(upper-node,p.rail-node,npn2N5088);
-            const double pnp=transistorCurrent(node-lower,p.rail+node,pnp2N5087);
+            const auto npn=transistorCurrent(upper-node,p.rail-node,npn2N5088);
+            const auto pnp=transistorCurrent(node-lower,p.rail+node,pnp2N5087);
             const double loadCurrent=(node-outputCapV)/capR;
-            return npn-pnp-loadCurrent;
+            const double f=npn.i-pnp.i-loadCurrent;
+            const double df=-npn.slope-pnp.slope-1./capR;
+            return std::pair<double,double>{f,df};
         };
         const double lim=std::max(1.,p.rail-p.saturationMargin);
-        double low=-lim,high=lim;
-        // Bracketed KCL solve, no unbounded nonlinear exponential.
-        for(int j=0;j<24;++j) {
-            const double mid=(low+high)*.5;
-            if(kcl(mid)>0.)low=mid;else high=mid;
+        double lo=-lim,hi=lim;
+        double node=std::clamp(previousNode,lo,hi);
+        bool converged=false;
+        for(int j=0;j<12;++j) {
+            const auto value=kcl(node);
+            if(!std::isfinite(value.first)||!std::isfinite(value.second))
+                 return 0.0f;
+            if(std::abs(value.first)<1e-10) {converged=true;break;}
+            if(value.first>0.)lo=node;else hi=node;
+            double next=node-value.first/value.second;
+            if(!std::isfinite(next)||next<=lo||next>=hi)
+                next=.5*(lo+hi);
+            node=next;
         }
-        const double node=(low+high)*.5;
+        if(!converged) {
+            // Rare bounded fallback, still no free-running unstable Newton.
+            for(int j=0;j<22;++j) {
+                const double v=kcl(node).first;
+                if(v>0.)lo=node;else hi=node;
+                node=.5*(lo+hi);
+            }
+        }
+        previousNode=node;
         const double current=(node-outputCapV)/capR;
         outputCapV+=dt/co*current;
         const double out=current*p.outputLoadR;
@@ -125,7 +147,7 @@ public:
     }
 private:
     OutputStageParams p{};
-    double fs=44100.,inputCapV=0.,outputCapV=0.,daV=0.;
+    double fs=44100.,inputCapV=0.,outputCapV=0.,daV=0.,previousNode=0.;
 };
 
 // The optical cell is deliberately NOT substituted with an arbitrary
