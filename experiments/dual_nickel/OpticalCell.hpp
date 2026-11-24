@@ -54,6 +54,7 @@ struct OptoParts {
     // Bias divider/series diode(s) delaying the extra current branch.
     // In compressor mode this is a real voltage offset, not a dB knee.
     double compKneeBiasV=0.0;
+    double ledCompInputTapR=100000., ledCompFeedbackTapR=0.;
     double compKneeSeriesR=33000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
@@ -370,6 +371,9 @@ public:
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     void setLimiter(bool enabled) noexcept {limiter=enabled;cell.setLimiter(enabled);}
+    double ledCompPreFraction() const noexcept {
+        return p.ledCompFeedbackTapR/(p.ledCompInputTapR+p.ledCompFeedbackTapR);
+    }
     double detectorPreFraction() const noexcept {
         return limiter?p.elLimitFeedbackTapR/
                     (p.elLimitFeedbackTapR+p.elLimitInputTapR):
@@ -466,6 +470,10 @@ public:
     float process(float x) noexcept {
         if(cell.selected()==CellKind::T4B && !feedforward) {
             const double f=detectorPreFraction();
+            return process(x,float(f*x+(1.-f)*lastOutput));
+        }
+        if(!limiter && !feedforward && cell.selected()!=CellKind::T4B) {
+            const double f=ledCompPreFraction();
             return process(x,float(f*x+(1.-f)*lastOutput));
         }
         return process(x,feedforward?x:float(lastOutput));
