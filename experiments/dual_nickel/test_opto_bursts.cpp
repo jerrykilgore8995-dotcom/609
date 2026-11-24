@@ -49,7 +49,6 @@ static Curve measure(double dbu,double attack,double release,
     optocircuit::OpticalCompressor cell;
     cell.prepare(rate);
     cell.setThresholdDb(-18.);
-    cell.setRatio(3.);
     cell.setFeedforward(feedforward);
     cell.setAttackMs(attack);
     cell.setReleaseMs(release);
