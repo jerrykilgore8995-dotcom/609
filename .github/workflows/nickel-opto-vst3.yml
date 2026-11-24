@@ -1,0 +1,33 @@
+name: Nickel Opto VST3 Windows build
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/juce_plugin/**'
+      - 'experiments/dual_nickel/AnalogOptoProcessor.hpp'
+      - 'experiments/dual_nickel/DynamicLowMid.hpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/NodalBjtOutput.hpp'
+      - 'experiments/dual_nickel/NickelTransformer.hpp'
+      - '.github/workflows/nickel-opto-vst3.yml'
+  workflow_dispatch:
+jobs:
+  windows-vst3:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure JUCE VST3
+        run: cmake -S experiments/dual_nickel/juce_plugin -B build/nickel-opto -G "Visual Studio 17 2022" -A x64
+      - name: Build VST3
+        run: cmake --build build/nickel-opto --config Release --parallel 2
+      - name: Verify built bundle
+        shell: pwsh
+        run: |
+          $found=Get-ChildItem build/nickel-opto -Recurse -Filter '*.vst3'
+          $found | ForEach-Object { Write-Host $_.FullName }
+          if (-not $found) { throw "No VST3 built" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NickelOpto-Windows-x64-VST3
+          path: build/nickel-opto/NickelOpto_artefacts/Release/VST3/
