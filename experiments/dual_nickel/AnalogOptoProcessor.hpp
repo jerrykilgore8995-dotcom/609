@@ -48,12 +48,20 @@ public:
     double lowMidGr() const noexcept {return low.reductionDb();}
     double photocellResistance() const noexcept {return comp.ldrOhms();}
     double outputLoad() const noexcept {return output.outputLoadOhms();}
-    float process(float input) noexcept {
+    float processBeforeOpto(float input) noexcept {
         const float magnetic=xfmr.process(float(input*nickel::dbGain(drive)));
-        const float band=low.process(magnetic);
-        const float attenuated=comp.process(band);
+        return low.process(magnetic);
+    }
+    float processFromOpto(float prepared,float stereoDetector,
+                          bool externallyLinked) noexcept {
+        const float attenuated=externallyLinked?
+                     comp.process(prepared,stereoDetector):comp.process(prepared);
         const float driverOut=output.process(float(attenuated*nickel::dbGain(makeup)));
         return float(driverOut*nickel::dbGain(trim-(linked?drive:0.)));
+    }
+    float process(float input) noexcept {
+        const float prepared=processBeforeOpto(input);
+        return processFromOpto(prepared,prepared,false);
     }
 private:
     double fs=44100,drive=0,makeup=0,trim=0;
@@ -62,5 +70,52 @@ private:
     lowmid::DynamicLowMid low;
     optocircuit::OpticalCompressor comp;
     nickel::NodalOutputDriver output;
+};
+// Channel-independent nonlinear audio path, linked RMS/optical detection.
+// The detector sees whichever channel has the larger instantaneous amplitude
+// (with sign restored for rectification); opposite-phase L/R won't cancel.
+class StereoEngine {
+public:
+    void prepare(double sr) noexcept {left.prepare(sr);right.prepare(sr);}
+    void reset() noexcept {left.reset();right.reset();}
+    void setInputDb(double v) noexcept {left.setInputDb(v);right.setInputDb(v);}
+    void setMakeupDb(double v) noexcept {left.setMakeupDb(v);right.setMakeupDb(v);}
+    void setAttackMs(double v) noexcept {left.setAttackMs(v);right.setAttackMs(v);}
+    void setReleaseMs(double v) noexcept {left.setReleaseMs(v);right.setReleaseMs(v);}
+    void setThresholdDb(double v) noexcept {left.setThresholdDb(v);right.setThresholdDb(v);}
+    void setRatio(double v) noexcept {left.setRatio(v);right.setRatio(v);}
+    void setScHpf(bool v) noexcept {left.setScHpf(v);right.setScHpf(v);}
+    void setScHpfHz(double v) noexcept {left.setScHpfHz(v);right.setScHpfHz(v);}
+    void setPalmMute(bool v) noexcept {left.setPalmMute(v);right.setPalmMute(v);}
+    void setPalmCenterHz(double v) noexcept {
+        left.setPalmCenterHz(v);right.setPalmCenterHz(v);
+    }
+    void setPalmBandwidthOct(double v) noexcept {
+        left.setPalmBandwidthOct(v);right.setPalmBandwidthOct(v);
+    }
+    void setPalmRangeDb(double v) noexcept {
+        left.setPalmRangeDb(v);right.setPalmRangeDb(v);
+    }
+    void setPalmThresholdDb(double v) noexcept {
+        left.setPalmThresholdDb(v);right.setPalmThresholdDb(v);
+    }
+    void setLoadOhms(double v) noexcept {left.setLoadOhms(v);right.setLoadOhms(v);}
+    void setLinkedAutoGain(bool b) noexcept {
+        left.setLinkedAutoGain(b);right.setLinkedAutoGain(b);
+    }
+    void setOutputTrimDb(double v) noexcept {
+        left.setOutputTrimDb(v);right.setOutputTrimDb(v);
+    }
+    void process(float& l,float& r) noexcept {
+        const float pl=left.processBeforeOpto(l);
+        const float pr=right.processBeforeOpto(r);
+        const float detector=std::abs(pl)>=std::abs(pr)?pl:pr;
+        l=left.processFromOpto(pl,detector,true);
+        r=right.processFromOpto(pr,detector,true);
+    }
+    double grLeft() const noexcept {return left.opticalGr();}
+    double grRight() const noexcept {return right.opticalGr();}
+private:
+    MonoEngine left,right;
 };
 } // namespace analogopto
