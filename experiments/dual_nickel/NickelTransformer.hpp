@@ -210,7 +210,7 @@ public:
         output.prepare(fs,clean);
     }
     void reset() noexcept {character.reset();output.reset();}
-    void setInputDriveDb(double v) noexcept {drive=std::clamp(v,-12.,18.);}
+    void setInputDriveDb(double v) noexcept {drive=std::clamp(v,-18.,18.);}
     void setInterstageVolumeDb(double v) noexcept {middle=std::clamp(v,-24.,24.);}
     void setMakeupDb(double v) noexcept {makeup=std::clamp(v,-12.,24.);}
     void setOutputTrimDb(double v) noexcept {trim=std::clamp(v,-36.,24.);}
