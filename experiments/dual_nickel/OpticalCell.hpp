@@ -58,7 +58,8 @@ struct OptoParts {
     // reducing negative feedback without changing EL or CdS device models.
     double elLimitInputTapR=110000., elLimitFeedbackTapR=4700.;
     double elCompInputTapR=470000., elCompFeedbackTapR=4700.;
-    double ledDriverRfeedback=25000.; // legacy FF feedback-diode branch reference
+    double ledDriverRfeedback=25000.; // FF diode-shunt reference branch
+    double feedForwardDriverFeedbackR=37500.; // fixed FF amplifier resistor
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
     double feedForwardSeriesR=3300., feedForwardShuntR=10000.;
@@ -407,7 +408,7 @@ public:
         // branch.  The latter increases transconductance progressively,
         // creating an electrical soft knee without a digital dB curve.
         const double overdrive=detected-thresholdV;
-        const double feedbackR=feedforward?p.ledDriverRfeedback:
+        const double feedbackR=feedforward?p.feedForwardDriverFeedbackR:
                                (limiter?p.ledLimitFeedbackR:p.ledCompFeedbackR);
         const double kneeR=limiter?p.limitKneeSeriesR:p.compKneeSeriesR;
         double diodeCurrent=0.;
@@ -427,7 +428,12 @@ public:
         }
         const double inputCurrent=std::max(0.,overdrive)/p.ledDriverRin+
                                   diodeCurrent;
-        const double target=inputCurrent*feedbackR;
+        // The existing feedforward topology has its own fixed resistor
+        // feedback path.  Keep its independently characterized diode
+        // shunt, rather than inheriting the new feedback-mode knee.
+        const double target=feedforward?
+              std::max(0.,overdrive)*feedbackR/p.ledDriverRin:
+              inputCurrent*feedbackR;
         double source=target;
         if(feedforward) {
             // The detector amplifier's inverting resistor-feedback branch is
