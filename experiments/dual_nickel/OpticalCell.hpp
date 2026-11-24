@@ -203,7 +203,8 @@ public:
                                      0.,p.ledSupply);
         ledControl=driven;
         const double y=cell.process(double(x)*17.3677,ledControl);
-        return float(y/17.3677);
+        lastOutput=y/17.3677;
+        return float(lastOutput);
     }
     // A physical feedback compressor senses its attenuator output. The
     // previous output sample is fed to the RC detector (one-sample loop delay).
