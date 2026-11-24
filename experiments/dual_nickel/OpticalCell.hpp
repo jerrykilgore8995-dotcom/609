@@ -20,6 +20,14 @@ struct OptoParts {
     double rAt20mA=500.0, ledReferenceA=0.020, maxLedA=.025;
     double ledIs=2.0e-18, ledN=2., thermalV=.02585;
     double ledSeriesOhms=220., ledSupply=12.;
+    // A discrete 2N5088 shunt clamp across the LED driver's finite source
+    // impedance. Divider from +15 V biases the limiter's emitter.
+    // High transient LED current turns the clamp on gradually through
+    // the transistor's physical B-E junction; no digital GR or LED cap.
+    double ledSourceOhms=47., ledLimiterRail=15.;
+    double ledLimiterTopOhms=117000.,ledLimiterBottomOhms=15000.;
+    double ledLimiterIs=5.911e-15,ledLimiterN=1.;
+
     double attackCellSeconds=.0035, recoveryCellSeconds=.50;
     double chargeFast=.45, conductanceExponent=1.0;
     double rectifierIs=2.e-9, rectifierN=1.7;
@@ -72,12 +80,22 @@ public:
     double ledCurrent(double control) const noexcept {
         const double voltage=std::clamp(control,0.,p.ledSupply);
         if(voltage<=0.)return 0.;
-        const double vt=std::max(.01,p.ledN*p.thermalV);
+        const double ledVt=std::max(.01,p.ledN*p.thermalV);
+        const double bjtVt=std::max(.01,p.ledLimiterN*p.thermalV);
+        const double reference=p.ledLimiterRail*p.ledLimiterBottomOhms/
+            std::max(1.,p.ledLimiterTopOhms+p.ledLimiterBottomOhms);
         double lo=0.,hi=p.maxLedA;
         for(int i=0;i<24;++i) {
             const double current=.5*(lo+hi);
-            const double vf=vt*std::log1p(current/p.ledIs);
-            const double f=vf+current*p.ledSeriesOhms-voltage;
+            const double ledNode=ledVt*std::log1p(current/p.ledIs)
+                                  +current*p.ledSeriesOhms;
+            const double vbe=ledNode-reference;
+            const double shunt=p.ledLimiterIs*
+                std::max(0.,std::exp(std::clamp(vbe/bjtVt,-45.,35.))-1.);
+            // Kirchhoff voltage/current relation for the LED, source
+            // resistance and shunt transistor. The limiter is not in the
+            // audio gain path, only the real optical illumination circuit.
+            const double f=ledNode+p.ledSourceOhms*(current+shunt)-voltage;
             if(f>0.)hi=current;else lo=current;
         }
         return .5*(lo+hi);
