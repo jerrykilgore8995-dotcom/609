@@ -145,6 +145,17 @@ int main() {
         if(ffPrev>=0. && c.plateau<ffPrev)return 15;
         ffPrev=c.plateau;
     }
+    // Regression: after otherwise identical LED level and detector settings,
+    // a sustained note must leave more recoverable CdS trap occupancy than
+    // a short transient. Compare remaining GR at the same elapsed time.
+    const auto memoryShort=measure(12.,15.,250.,150.);
+    const auto memoryLong=measure(12.,15.,250.,1200.);
+    std::cerr<<"PROGRAM_MEMORY short_500ms_GR="<<memoryShort.post500
+             <<" long_500ms_GR="<<memoryLong.post500
+             <<" short_1000ms_GR="<<memoryShort.post1000
+             <<" long_1000ms_GR="<<memoryLong.post1000<<"\n";
+    if(!(memoryLong.post500>memoryShort.post500*1.1
+      &&memoryLong.post1000>memoryShort.post1000*1.1))return 16;
     std::cerr<<"BURST_CHARACTERIZATION completed_points="<<n<<"\n";
     return n==52?0:8;
 }
