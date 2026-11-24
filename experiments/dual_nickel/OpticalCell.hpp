@@ -9,6 +9,9 @@
 #include <cmath>
 #include <cstdint>
 namespace optocircuit {
+// Three distinct optical assemblies: a calibrated NSL-32 reference,
+// a manufacturer-datasheet VTL5C2, and an EL-driven dual-CdS T4B-style unit.
+enum class CellKind : int { NSL32=0, VTL5C2=1, T4B=2 };
 constexpr double pi=3.1415926535897932384626433832795;
 inline double dB(double x) noexcept { return std::pow(10.0,x/20.0); }
 inline double toDb(double x) noexcept {return 20.0*std::log10(std::max(x,1.e-16));}
@@ -53,6 +56,14 @@ struct OptoParts {
     double feedForwardDiodeIs=2e-9,feedForwardDiodeN=1.7;
     double feedForwardBiasRail=15.,feedForwardBiasTopR=130000.;
     double feedForwardBiasBottomR=15000.;
+    // T4 electroluminescent panel coupling (not an LED). These are
+    // explicitly provisional driver parameters until a T4 sample is swept:
+    // high-voltage panel amplifier / AC excitation threshold.
+    double elPanelVoltageGain=80., elPanelTurnOnVac=35.;
+    double elPanelReferenceVac=115.,elPanelCapF=5e-9;
+    double elPanelDriveR=47000., elPanelRiseSeconds=.0008;
+    double elPanelFallSeconds=.003;
+
 };
 class HighPassCircuit {
 public:
@@ -91,7 +102,60 @@ public:
     }
     void reset() noexcept {
         lightFast=lightSlow=illumination=0.;
-        audioCapV=0.; lastResistance=p.cellDark; lastGain=1.;lastLedCurrent=0.;
+        audioCapV=0.;panelLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
+    }
+    void select(CellKind kind) noexcept {
+        if(kind==cellKind)return;
+        cellKind=kind;reset();
+    }
+    CellKind selected() const noexcept {return cellKind;}
+    double darkResistance() const noexcept {
+        return cellKind==CellKind::VTL5C2?1000000.:
+               cellKind==CellKind::T4B?10000000.:p.cellDark;
+    }
+    static double logInterpolate(double x,double x1,double y1,
+                                 double x2,double y2) noexcept {
+        const double f=std::clamp(
+            std::log(std::max(x,1e-12)/x1)/std::log(x2/x1),0.,1.);
+        return std::exp(std::log(y1)+f*(std::log(y2)-std::log(y1)));
+    }
+    double physicalConductance(double milliamps) const noexcept {
+        if(cellKind==CellKind::VTL5C2) {
+            // Published VTL5C2 light-adapted ON resistances, per datasheet.
+            // 1mA: 5.5k, 10mA: 800, 40mA: 200. Between points: log-log
+            // interpolation; below 1mA extrapolates power law toward dark.
+            double r=0.;
+            if(milliamps<=0.)return 1./darkResistance();
+            if(milliamps<1.)
+                r=5500.*std::pow(1./milliamps,
+                     std::log(5500./800.)/std::log(10.));
+            else if(milliamps<=10.)
+                r=logInterpolate(milliamps,1.,5500.,10.,800.);
+            else r=logInterpolate(std::min(40.,milliamps),
+                                  10.,800.,40.,200.);
+            return 1./std::min(darkResistance(),r);
+        }
+        // NSL-32 is calibrated around 500 ohms at 20mA.
+        return 1./darkResistance()+
+            (1./p.rAt20mA-1./darkResistance())*
+            std::max(0.,milliamps)/20.;
+    }
+    double processAtPanelVac(double audioVolts,double panelVac) noexcept {
+        // Unlike an LED Vactrol, the T4 EL phosphor responds to AC
+        // excitation voltage above its activation threshold. Driver gain
+        // feeds the panel through an actual RC electrical network.
+        const double dt=1./fs;
+        const double supply=std::max(0.,panelVac);
+        const double lightTarget=std::pow(std::max(0.,supply-
+                 p.elPanelTurnOnVac)/std::max(1.,p.elPanelReferenceVac-
+                 p.elPanelTurnOnVac),2.);
+        const double time=lightTarget>panelLight?p.elPanelRiseSeconds:
+                                                  p.elPanelFallSeconds;
+        panelLight+=tauRC(time,dt)*(lightTarget-panelLight);
+        // The T4 has two photocells; the gain photocell is modeled here.
+        // EL and CdS response are separate states, so its recovery is not
+        // inherited from an LED.
+        return processIllumination(audioVolts,panelLight,0.,true);
     }
     double ledCurrent(double control) const noexcept {
         const double voltage=std::clamp(control,0.,p.ledSupply);
@@ -125,9 +189,18 @@ public:
     double processAtLedCurrent(double audioVolts,double ledAmps) noexcept {
         const double current=std::clamp(ledAmps,0.,p.maxLedA);
         lastLedCurrent=current;
-        const double lightTarget=std::pow(std::max(0.,current)/
-                            std::max(1e-8,p.ledReferenceA),
-                            p.conductanceExponent);
+        if(cellKind==CellKind::T4B)
+            return processAtPanelVac(audioVolts,0.);
+        const double normalized=cellKind==CellKind::VTL5C2?
+            physicalConductance(current*1000.)/
+            physicalConductance(20.):current/p.ledReferenceA;
+        return processIllumination(audioVolts,
+                   std::max(0.,normalized),current,false);
+    }
+    double processIllumination(double audioVolts,double intensity,
+                               double current,bool isPanel) noexcept {
+        const double lightTarget=std::pow(std::max(0.,intensity),
+                                          p.conductanceExponent);
         // CdS photoconductance consists of a prompt carrier population
         // and a physically separate slowly occupied trap population.
         // Crucially the slow trap CHARGES over hundreds of milliseconds
@@ -135,16 +208,29 @@ public:
         // The trap's small conductance fraction controls residual recovery
         // without slowing initial conduction or faking an output envelope.
         const double dt=1./fs;
-        const double tFast=lightTarget>lightFast?p.attackCellSeconds:
-                                                  p.fastDarkRecoverySeconds;
-        const double tTrap=lightTarget>lightSlow?p.trapChargeSeconds:
-                                                  p.trapRecoverySeconds;
+        const double rise=isPanel?.010:
+                         cellKind==CellKind::VTL5C2?.0035:p.attackCellSeconds;
+        const double fastDecay=isPanel?.065:
+                               cellKind==CellKind::VTL5C2?.086:
+                                                     p.fastDarkRecoverySeconds;
+        const double trapRise=isPanel?.65:
+                              cellKind==CellKind::VTL5C2?.45:
+                                                    p.trapChargeSeconds;
+        const double trapDecay=isPanel?2.8:
+                               cellKind==CellKind::VTL5C2?1.0:
+                                                    p.trapRecoverySeconds;
+        const double tFast=lightTarget>lightFast?rise:fastDecay;
+        const double tTrap=lightTarget>lightSlow?trapRise:trapDecay;
         lightFast+=tauRC(tFast,dt)*(lightTarget-lightFast);
         lightSlow+=tauRC(tTrap,dt)*(lightTarget-lightSlow);
-        const double w=std::clamp(p.trapConductanceFraction,0.,.1);
+        const double w=isPanel?.012:
+             cellKind==CellKind::VTL5C2?.002:
+             std::clamp(p.trapConductanceFraction,0.,.1);
         illumination=std::max(0.,(1.-w)*lightFast+w*lightSlow);
-        const double gdark=1./p.cellDark;
-        const double gfull=1./p.rAt20mA;
+        const double gdark=1./darkResistance();
+        const double gfull=isPanel?1./750.:
+                           cellKind==CellKind::VTL5C2?
+                           physicalConductance(20.):1./p.rAt20mA;
         const double conductance=gdark+(gfull-gdark)*illumination;
         lastResistance=1./std::max(gdark,conductance);
         // KCL: output node connected to voltage source through Rseries,
@@ -160,7 +246,7 @@ public:
     double resistance() const noexcept {return lastResistance;}
     double actualLedAmps() const noexcept {return lastLedCurrent;}
     double gainReduction() const noexcept {
-        const double g=1./p.rSeries,r=1./p.rReceive,gd=1./p.cellDark;
+        const double g=1./p.rSeries,r=1./p.rReceive,gd=1./darkResistance();
         const double on=g/(g+r+1./lastResistance);
         const double off=g/(g+r+gd);
         return std::max(0.,-toDb(on/off));
@@ -168,7 +254,8 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,lightFast=0.,lightSlow=0.,illumination=0.,
-           audioCapV=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
+           audioCapV=0.,panelLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
+    CellKind cellKind=CellKind::NSL32;
 };
 // Detector consists of physical AC coupling, Shockley-like rectifier,
 // and asymmetric charge/discharge of an actual RC storage capacitor.
@@ -236,6 +323,11 @@ public:
     void setRatio(double x) noexcept {ratio=std::clamp(x,1.5,8.);}
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
+    void setCellKind(CellKind kind) noexcept {
+        if(cell.selected()==kind)return;
+        cell.select(kind);detector.reset();ledControl=lastOutput=0.;
+    }
+    CellKind selectedCellKind() const noexcept {return cell.selected();}
     float process(float x,float sidechain) noexcept {
         const double detectorPad=feedforward?
             p.feedForwardShuntR/(p.feedForwardSeriesR+
@@ -272,7 +364,14 @@ public:
             source=.5*(lo+hi);
         }
         ledControl=std::clamp(source,0.,p.ledSupply);
-        const double y=cell.process(double(x)*17.3677,ledControl);
+        // T4 is an AC-excited electroluminescent panel, NOT an LED.
+        // Driver approximation uses physical panel voltage and distinct
+        // EL phosphor dynamics. It needs panel voltage/light measurements
+        // before one can claim device-specific T4B matching.
+        const double y=cell.selected()==CellKind::T4B?
+             cell.processAtPanelVac(double(x)*17.3677,
+                        ledControl*p.elPanelVoltageGain):
+             cell.process(double(x)*17.3677,ledControl);
         lastOutput=y/17.3677;
         return float(lastOutput);
     }
