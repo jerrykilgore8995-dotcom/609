@@ -28,7 +28,7 @@ struct OptoParts {
     double detectorCapESR=0.25;
     double detectorPotR=100000., detectorPotWiper=0.5;
     double detectorHoldCapF=1e-6;
-    double ledDriverRin=10000., ledDriverRfeedback=24000.; // detector amplifier gain
+    double ledDriverRin=10000., ledDriverRfeedback=17500.; // detector amplifier gain
 };
 class HighPassCircuit {
 public:
