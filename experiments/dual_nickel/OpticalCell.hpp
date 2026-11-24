@@ -49,11 +49,14 @@ struct OptoParts {
     // Sidechain resistor networks selected by a mechanical-style mode switch.
     // Audio gain reduction still comes solely from the modeled photocell.
     double ledDriverRin=10000.;
-    double ledCompFeedbackR=17000., ledLimitFeedbackR=68000.;
+    double ledCompFeedbackR=12000., ledLimitFeedbackR=68000.;
     double kneeDiodeIs=2e-9, kneeDiodeN=1.7;
-    double compKneeSeriesR=6800., limitKneeSeriesR=3300.;
+    double compKneeSeriesR=33000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
+    // EL limiter relay adds a resistively summed pre-attenuator tap,
+    // reducing negative feedback without changing EL or CdS device models.
+    double elLimitInputTapR=33000., elLimitFeedbackTapR=15000.;
     double ledDriverRfeedback=25000.; // legacy FF feedback-diode branch reference
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
@@ -362,6 +365,10 @@ public:
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     void setLimiter(bool enabled) noexcept {limiter=enabled;cell.setLimiter(enabled);}
+    double limiterPreFraction() const noexcept {
+        return p.elLimitFeedbackTapR/
+               (p.elLimitFeedbackTapR+p.elLimitInputTapR);
+    }
     void setCellKind(CellKind kind) noexcept {
         if(cell.selected()==kind)return;
         cell.select(kind);detector.reset();t4Sidechain.reset();ledControl=lastOutput=0.;
@@ -442,7 +449,13 @@ public:
     }
     // A physical feedback compressor senses its attenuator output. The
     // previous output sample is fed to the RC detector (one-sample loop delay).
-    float process(float x) noexcept {return process(x,feedforward?x:float(lastOutput));}
+    float process(float x) noexcept {
+        if(limiter && cell.selected()==CellKind::T4B && !feedforward) {
+            const double f=limiterPreFraction();
+            return process(x,float(f*x+(1.-f)*lastOutput));
+        }
+        return process(x,feedforward?x:float(lastOutput));
+    }
     float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
     double reductionDb() const noexcept {return cell.gainReduction();}
     double ldrOhms() const noexcept {return cell.resistance();}
