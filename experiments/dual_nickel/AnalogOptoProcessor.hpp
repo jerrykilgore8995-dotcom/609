@@ -36,6 +36,9 @@ public:
     void setThresholdDb(double x) noexcept {comp.setThresholdDb(x);}
     void setRatio(double x) noexcept {comp.setRatio(x);}
     void setFeedforward(bool b) noexcept {comp.setFeedforward(b);}
+    void setOptoCell(int kind) noexcept {
+        comp.setCellKind(static_cast<optocircuit::CellKind>(std::clamp(kind,0,2)));
+    }
     void setScHpf(bool enable) noexcept {comp.setSidechainHpF(enable);}
     void setScHpfHz(double hz) noexcept {comp.setSidechainHz(hz);}
     void setPalmMute(bool enable) noexcept {low.setEnabled(enable);}
@@ -96,6 +99,7 @@ public:
     void setThresholdDb(double v) noexcept {left.setThresholdDb(v);right.setThresholdDb(v);}
     void setRatio(double v) noexcept {left.setRatio(v);right.setRatio(v);}
     void setFeedforward(bool b) noexcept {feedforward=b;left.setFeedforward(b);right.setFeedforward(b);}
+    void setOptoCell(int kind) noexcept {left.setOptoCell(kind);right.setOptoCell(kind);}
     void setScHpf(bool v) noexcept {left.setScHpf(v);right.setScHpf(v);}
     void setScHpfHz(double v) noexcept {left.setScHpfHz(v);right.setScHpfHz(v);}
     void setPalmMute(bool v) noexcept {left.setPalmMute(v);right.setPalmMute(v);}
