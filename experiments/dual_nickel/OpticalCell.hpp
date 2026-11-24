@@ -37,6 +37,9 @@ struct OptoParts {
     double detectorPotR=100000., detectorPotWiper=0.5;
     double detectorHoldCapF=1e-6;
     double ledDriverRin=10000., ledDriverRfeedback=25000.; // detector amplifier gain
+    // Feedforward topology samples before the attenuator and engages a real
+    // resistor pad at the detector amplifier input; feedback does not.
+    double feedForwardSeriesR=10000., feedForwardShuntR=10000.;
 };
 class HighPassCircuit {
 public:
@@ -211,8 +214,12 @@ public:
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     float process(float x,float sidechain) noexcept {
+        const double detectorPad=feedforward?
+            p.feedForwardShuntR/(p.feedForwardSeriesR+
+                                p.feedForwardShuntR):1.0;
         const double detected=detector.process(double(sidechain)*
-                                                  17.3677*detectorDrive);
+                                                  17.3677*detectorDrive*
+                                                  detectorPad);
         const double thresholdV=.775*dB(threshold);
         // Detector amplifier drives physical LED through a 220R resistor.
         // Ratio adjusts analog loop gain, not a gain multiplier on audio.
