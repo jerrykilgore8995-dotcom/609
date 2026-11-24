@@ -19,11 +19,13 @@ jobs:
       - name: Configure
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Compile transistor, optical and full-path models
-        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts nickel_opto_trace nickel_opto_memory nickel_analog_character nickel_analog_imd nickel_stage_frequency_stability nickel_ultrasonic_response nickel_opto_variants nickel_opto_ratio_sweep nickel_opto_resistor_tune --parallel 2
-      - name: Sweep stock NSL-32 ratio at 1kHz across input and thresholds
+        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts nickel_opto_trace nickel_opto_memory nickel_analog_character nickel_analog_imd nickel_stage_frequency_stability nickel_ultrasonic_response nickel_opto_variants nickel_opto_ratio_sweep nickel_opto_resistor_tune nickel_t4_limiter_tune --parallel 2
+      - name: Sweep Compressor and Limiter 1kHz curves for all optocells
         run: ./build/nickel/nickel_opto_ratio_sweep | tee opto-ratio-1khz.csv
       - name: Sweep candidate compressor feedback and diode series resistors
         run: ./build/nickel/nickel_opto_resistor_tune | tee opto-compressor-resistors.csv
+      - name: Calibrate T4 limiter detector pre-post resistor summing
+        run: ./build/nickel/nickel_t4_limiter_tune | tee t4-limiter-resistors.csv
       - name: Run full physics and signal-path tests
         run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization|opto_memory_calibration|opto_cell_variants'
       - name: Output MNA convergence and CPU results
@@ -66,3 +68,4 @@ jobs:
             optical-cell-variants.txt
             opto-ratio-1khz.csv
             opto-compressor-resistors.csv
+            t4-limiter-resistors.csv
