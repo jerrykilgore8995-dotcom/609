@@ -4,6 +4,11 @@ on:
     branches: [feature/dual-nickel-zener-prototype]
     paths:
       - 'experiments/dual_nickel/DiscreteOutputDriver.hpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/DynamicLowMid.hpp'
+      - 'experiments/dual_nickel/AnalogOptoProcessor.hpp'
+      - 'experiments/dual_nickel/test_analog_opto.cpp'
+      - 'experiments/dual_nickel/CMakeLists.txt'
       - 'experiments/dual_nickel/test_option_c.cpp'
       - 'experiments/dual_nickel/2N5088_2N5087_models.lib'
       - 'experiments/dual_nickel/option_c_reference.cir'
@@ -19,6 +24,10 @@ jobs:
         run: cmake -S experiments/dual_nickel -B build/option-c -DCMAKE_BUILD_TYPE=Release
       - name: Compile Option C
         run: cmake --build build/option-c --target nickel_option_c --parallel 2
+      - name: Compile full analog optical DSP
+        run: cmake --build build/option-c --target nickel_analog_opto --parallel 2
+      - name: Validate LED/CdS, loaded RC, C4-style band and mono signal path
+        run: ./build/option-c/nickel_analog_opto
       - name: Measure audio gain, THD, phase, cap and loads
         run: |
           ./build/option-c/nickel_option_c > option-c-results.txt
