@@ -26,13 +26,12 @@ static Results measure(double ms,double milliamps) {
   optocircuit::LdrCell cell;cell.prepare(sampleRate);
   Results r{};
   const auto current=milliamps*.001;
-  const double drive=driveAtCurrent(cell,current);
-  r.ledMilliamps=cell.ledCurrent(drive)*1000.;
+  r.ledMilliamps=current*1000.;
   const auto targetConductance=1./500.e3+(1./500.-1./500.e3)*
                                     (current/.020);
   const int onSamples=int(ms*.001*sampleRate);
   for(int n=0;n<onSamples;++n) {
-    cell.process(1.,drive);
+    cell.processAtLedCurrent(1.,current);
     const double conductance=1./cell.resistance();
     if(r.rise63ms<0 && conductance>=.632*targetConductance)
       r.rise63ms=1000.*n/sampleRate;
@@ -40,7 +39,7 @@ static Results measure(double ms,double milliamps) {
   r.rAtEnd=cell.resistance();
   r.off0=1./r.rAtEnd;
   for(int n=0;n<=int(10.*sampleRate);++n) {
-    cell.process(1.,0.);
+    cell.processAtLedCurrent(1.,0.);
     const double t=double(n)/sampleRate;
     if(n==int(.1*sampleRate))r.off100=cell.resistance();
     if(n==int(.5*sampleRate)){
