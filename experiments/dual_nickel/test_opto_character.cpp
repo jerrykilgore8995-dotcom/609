@@ -12,9 +12,10 @@ static float tone(int n,double hz,double dbu) {
     return float(a*std::sin(2*pi*hz*n/fs));
 }
 static double steady(double hz,double dbu,double ratio,
-                     double attack=15.,double release=250.,bool hpf=false){
+                     double attack=15.,double release=250.,bool hpf=false,
+                     double threshold=-18.){
     optocircuit::OpticalCompressor c;c.prepare(fs);
-    c.setThresholdDb(-18.);c.setRatio(ratio);
+    c.setThresholdDb(threshold);c.setRatio(ratio);
     c.setAttackMs(attack);c.setReleaseMs(release);
     c.setSidechainHpF(hpf);c.setSidechainHz(120.);
     for(int i=0;i<44100*2;++i)
@@ -39,6 +40,15 @@ int main(){
         std::cout<<"HPF_TRANSFER hz="<<hz<<" off="<<before
                  <<" on="<<filtered<<"\n";
         if(!std::isfinite(filtered) || filtered>before+0.05)return 3;
+    }
+    for(double th:{-18.,-25.,-30.,-35.,-40.,-45.}) {
+        const double gr100=steady(100.,4.,3.,15.,250.,false,th);
+        const double gr1k=steady(1000.,4.,3.,15.,250.,false,th);
+        const double gr8=steady(1000.,8.,3.,15.,250.,false,th);
+        std::cout<<"THRESHOLD threshold_dbu="<<th
+                 <<" gr_100Hz_plus4="<<gr100
+                 <<" gr_1k_plus4="<<gr1k
+                 <<" gr_1k_plus8="<<gr8<<std::endl;
     }
     for(double a:{1.,8.,15.,50.,100.})for(double r:{50.,250.,1000.}) {
         optocircuit::OpticalCompressor cell;cell.prepare(fs);
