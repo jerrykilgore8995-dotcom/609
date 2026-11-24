@@ -7,7 +7,7 @@
 #include "NickelTransformer.hpp"
 #include "DynamicLowMid.hpp"
 #include "OpticalCell.hpp"
-#include "DiscreteOutputDriver.hpp"
+#include "NodalBjtOutput.hpp"
 #include <algorithm>
 #include <cmath>
 namespace analogopto {
@@ -61,6 +61,6 @@ private:
     nickel::Transformer xfmr;
     lowmid::DynamicLowMid low;
     optocircuit::OpticalCompressor comp;
-    nickel::DiscreteOutputDriver output;
+    nickel::NodalOutputDriver output;
 };
 } // namespace analogopto
