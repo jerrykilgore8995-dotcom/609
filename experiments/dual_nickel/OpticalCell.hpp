@@ -201,9 +201,11 @@ public:
         lastLedCurrent=current;
         if(cellKind==CellKind::T4B)
             return processAtPanelVac(audioVolts,0.);
+        const double darkG=1./darkResistance();
         const double normalized=cellKind==CellKind::VTL5C2?
-            physicalConductance(current*1000.)/
-            physicalConductance(20.):current/p.ledReferenceA;
+            std::max(0.,physicalConductance(current*1000.)-darkG)/
+            std::max(1e-12,physicalConductance(20.)-darkG):
+            current/p.ledReferenceA;
         return processIllumination(audioVolts,
                    std::max(0.,normalized),current,false);
     }
