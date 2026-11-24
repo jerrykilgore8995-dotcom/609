@@ -217,6 +217,8 @@ public:
     double reductionDb() const noexcept {return cell.gainReduction();}
     double ldrOhms() const noexcept {return cell.resistance();}
     double detectorVolts() const noexcept {return detector.voltage();}
+    double ledDriveVolts() const noexcept {return ledControl;}
+    double ledAmps() const noexcept {return cell.ledCurrent(ledControl);}
 private:
     OptoParts p{};
     double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
