@@ -50,6 +50,8 @@ struct OptoParts {
     // Audio gain reduction still comes solely from the modeled photocell.
     double ledDriverRin=10000.;
     double ledCompFeedbackR=5200., ledLimitFeedbackR=68000.;
+    // Ganged resistor deck selected with the optical cell cartridge.
+    double vtlCompFeedbackR=4000., vtlCompKneeSeriesR=68000.;
     double kneeDiodeIs=2e-9, kneeDiodeN=1.7;
     // Bias divider/series diode(s) delaying the extra current branch.
     // In compressor mode this is a real voltage offset, not a dB knee.
@@ -416,8 +418,12 @@ public:
         // creating an electrical soft knee without a digital dB curve.
         const double overdrive=detected-thresholdV;
         const double feedbackR=feedforward?p.feedForwardDriverFeedbackR:
-                               (limiter?p.ledLimitFeedbackR:p.ledCompFeedbackR);
-        const double kneeR=limiter?p.limitKneeSeriesR:p.compKneeSeriesR;
+                               (limiter?p.ledLimitFeedbackR:
+                                cell.selected()==CellKind::VTL5C2?
+                                p.vtlCompFeedbackR:p.ledCompFeedbackR);
+        const double kneeR=limiter?p.limitKneeSeriesR:
+                           cell.selected()==CellKind::VTL5C2?
+                           p.vtlCompKneeSeriesR:p.compKneeSeriesR;
         double diodeCurrent=0.;
         const double kneeOverdrive=overdrive-(limiter?0.:p.compKneeBiasV);
         if(kneeOverdrive>0.) {
