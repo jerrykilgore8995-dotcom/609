@@ -63,7 +63,7 @@ struct OptoParts {
     double leadClampDiodeIs=2e-9,leadClampDiodeN=1.7;
     // VTL5C2 only: biased diode, source resistor and summing resistor
     // admitting additional pre-LDR current at HIGH input levels.
-    double vtlHighTapBiasV=3.0,vtlHighTapSeriesR=80000.,vtlHighTapSummingR=5000.;
+    double vtlHighTapBiasV=5.0,vtlHighTapSeriesR=80000.,vtlHighTapSummingR=5000.;
     double ledCompFeedbackR=5000., ledLimitFeedbackR=68000.;
     // Ganged resistor deck selected with the optical cell cartridge.
     double vtlCompFeedbackR=5000., vtlCompKneeSeriesR=68000.;
@@ -72,7 +72,7 @@ struct OptoParts {
     // In compressor mode this is a real voltage offset, not a dB knee.
     double compKneeBiasV=0.0;
     double ledCompInputTapR=100000., ledCompFeedbackTapR=25000.;
-    double vtlCompInputTapR=100000.,vtlCompFeedbackTapR=11111.111;
+    double vtlCompInputTapR=100000.,vtlCompFeedbackTapR=17647.059;
     double compKneeSeriesR=68000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
