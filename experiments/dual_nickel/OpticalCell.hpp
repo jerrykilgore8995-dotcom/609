@@ -69,6 +69,7 @@ struct OptoParts {
     // In compressor mode this is a real voltage offset, not a dB knee.
     double compKneeBiasV=0.0;
     double ledCompInputTapR=100000., ledCompFeedbackTapR=0.;
+    double vtlCompInputTapR=100000.,vtlCompFeedbackTapR=0.;
     double compKneeSeriesR=68000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
@@ -387,7 +388,10 @@ public:
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     void setLimiter(bool enabled) noexcept {limiter=enabled;cell.setLimiter(enabled);}
     double ledCompPreFraction() const noexcept {
-        return p.ledCompFeedbackTapR/(p.ledCompInputTapR+p.ledCompFeedbackTapR);
+        const bool vtl=cell.selected()==CellKind::VTL5C2;
+        const double in=vtl?p.vtlCompInputTapR:p.ledCompInputTapR;
+        const double feed=vtl?p.vtlCompFeedbackTapR:p.ledCompFeedbackTapR;
+        return feed/(in+feed);
     }
     double detectorPreFraction() const noexcept {
         return limiter?p.elLimitFeedbackTapR/
