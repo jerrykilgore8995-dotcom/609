@@ -46,10 +46,12 @@ public:
     }
     void setEnabled(bool b) noexcept {enabled=b;}
     void setCenterHz(double hz) noexcept {
-        center=std::clamp(hz,80.,400.);rebuild();
+        const double v=std::clamp(hz,80.,400.);
+        if(std::abs(center-v)>1e-4){center=v;rebuild();}
     }
     void setWidthOctaves(double octaves) noexcept {
-        width=std::clamp(octaves,.5,2.5);rebuild();
+        const double v=std::clamp(octaves,.5,2.5);
+        if(std::abs(width-v)>1e-4){width=v;rebuild();}
     }
     void setThresholdDb(double db) noexcept {threshold=std::clamp(db,-50.,12.);}
     void setRatio(double r) noexcept {ratio=std::clamp(r,1.0,20.);}
