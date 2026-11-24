@@ -58,26 +58,26 @@ struct OptoParts {
     // Each cell relay selects its own detector input feedback resistor.
     double leadDetectorRg=10000.;
     double nslLeadDetectorRf=50000.,vtlLeadDetectorRf=50000.;
-    double leadDriverRin=10000.,nslLeadDriverRf=10000.,vtlLeadDriverRf=10000.;
-    double nslLeadClampBiasV=1.2,vtlLeadClampBiasV=1.2;
+    double leadDriverRin=10000.,nslLeadDriverRf=4000.,vtlLeadDriverRf=4000.;
+    double nslLeadClampBiasV=.8,vtlLeadClampBiasV=.8;
     double leadClampDiodeIs=2e-9,leadClampDiodeN=1.7;
-    double ledCompFeedbackR=4000., ledLimitFeedbackR=68000.;
+    double ledCompFeedbackR=5000., ledLimitFeedbackR=68000.;
     // Ganged resistor deck selected with the optical cell cartridge.
-    double vtlCompFeedbackR=2000., vtlCompKneeSeriesR=68000.;
+    double vtlCompFeedbackR=5000., vtlCompKneeSeriesR=68000.;
     double kneeDiodeIs=2e-9, kneeDiodeN=1.7;
     // Bias divider/series diode(s) delaying the extra current branch.
     // In compressor mode this is a real voltage offset, not a dB knee.
     double compKneeBiasV=0.0;
-    double ledCompInputTapR=100000., ledCompFeedbackTapR=0.;
-    double vtlCompInputTapR=100000.,vtlCompFeedbackTapR=0.;
+    double ledCompInputTapR=100000., ledCompFeedbackTapR=25000.;
+    double vtlCompInputTapR=100000.,vtlCompFeedbackTapR=25000.;
     double compKneeSeriesR=68000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
-    double elCompDriveRg=10000., elCompDriveRf=0.;
+    double elCompDriveRg=10000., elCompDriveRf=2000.;
     // EL limiter relay adds a resistively summed pre-attenuator tap,
     // reducing negative feedback without changing EL or CdS device models.
     double elLimitInputTapR=110000., elLimitFeedbackTapR=4700.;
-    double elCompInputTapR=470000., elCompFeedbackTapR=6800.;
+    double elCompInputTapR=470000., elCompFeedbackTapR=17000.;
     double ledDriverRfeedback=25000.; // FF diode-shunt reference branch
     double feedForwardDriverFeedbackR=37500.; // fixed FF amplifier resistor
     // Feedforward topology samples before the attenuator and engages a real
