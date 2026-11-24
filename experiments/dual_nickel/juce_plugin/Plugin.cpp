@@ -22,7 +22,6 @@ Layout makeParameters(){
     };
     add("drive","Input Drive", -18,18,0,.1f);
     add("threshold","Opto Threshold",-45,18,-18,.1f);
-    add("ratio","Opto Ratio",1.5f,8,3,.1f);
     add("attack","Opto Attack (ms)",10,100,15,.1f);
     add("release","Opto Release (ms)",50,2000,250,1);
     add("makeup","Makeup Gain",-12,18,0,.1f);
@@ -99,7 +98,6 @@ public:
             dsp.setOutputTrimDb(v("output"));
             dsp.setLinkedAutoGain(v("link")>.5);
             dsp.setThresholdDb(v("threshold"));
-            dsp.setRatio(v("ratio"));
             dsp.setFeedforward(v("ff")>.5);
             dsp.setOptoCell(int(v("cell")));
             dsp.setAttackMs(v("attack"));
@@ -188,8 +186,8 @@ class HardwarePanel final : public juce::Component,private juce::Timer {
 public:
     HardwarePanel(NickelOptoProcessor& processor,int channel):
         p(processor),channelIndex(channel) {
-        const std::array<std::pair<const char*,const char*>,14> settings{{
-          {"drive","INPUT"},{"threshold","THRESHOLD"},{"ratio","RATIO"},
+        const std::array<std::pair<const char*,const char*>,13> settings{{
+          {"drive","INPUT"},{"threshold","THRESHOLD"},
           {"makeup","MAKEUP"},{"attack","ATTACK"},{"release","RELEASE"},
           {"hpfhz","S/C HPF"},{"output","OUTPUT"},{"pmcenter","LOW-MID FREQ"},
           {"pmwidth","BANDWIDTH"},{"pmrange","DYN CUT"},{"pmthreshold","BAND THR"},
