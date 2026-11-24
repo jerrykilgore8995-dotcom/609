@@ -50,6 +50,7 @@ public:
     void setPalmReleaseMs(double v) noexcept {low.setReleaseMs(v);}
     double opticalGr() const noexcept {return comp.reductionDb();}
     double detectorPreFraction() const noexcept {return comp.detectorPreFraction();}
+    double ledCompPreFraction() const noexcept {return comp.ledCompPreFraction();}
     double lowMidGr() const noexcept {return low.reductionDb();}
     double photocellResistance() const noexcept {return comp.ldrOhms();}
     float lastOpticalOutput() const noexcept {return comp.lastAttenuatorOutput();}
@@ -142,6 +143,10 @@ public:
         // rectifier/storage capacitor loop.
         const float beforeOpto=std::abs(pl)>=std::abs(pr)?pl:pr;
         float detector=feedforward?beforeOpto:previousDetector;
+        if(!limiter && optoCell!=2 && !feedforward) {
+            const double f=left.ledCompPreFraction();
+            detector=float(f*beforeOpto+(1.-f)*previousDetector);
+        }
         if(optoCell==2 && !feedforward) {
             const double f=left.detectorPreFraction();
             detector=float(f*beforeOpto+(1.-f)*previousDetector);
