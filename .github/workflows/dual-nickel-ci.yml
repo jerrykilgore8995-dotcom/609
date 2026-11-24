@@ -19,6 +19,14 @@ jobs:
         run: cmake --build build/dual-nickel --config Release --parallel 2
       - name: Run numerical validation
         run: ctest --test-dir build/dual-nickel --output-on-failure
+      - name: Measure Option C discrete output stage
+        run: |
+          ./build/dual-nickel/nickel_option_c > build/dual-nickel/option-c-measurements.txt
+          grep -E 'level_dbu=4\\.000000|level_dbu=18\\.000000|CAP_COMPARE|DRIVER_CPU|OPTION_C_TEST' build/dual-nickel/option-c-measurements.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: option-c-discrete-output-measurements
+          path: build/dual-nickel/option-c-measurements.txt
       - name: Benchmark
         run: ./build/dual-nickel/nickel_smoke
       - name: Full +4 dBu input-drive sweep (50 positions x frequencies)
