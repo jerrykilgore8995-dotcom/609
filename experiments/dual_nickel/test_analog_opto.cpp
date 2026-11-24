@@ -111,6 +111,25 @@ int main(){
     if(!(quiet.r>hot.r && hot.optical>quiet.optical))return 4;
     if(!(hotWithHpf.optical<hot.optical))return 5;
     if(!(palm.lowMid>0.2))return 6;
+    analogopto::MonoEngine bm;bm.prepare(fs);
+    bm.setThresholdDb(-18);bm.setPalmMute(true);
+    const auto m0=std::chrono::steady_clock::now();
+    float sink=0.;
+    for(int n=0;n<44100;++n)
+        sink=bm.process(lineLevel(4.,170.,n));
+    const auto m1=std::chrono::steady_clock::now();
+    analogopto::StereoEngine bs;bs.prepare(fs);
+    bs.setThresholdDb(-18);bs.setPalmMute(true);
+    for(int n=0;n<44100;++n) {
+        float l=lineLevel(4.,100.,n),r=lineLevel(4.,170.,n);
+        bs.process(l,r);sink+=0.00001f*(l+r);
+    }
+    const auto m2=std::chrono::steady_clock::now();
+    const double monoMs=std::chrono::duration<double>(m1-m0).count()*1000.*512./44100.;
+    const double stereoMs=std::chrono::duration<double>(m2-m1).count()*1000.*512./44100.;
+    std::cout<<"MONO_FULL_CHAIN_MS_512="<<monoMs
+             <<" STEREO_FULL_CHAIN_MS_512="<<stereoMs
+             <<" sink="<<sink<<std::endl;
     std::cout<<"ANALOG_OPTO_PIPELINE=PASS\n";
     return 0;
 }
