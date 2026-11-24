@@ -87,3 +87,6 @@ target_link_libraries(nickel_full_line_level PRIVATE chowdsp_wdf)
 
 add_executable(nickel_opto_burst_matrix measure_opto_burst_matrix.cpp)
 target_compile_features(nickel_opto_burst_matrix PRIVATE cxx_std_20)
+
+add_executable(nickel_t4_recovery_tune tune_t4_recovery.cpp)
+target_compile_features(nickel_t4_recovery_tune PRIVATE cxx_std_20)
