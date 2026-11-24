@@ -43,6 +43,7 @@ int main(){
     for(int i=0;i<22050;++i)cell.process(1.,3.);
     const auto lit=cell.resistance();
     const auto gr=cell.gainReduction();
+    if(cell.actualLedAmps()<1e-6)return 11; // current-sense network must actually receive current
     for(int i=0;i<44100;++i)cell.process(1.,0.);
     const auto decay=cell.resistance();
     std::cout<<"OPTO_PHYSICS dark="<<dark<<" lit="<<lit
