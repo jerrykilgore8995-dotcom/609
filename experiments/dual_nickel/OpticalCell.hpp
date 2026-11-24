@@ -49,6 +49,10 @@ struct OptoParts {
     // Sidechain resistor networks selected by a mechanical-style mode switch.
     // Audio gain reduction still comes solely from the modeled photocell.
     double ledDriverRin=10000.;
+    // Per-cell non-inverting detector-input amplifier: gain = 1 + Rf/Rg.
+    // These resistors are relay-selected with the optocell; no audio gain scaling.
+    double detectorPreampRg=10000.;
+    double nslCompPreampRf=0.,vtlCompPreampRf=0.;
     double ledCompFeedbackR=4000., ledLimitFeedbackR=68000.;
     // Ganged resistor deck selected with the optical cell cartridge.
     double vtlCompFeedbackR=2000., vtlCompKneeSeriesR=68000.;
@@ -60,6 +64,7 @@ struct OptoParts {
     double compKneeSeriesR=68000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
+    double elCompDriveRg=10000., elCompDriveRf=0.;
     // EL limiter relay adds a resistively summed pre-attenuator tap,
     // reducing negative feedback without changing EL or CdS device models.
     double elLimitInputTapR=110000., elLimitFeedbackTapR=4700.;
@@ -394,6 +399,7 @@ public:
             // sidechain audio (pre- or post-cell, according to FF switch).
             // Threshold controls sidechain amplifier sensitivity.
             const double gain=p.elPanelVoltageGain*
+                 (limiter?1.:(1.+p.elCompDriveRf/p.elCompDriveRg))*
                  dB(-18.-threshold)*
                  (limiter?p.elLimitFeedbackR/p.elCompFeedbackR:1.);
             const double side=hpfEnabled?t4Sidechain.process(
@@ -408,9 +414,12 @@ public:
         const double detectorPad=feedforward?
             p.feedForwardShuntR/(p.feedForwardSeriesR+
                                 p.feedForwardShuntR):1.0;
+        const double preampGain=limiter?1.:(1.+
+                  (cell.selected()==CellKind::VTL5C2?
+                   p.vtlCompPreampRf:p.nslCompPreampRf)/p.detectorPreampRg);
         const double detected=detector.process(double(sidechain)*
                                                   17.3677*detectorDrive*
-                                                  detectorPad);
+                                                  detectorPad*preampGain);
         const double thresholdV=.775*dB(threshold);
         // Two physical branches feed the LED-driver summing junction:
         // a linear Rin branch and a forward-biased diode + series resistor
