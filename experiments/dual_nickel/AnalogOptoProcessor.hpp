@@ -99,6 +99,12 @@ public:
     void setPalmThresholdDb(double v) noexcept {
         left.setPalmThresholdDb(v);right.setPalmThresholdDb(v);
     }
+    void setPalmAttackMs(double v) noexcept {
+        left.setPalmAttackMs(v);right.setPalmAttackMs(v);
+    }
+    void setPalmReleaseMs(double v) noexcept {
+        left.setPalmReleaseMs(v);right.setPalmReleaseMs(v);
+    }
     void setLoadOhms(double v) noexcept {left.setLoadOhms(v);right.setLoadOhms(v);}
     void setLinkedAutoGain(bool b) noexcept {
         left.setLinkedAutoGain(b);right.setLinkedAutoGain(b);
