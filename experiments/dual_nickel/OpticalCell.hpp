@@ -40,6 +40,12 @@ struct OptoParts {
     // Feedforward topology samples before the attenuator and engages a real
     // resistor pad at the detector amplifier input; feedback does not.
     double feedForwardSeriesR=3300., feedForwardShuntR=10000.;
+    // A diode shunting the feedforward detector amplifier's feedback
+    // resistor produces a genuinely nonlinear, gradual knee at high level.
+    // The diode's reference is generated from a +15 V resistor divider.
+    double feedForwardDiodeIs=2e-9,feedForwardDiodeN=1.7;
+    double feedForwardBiasRail=15.,feedForwardBiasTopR=130000.;
+    double feedForwardBiasBottomR=15000.;
 };
 class HighPassCircuit {
 public:
@@ -231,9 +237,26 @@ public:
         const double amplifierGain=p.ledDriverRfeedback/
                                     std::max(1.,p.ledDriverRin);
         const double ratioFeedback=1.+(ratio-1.)*.25;
-        const double source=std::clamp(above*amplifierGain*ratioFeedback,
-                                     0.,p.ledSupply);
-        ledControl=source;
+        const double target=std::max(0.,above*amplifierGain*ratioFeedback);
+        double source=target;
+        if(feedforward) {
+            // The detector amplifier's inverting resistor-feedback branch is
+            // shunted by a biased diode. KCL: Iin=Vout/Rfeedback+Idiode.
+            // This is *not* a synthetic gain curve on the audio channel.
+            const double bias=p.feedForwardBiasRail*p.feedForwardBiasBottomR/
+                std::max(1.,p.feedForwardBiasTopR+p.feedForwardBiasBottomR);
+            const double vt=std::max(.01,p.feedForwardDiodeN*p.thermalV);
+            double lo=0.,hi=std::min(target,p.ledSupply);
+            for(int n=0;n<18;++n) {
+                const double trial=.5*(lo+hi);
+                const double diode=p.feedForwardDiodeIs*
+                    std::max(0.,std::exp(std::clamp((trial-bias)/vt,-40.,35.))-1.);
+                const double voltageEquivalent=trial+p.ledDriverRfeedback*diode;
+                if(voltageEquivalent>target)hi=trial;else lo=trial;
+            }
+            source=.5*(lo+hi);
+        }
+        ledControl=std::clamp(source,0.,p.ledSupply);
         const double y=cell.process(double(x)*17.3677,ledControl);
         lastOutput=y/17.3677;
         return float(lastOutput);
