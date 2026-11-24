@@ -35,6 +35,7 @@ public:
     void setReleaseMs(double x) noexcept {comp.setReleaseMs(x);}
     void setThresholdDb(double x) noexcept {comp.setThresholdDb(x);}
     void setFeedforward(bool b) noexcept {comp.setFeedforward(b);}
+    void setLimiter(bool b) noexcept {comp.setLimiter(b);}
     void setOptoCell(int kind) noexcept {
         comp.setCellKind(static_cast<optocircuit::CellKind>(std::clamp(kind,0,2)));
     }
@@ -97,6 +98,7 @@ public:
     void setReleaseMs(double v) noexcept {left.setReleaseMs(v);right.setReleaseMs(v);}
     void setThresholdDb(double v) noexcept {left.setThresholdDb(v);right.setThresholdDb(v);}
     void setFeedforward(bool b) noexcept {feedforward=b;left.setFeedforward(b);right.setFeedforward(b);}
+    void setLimiter(bool b) noexcept {left.setLimiter(b);right.setLimiter(b);}
     void setOptoCell(int kind) noexcept {left.setOptoCell(kind);right.setOptoCell(kind);}
     void setScHpf(bool v) noexcept {left.setScHpf(v);right.setScHpf(v);}
     void setScHpfHz(double v) noexcept {left.setScHpfHz(v);right.setScHpfHz(v);}
