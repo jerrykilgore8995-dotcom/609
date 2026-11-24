@@ -63,3 +63,7 @@ target_link_libraries(nickel_stage_frequency_stability PRIVATE chowdsp_wdf)
 add_executable(nickel_ultrasonic_response measure_ultrasonic_response.cpp)
 target_compile_features(nickel_ultrasonic_response PRIVATE cxx_std_20)
 target_link_libraries(nickel_ultrasonic_response PRIVATE chowdsp_wdf)
+
+add_executable(nickel_opto_variants test_opto_variants.cpp)
+target_compile_features(nickel_opto_variants PRIVATE cxx_std_20)
+add_test(NAME opto_cell_variants COMMAND nickel_opto_variants)
