@@ -42,7 +42,8 @@ public:
     }
     void reset() noexcept {
         lpLo.reset();hpLo.reset();lpHi.reset();hpHi.reset();
-        lpAlign.reset();hpAlign.reset(); rms=0.;gain=1.;gr=0.;
+        lpAlign.reset();hpAlign.reset();
+        detectorLo.reset();detectorHi.reset(); rms=0.;gain=1.;gr=0.;
     }
     void setEnabled(bool b) noexcept {enabled=b;}
     void setCenterHz(double hz) noexcept {
@@ -60,7 +61,7 @@ public:
     void setReleaseMs(double ms) noexcept {release=std::clamp(ms,20.,1000.)*.001;}
     double reductionDb() const noexcept {return gr;}
     double lowCorner() const noexcept {return lo;}
-    double highCorner() const noexcept {return hi;}
+    double highCorner() const noexcept {return hi;}\n    double detectBand(double x) noexcept {\n        return detectorHi.process(detectorLo.process(x));\n    }
     float process(float sample,double linkedDetector=0.,bool external=false) noexcept {
         if(!enabled)return sample;
         const double x=double(sample);
@@ -90,11 +91,12 @@ private:
         lpLo.prepare(fs,lo,false);hpLo.prepare(fs,lo,true);
         lpHi.prepare(fs,hi,false);hpHi.prepare(fs,hi,true);
         lpAlign.prepare(fs,hi,false);hpAlign.prepare(fs,hi,true);
+        detectorLo.prepare(fs,lo,true);detectorHi.prepare(fs,hi,false);
     }
     double fs=44100.,center=170.,width=1.3,lo=108.,hi=267.,
            threshold=-22.,ratio=4.,maxCut=4.,attack=.01,release=.15,
            rms=0.,gain=1.,gr=0.;
     bool enabled=false;
-    LR4 lpLo,hpLo,lpHi,hpHi,lpAlign,hpAlign;
+    LR4 lpLo,hpLo,lpHi,hpHi,lpAlign,hpAlign,detectorLo,detectorHi;
 };
 } // namespace lowmid
