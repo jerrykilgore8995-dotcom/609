@@ -349,7 +349,6 @@ public:
     void setSidechainHpF(bool x) noexcept {hpfEnabled=x;detector.setSidechainHpF(x);}
     void setSidechainHz(double x) noexcept {detector.setCornerHz(x);t4Sidechain.setCornerHz(x);}
     void setThresholdDb(double x) noexcept {threshold=std::clamp(x,-45.,18.);}
-    void setRatio(double x) noexcept {ratio=std::clamp(x,1.5,8.);}
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     void setCellKind(CellKind kind) noexcept {
@@ -364,7 +363,7 @@ public:
             // sidechain audio (pre- or post-cell, according to FF switch).
             // Threshold controls sidechain amplifier sensitivity.
             const double gain=p.elPanelVoltageGain*
-                 dB(-18.-threshold)*(1.+(ratio-1.)*.25);
+                 dB(-18.-threshold);
             const double side=hpfEnabled?t4Sidechain.process(
                                double(sidechain)*17.3677):
                                double(sidechain)*17.3677;
@@ -382,14 +381,12 @@ public:
                                                   detectorPad);
         const double thresholdV=.775*dB(threshold);
         // Detector amplifier drives physical LED through a 220R resistor.
-        // Ratio adjusts analog loop gain, not a gain multiplier on audio.
         const double above=std::max(0.,detected-thresholdV);
         // Noninverting detector driver gain is determined by an actual
-        // feedback/input resistor ratio and ratio-switch feedback factor.
+        // physical input and feedback resistors, without a ratio control.
         const double amplifierGain=p.ledDriverRfeedback/
                                     std::max(1.,p.ledDriverRin);
-        const double ratioFeedback=1.+(ratio-1.)*.25;
-        const double target=std::max(0.,above*amplifierGain*ratioFeedback);
+        const double target=std::max(0.,above*amplifierGain);
         double source=target;
         if(feedforward) {
             // The detector amplifier's inverting resistor-feedback branch is
@@ -425,7 +422,7 @@ public:
     double ledAmps() const noexcept {return cell.actualLedAmps();}
 private:
     OptoParts p{};
-    double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
+    double fs=44100.,threshold=-18.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
     bool feedforward=false,hpfEnabled=false;
     OpticalDetector detector;
     HighPassCircuit t4Sidechain;
