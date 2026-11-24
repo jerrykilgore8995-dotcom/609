@@ -205,8 +205,10 @@ public:
         const double y=cell.process(double(x)*17.3677,ledControl);
         return float(y/17.3677);
     }
-    // A physical feedback compressor senses its attenuator output. The\n    // previous output sample is fed to the RC detector (one-sample loop delay).
-    float process(float x) noexcept {return process(x,float(lastOutput));}\n    float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
+    // A physical feedback compressor senses its attenuator output. The
+    // previous output sample is fed to the RC detector (one-sample loop delay).
+    float process(float x) noexcept {return process(x,float(lastOutput));}
+    float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
     double reductionDb() const noexcept {return cell.gainReduction();}
     double ldrOhms() const noexcept {return cell.resistance();}
     double detectorVolts() const noexcept {return detector.voltage();}
