@@ -209,6 +209,7 @@ public:
     void setThresholdDb(double x) noexcept {threshold=std::clamp(x,-45.,18.);}
     void setRatio(double x) noexcept {ratio=std::clamp(x,1.5,8.);}
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
+    void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     float process(float x,float sidechain) noexcept {
         const double detected=detector.process(double(sidechain)*
                                                   17.3677*detectorDrive);
@@ -230,7 +231,7 @@ public:
     }
     // A physical feedback compressor senses its attenuator output. The
     // previous output sample is fed to the RC detector (one-sample loop delay).
-    float process(float x) noexcept {return process(x,float(lastOutput));}
+    float process(float x) noexcept {return process(x,feedforward?x:float(lastOutput));}
     float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
     double reductionDb() const noexcept {return cell.gainReduction();}
     double ldrOhms() const noexcept {return cell.resistance();}
@@ -240,6 +241,7 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,threshold=-18.,ratio=3.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
+    bool feedforward=false;
     OpticalDetector detector;
     LdrCell cell;
 };
