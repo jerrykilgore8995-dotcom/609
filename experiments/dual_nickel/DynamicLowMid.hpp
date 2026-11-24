@@ -61,7 +61,10 @@ public:
     void setReleaseMs(double ms) noexcept {release=std::clamp(ms,20.,1000.)*.001;}
     double reductionDb() const noexcept {return gr;}
     double lowCorner() const noexcept {return lo;}
-    double highCorner() const noexcept {return hi;}\n    double detectBand(double x) noexcept {\n        return detectorHi.process(detectorLo.process(x));\n    }
+    double highCorner() const noexcept {return hi;}
+    double detectBand(double x) noexcept {
+        return detectorHi.process(detectorLo.process(x));
+    }
     float process(float sample,double linkedDetector=0.,bool external=false) noexcept {
         if(!enabled)return sample;
         const double x=double(sample);
