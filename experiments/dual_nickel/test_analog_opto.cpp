@@ -65,6 +65,38 @@ int main(){
              <<" gr="<<lm.reductionDb()<<"\n";
     if(!(after<before))return 3;
 
+    // A linked L/R detector must keep both channels on the same GR curve
+    // even if their actual audio signals are different.
+    analogopto::StereoEngine st;
+    st.prepare(fs);
+    st.setThresholdDb(-18);
+    for(int n=0;n<44100;++n) {
+        float l=lineLevel(8.,100.,n);
+        float r=lineLevel(0.,100.,n);
+        st.process(l,r);
+        if(!std::isfinite(l)||!std::isfinite(r))return 8;
+    }
+    std::cout<<"STEREO linked_left="<<st.grLeft()
+             <<" linked_right="<<st.grRight()<<"\\n";
+    if(std::abs(st.grLeft()-st.grRight())>.01)return 9;
+
+    // Dynamic band in transparent mode must reconstruct its frequency
+    // magnitude rather than producing static crossover notches.
+    for(double freq:{50.,100.,170.,400.,1000.,5000.}) {
+        lowmid::DynamicLowMid transparent;
+        transparent.prepare(fs);
+        transparent.setEnabled(true);
+        transparent.setMaxCutDb(0.);
+        double inPower=0.,outPower=0.;
+        for(int n=0;n<22050;++n) {
+            const double input=.1*std::sin(2*pi*freq*n/fs);
+            const double output=transparent.process(float(input));
+            if(n>11025){inPower+=input*input;outPower+=output*output;}
+        }
+        const double err=10*std::log10(outPower/inPower);
+        std::cout<<"CROSSOVER freq="<<freq<<" magnitude_error_db="<<err<<"\\n";
+        if(!std::isfinite(err)||std::abs(err)>.5)return 10;
+    }
     const auto quiet=run(-18.,100.,44100,false,false);
     const auto hot=run(16.,100.,44100,false,false);
     const auto hotWithHpf=run(16.,100.,44100,false,true);
