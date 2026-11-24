@@ -51,6 +51,9 @@ struct OptoParts {
     double ledDriverRin=10000.;
     double ledCompFeedbackR=10000., ledLimitFeedbackR=68000.;
     double kneeDiodeIs=2e-9, kneeDiodeN=1.7;
+    // Bias divider/series diode(s) delaying the extra current branch.
+    // In compressor mode this is a real voltage offset, not a dB knee.
+    double compKneeBiasV=0.0;
     double compKneeSeriesR=33000., limitKneeSeriesR=3300.;
     double compClampTopR=68000., limitClampTopR=47000.;
     double elCompFeedbackR=22000., elLimitFeedbackR=68000.;
@@ -412,16 +415,17 @@ public:
                                (limiter?p.ledLimitFeedbackR:p.ledCompFeedbackR);
         const double kneeR=limiter?p.limitKneeSeriesR:p.compKneeSeriesR;
         double diodeCurrent=0.;
-        if(overdrive>0.) {
-            // Shockley diode KCL: V=I*R+n*Vt*ln(1+I/Is).
-            // Fixed-count bisection keeps real-time CPU bounded.
-            double lo=0.,hi=overdrive/kneeR;
+        const double kneeOverdrive=overdrive-(limiter?0.:p.compKneeBiasV);
+        if(kneeOverdrive>0.) {
+            // Biased diode branch. Shockley KCL:
+            // Vover-bias=I*R+n*Vt*ln(1+I/Is).
+            double lo=0.,hi=kneeOverdrive/kneeR;
             const double diodeVt=std::max(.01,p.kneeDiodeN*p.thermalV);
             for(int n=0;n<12;++n) {
                 const double current=.5*(lo+hi);
                 const double junction=diodeVt*
                     std::log1p(current/p.kneeDiodeIs);
-                if(current*kneeR+junction>overdrive)hi=current;
+                if(current*kneeR+junction>kneeOverdrive)hi=current;
                 else lo=current;
             }
             diodeCurrent=.5*(lo+hi);
