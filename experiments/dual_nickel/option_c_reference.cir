@@ -1,0 +1,39 @@
+* Option C reference circuit - actual device SPICE models, +/-15V, 2 BJTs
+* This reference uses ideal +/-0.73V bias voltage followers. It is NOT the
+* final transistor bias/driver circuit, but it validates the full BJT cards
+* against the same coupling caps, resistors and selectable output loads.
+* Run: ngspice -b option_c_reference.cir
+.include 2N5088_2N5087_models.lib
+Vplus vcc 0 15
+Vminus vee 0 -15
+Vsignal source 0 SIN(0 1.737 1000)
+Rsource source cin 100
+Cinput cin capesr 47u
+RinputESR capesr base 0.4
+Rbase base 0 47k
+Bnp np 0 V=V(base)+0.73
+Bpn pn 0 V=V(base)-0.73
+Qnp vcc np en 2N5088
+Qpn vee pn ep 2N5087
+RemitterN en buffer 22
+RemitterP ep buffer 22
+RoutESR buffer outc 0.15
+Cout outc loaded 100u
+Rload loaded 0 10k
+.control
+set noaskquit
+tran 5u 100m 50m
+meas tran outmax max v(loaded) from=80m to=100m
+meas tran outmin min v(loaded) from=80m to=100m
+echo ===== RLOAD 10k =====
+print outmax outmin
+alter Rload = 600
+reset
+tran 5u 100m 50m
+meas tran outmax600 max v(loaded) from=80m to=100m
+meas tran outmin600 min v(loaded) from=80m to=100m
+echo ===== RLOAD 600 =====
+print outmax600 outmin600
+quit
+.endc
+.end
