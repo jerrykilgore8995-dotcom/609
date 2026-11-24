@@ -22,13 +22,13 @@ struct OptoParts {
     double ledSeriesOhms=220., ledSupply=12.;
     double attackCellSeconds=.0035, recoveryCellSeconds=.50;
     double chargeFast=.45, conductanceExponent=1.0;
-    double rectifierIs=1.e-12, rectifierN=1.7;
+    double rectifierIs=2.e-9, rectifierN=1.7;
     double detectorSeriesR=100., detectorLoadR=100000.;
     double detectorCapF=100e-9;  // physical coupling high-pass
     double detectorCapESR=0.25;
     double detectorPotR=100000., detectorPotWiper=0.5;
     double detectorHoldCapF=1e-6;
-    double ledDriverCurrentPerVolt=.0012; // bias driver transconductance
+    double ledDriverRin=10000., ledDriverRfeedback=24000.; // detector amplifier gain
 };
 class HighPassCircuit {
 public:
@@ -193,9 +193,13 @@ public:
         // Detector amplifier drives physical LED through a 220R resistor.
         // Ratio adjusts analog loop gain, not a gain multiplier on audio.
         const double above=std::max(0.,detected-thresholdV);
-        const double driven=std::clamp(above*
-                p.ledDriverCurrentPerVolt*p.ledSeriesOhms*
-                (1.+(ratio-1.)*.5)*400.,0.,p.ledSupply);
+        // Noninverting detector driver gain is determined by an actual
+        // feedback/input resistor ratio and ratio-switch feedback factor.
+        const double amplifierGain=p.ledDriverRfeedback/
+                                    std::max(1.,p.ledDriverRin);
+        const double ratioFeedback=1.+(ratio-1.)*.25;
+        const double driven=std::clamp(above*amplifierGain*ratioFeedback,
+                                     0.,p.ledSupply);
         ledControl=driven;
         const double y=cell.process(double(x)*17.3677,ledControl);
         return float(y/17.3677);
