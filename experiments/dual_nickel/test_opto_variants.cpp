@@ -25,7 +25,8 @@ int main(){
   const double dark=c.resistance();
   double peak=0,initial=0,after50=0,after1000=0;
   for(int i=0;i<int(1.*fs);++i) {
-    c.processAtPanelVac(1.,120.);
+    c.processAtPanelVac(1.,120.*std::sqrt(2.)*
+                      std::sin(2.*optocircuit::pi*1000.*i/fs));
     peak=std::max(peak,c.gainReduction());
   }
   initial=c.gainReduction();
