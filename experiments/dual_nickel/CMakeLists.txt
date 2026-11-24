@@ -84,3 +84,6 @@ target_compile_features(nickel_line_level_knee_tune PRIVATE cxx_std_20)
 add_executable(nickel_full_line_level measure_full_line_level.cpp)
 target_compile_features(nickel_full_line_level PRIVATE cxx_std_20)
 target_link_libraries(nickel_full_line_level PRIVATE chowdsp_wdf)
+
+add_executable(nickel_opto_burst_matrix measure_opto_burst_matrix.cpp)
+target_compile_features(nickel_opto_burst_matrix PRIVATE cxx_std_20)
