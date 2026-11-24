@@ -49,9 +49,9 @@ struct OptoParts {
     // Sidechain resistor networks selected by a mechanical-style mode switch.
     // Audio gain reduction still comes solely from the modeled photocell.
     double ledDriverRin=10000.;
-    double ledCompFeedbackR=5200., ledLimitFeedbackR=68000.;
+    double ledCompFeedbackR=4000., ledLimitFeedbackR=68000.;
     // Ganged resistor deck selected with the optical cell cartridge.
-    double vtlCompFeedbackR=4000., vtlCompKneeSeriesR=68000.;
+    double vtlCompFeedbackR=3000., vtlCompKneeSeriesR=68000.;
     double kneeDiodeIs=2e-9, kneeDiodeN=1.7;
     // Bias divider/series diode(s) delaying the extra current branch.
     // In compressor mode this is a real voltage offset, not a dB knee.
