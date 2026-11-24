@@ -29,3 +29,12 @@ jobs:
         with:
           name: input-transformer-drive-sweep
           path: build/dual-nickel/input-drive-sweep.csv
+      - name: Combined input and output transformer drive sweep
+        run: |
+          ./build/dual-nickel/nickel_dual_sweep > build/dual-nickel/dual-transformer-drive-sweep.csv
+          head -n 12 build/dual-nickel/dual-transformer-drive-sweep.csv
+          tail -n 10 build/dual-nickel/dual-transformer-drive-sweep.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dual-transformer-drive-sweep
+          path: build/dual-nickel/dual-transformer-drive-sweep.csv
