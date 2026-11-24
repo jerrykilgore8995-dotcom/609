@@ -23,8 +23,8 @@ struct OptoParts {
     double attackCellSeconds=.0035, recoveryCellSeconds=.50;
     double chargeFast=.45, conductanceExponent=1.0;
     double rectifierIs=1.e-12, rectifierN=1.7;
-    double detectorSeriesR=4700., detectorLoadR=100000.;
-    double detectorCapF=220e-9;  // physical coupling high-pass
+    double detectorSeriesR=100., detectorLoadR=100000.;
+    double detectorCapF=100e-9;  // physical coupling high-pass
     double detectorCapESR=0.25;
     double detectorPotR=100000., detectorPotWiper=0.5;
     double detectorHoldCapF=1e-6;
@@ -40,13 +40,17 @@ public:
         // loaded by detector resistance; potentiometer is never an ideal EQ.
         const double load=std::max(100.,p.detectorLoadR);
         const double physicalCap=std::max(1e-9,p.detectorCapF);
-        const double targetR=1./(2.*pi*corner*physicalCap);
-        const double potSeries=std::clamp(targetR-load,0.,p.detectorPotR);
-        const double src=p.detectorSeriesR+p.detectorCapESR+potSeries;
+        // Pot is the shunt resistance of the passive C-R high-pass.
+        // Receiver's finite input resistance loads the pot in parallel.
+        const double src=p.detectorSeriesR+p.detectorCapESR;
+        const double target=1./(2.*pi*corner*physicalCap)-src;
+        const double pot=std::clamp(
+            target*load/std::max(1.,load-target),100.,p.detectorPotR);
+        const double shunt=1./(1./load+1./pot);
         const double dt=1./fs;
-        const double cur=(v-capV)/(src+load+dt/physicalCap);
+        const double cur=(v-capV)/(src+shunt+dt/physicalCap);
         capV+=dt*cur/physicalCap;
-        return cur*load;
+        return cur*shunt;
     }
 private:
     OptoParts p{};
