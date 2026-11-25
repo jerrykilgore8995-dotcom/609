@@ -4,6 +4,7 @@ on:
     branches: [feature/dual-nickel-zener-prototype]
     paths:
       - 'experiments/dual_nickel/measure_stage_fault.cpp'
+      - 'experiments/dual_nickel/NodalBjtOutput.hpp'
       - '.github/workflows/nickel-stage-fault.yml'
   workflow_dispatch:
 jobs:
