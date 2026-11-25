@@ -384,21 +384,21 @@ public:
             g.setFont(juce::FontOptions(10.f,juce::Font::bold));
             g.setColour(juce::Colour(0xffcfccc0));
             g.drawText(title,697,y-1,42,14,juce::Justification::centredRight);
-            constexpr int segments=22;
+            constexpr int segments=18;
             const int lit=juce::jlimit(0,segments,int(std::ceil(fraction*segments)));
             for(int i=0;i<segments;++i) {
-                const float x=745.f+float(i)*10.35f;
-                const juce::Colour active=i>=19?juce::Colour(0xffe13e32):
-                     i>=15?juce::Colour(0xffffcf40):juce::Colour(0xff45d56f);
+                const float x=744.f+float(i)*9.3f;
+                const juce::Colour active=i>=16?juce::Colour(0xffe13e32):
+                     i>=12?juce::Colour(0xffffcf40):juce::Colour(0xff45d56f);
                 g.setColour(i<lit?active:juce::Colour(0xff2b3430));
-                g.fillRoundedRectangle(x,float(y),7.4f,9.f,1.1f);
+                g.fillRoundedRectangle(x,float(y),6.8f,9.f,1.1f);
             }
             g.setFont(juce::FontOptions(9.f));
             g.setColour(juce::Colour(0xffb7b6ac));
             const auto value=grMeter
                 ?juce::String(juce::jlimit(0.f,20.f,displayGr),1)+" dB"
                 :juce::String(juce::Decibels::gainToDecibels(displayInput,-60.f),1)+" dBFS";
-            g.drawText(value,979,y-2,70,14,juce::Justification::centredLeft);
+            g.drawText(value,919,y-2,83,14,juce::Justification::centredLeft);
         };
         drawBar("INPUT",11,juce::jlimit(0.f,1.f,
             (juce::Decibels::gainToDecibels(displayInput,-60.f)+60.f)/60.f),false);
