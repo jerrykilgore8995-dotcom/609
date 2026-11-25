@@ -128,10 +128,14 @@ public:
             // Retry from a physically plausible complementary follower
             // operating point. Keep capacitor charge history untouched:
             // only the instantaneous five-node algebraic solve is retried.
+            // A large input can exceed the +/-15V rail while the actual
+            // emitter/output operating point stays near the rail. Seeding
+            // with the unbounded input would forward-bias the wrong BJT.
+            // Start all three follower nodes at a rail-aware voltage.
+            const double physicalEmitterSeed=std::clamp(base,-14.,14.);
             Vec fresh{targetBN,targetBP,
-                      std::clamp(base,-18.,18.),
-                      std::clamp(base,-18.,18.),
-                      std::clamp(base,-18.,18.)};
+                      physicalEmitterSeed,physicalEmitterSeed,
+                      physicalEmitterSeed};
             // Retry unconditionally from the physical seed. A trapped
             // previous solution can have a smaller residual than the seed
             // yet still lie in an invalid Newton basin. Comparing initial
