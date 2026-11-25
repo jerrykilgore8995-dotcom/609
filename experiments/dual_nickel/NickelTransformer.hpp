@@ -37,8 +37,12 @@ public:
     const State& state() const noexcept {return state_;}
     double anhysteretic(double H,double M) const noexcept {
         const double z=(H+params.alpha*M)/std::max(1.e-9,params.a);
-        const double L=std::abs(z)<1.e-3
-            ? z/3.0-z*z*z/45.0+2*z*z*z*z*z/945.0
+        // The Langevin series is accurate to about 3e-15 in this interval.
+        // It avoids subtractive cancellation and a tanh call near zero.
+        const double z2 = z*z;
+        const double L=std::abs(z)<.20
+            ? z * (1./3. + z2 * (-1./45. + z2 * (2./945. + z2 * (-1./4725. +
+                     z2 * (2./93555. - z2 * 1382./638512875.)))))
             : 1.0/std::tanh(z)-1.0/z;
         return params.Ms*std::clamp(L,-1.0,1.0);
     }
@@ -108,15 +112,25 @@ public:
         const double limitedBase = std::clamp(baseAc, -80., 23.5);
         const double x = limitedBase - emitterOffset;
         const double biasDrop = idleCurrent * emitterResistance;
-        double logCurrent = x > -.99 * biasDrop
-            ? std::log1p(x / (biasDrop + thermalV)) : std::min(-4., (x + biasDrop) / thermalV);
-        for (int iteration = 0; iteration < 5; ++iteration) {
-            const double drop = biasDrop * std::exp(logCurrent);
-            const double error = drop - biasDrop + thermalV * logCurrent - x;
-            if (std::abs(error) < 1.e-9) break;
-            logCurrent -= error / (drop + thermalV);
+        double emitterDelta;
+        if (std::abs(x) < .8 * biasDrop) {
+            // For normal swing, solve for voltage directly. The initial
+            // estimate already compensates for the junction's log drop.
+            emitterDelta = x - thermalV * std::log1p(x / biasDrop);
+            const double error = emitterDelta + thermalV * std::log1p(emitterDelta / biasDrop) - x;
+            emitterDelta -= error / (1. + thermalV / (biasDrop + emitterDelta));
+        } else {
+            // Log-domain Newton remains well behaved close to cutoff.
+            double logCurrent = x > -.99 * biasDrop
+                ? std::log1p(x / (biasDrop + thermalV)) : std::min(-4., (x + biasDrop) / thermalV);
+            for (int iteration = 0; iteration < 5; ++iteration) {
+                const double drop = biasDrop * std::exp(logCurrent);
+                const double error = drop - biasDrop + thermalV * logCurrent - x;
+                if (std::abs(error) < 1.e-9) break;
+                logCurrent -= error / (drop + thermalV);
+            }
+            emitterDelta = biasDrop * std::expm1(logCurrent);
         }
-        const double emitterDelta = biasDrop * std::expm1(logCurrent);
         const double emitter = emitterOffset + emitterDelta;
         const double current = (biasDrop + emitterDelta) / emitterResistance;
         // Finite beta, high injection, and Early effect from the 2N5088
@@ -180,6 +194,7 @@ public:
     }
     void reset() noexcept {
         core.reset();loadedReceiver.reset();primaryCurrent=secondaryCurrent=previousV=0.0;
+        previousSlope = 0.;
     }
     float process(float normalizedInput, double receiverLoad = 57000.) noexcept {
         if (coupledReceiver) loadedReceiver.setOutputLoad(receiverLoad);
@@ -208,15 +223,52 @@ public:
         // Unknown H determines V across ideal coupled windings by Faraday's
         // law. KCL solves primary/secondary winding currents and core current
         // simultaneously, including leakage history and capacitive current.
-        auto candidate=[&](double H) noexcept {
-            const auto s=core.evolve(H);
-            const double v=p.turns*p.coreArea*(s.B-b0)/dt;
-            const double ip=y1*(input+induct1*primaryCurrent-v);
-            const double is=secondary(v).first;
-            const double ic=capY*(v-previousV);
-            const double f=ip-is-magnetizeScale*H-ic-lossY*v;
-            return f;
+        struct Candidate {
+            MagneticCore::State magnetic;
+            double voltage, secondaryCurrent, terminal, residual;
         };
+        auto evaluate = [&](double H) noexcept {
+            const auto s = core.evolve(H);
+            const double v = p.turns * p.coreArea * (s.B - b0) / dt;
+            const double ip = y1 * (input + induct1 * primaryCurrent - v);
+            const auto [is, terminal] = secondary(v);
+            const double ic = capY * (v - previousV);
+            return Candidate{s, v, is, terminal, ip - is - magnetizeScale * H - ic - lossY * v};
+        };
+        auto finish = [&](const Candidate& solution) noexcept {
+            core.commit(solution.magnetic);
+            const double v = solution.voltage;
+            primaryCurrent = y1 * (input + induct1 * primaryCurrent - v);
+            secondaryCurrent = solution.secondaryCurrent;
+            previousV = v;
+            const double output = coupledReceiver ? loadedReceiver.commit(solution.terminal, fs)
+                                                 : receiver.process(solution.terminal);
+            return std::isfinite(output)
+                ? float(std::clamp(output / fullScalePeakVolts, -100., 100.)) : 0.f;
+        };
+        if (coupledReceiver) {
+            // Reuse the preceding sample's local derivative. Accept only
+            // converged solutions; large steps use the bracketed solver below.
+            double guess = baseH;
+            auto point = evaluate(guess);
+            double slope = previousSlope;
+            if (!(slope < -1.e-12))
+                slope = (evaluate(guess + 1.e-4).residual - point.residual) * 1.e4;
+            for (int iteration = 0; iteration < 6; ++iteration) {
+                if (std::abs(point.residual) < 1.e-11) {
+                    previousSlope = slope;
+                    return finish(point);
+                }
+                if (!(slope < -1.e-12) || !std::isfinite(point.residual)) break;
+                const double next = guess - point.residual / slope;
+                if (std::abs(next - baseH) > 5. || next == guess) break;
+                const auto nextPoint = evaluate(next);
+                slope = (nextPoint.residual - point.residual) / (next - guess);
+                guess = next;
+                point = nextPoint;
+            }
+        }
+        auto candidate = [&](double H) noexcept { return evaluate(H).residual; };
         double span=5.0;
         double lo=baseH-span,hi=baseH+span;
         double flo=candidate(lo),fhi=candidate(hi);
@@ -261,18 +313,8 @@ public:
             }
             guess=.5*(lo+hi);
         }
-        const auto state=core.evolve(guess);
-        core.commit(state);
-        const double v=p.turns*p.coreArea*(state.B-b0)/dt;
-        primaryCurrent=y1*(input+induct1*primaryCurrent-v);
-        const auto [current, terminal] = secondary(v);
-        secondaryCurrent=current;
-        previousV=v;
-        // Secondary load voltage; WDF receiver damps HF winding parasitics.
-        const double output=coupledReceiver ? loadedReceiver.commit(terminal, fs)
-                                            : receiver.process(terminal);
-        return std::isfinite(output)
-            ?float(std::clamp(output/fullScalePeakVolts,-100.0,100.0)) : 0.0f;
+        if (coupledReceiver) previousSlope = 0.;
+        return finish(evaluate(guess));
     }
 private:
     CoreParams p{};
@@ -280,7 +322,7 @@ private:
     WdfReceiver receiver;
     LoadedReceiver loadedReceiver;
     bool coupledReceiver = false;
-    double fs=44100,primaryCurrent=0,secondaryCurrent=0,previousV=0;
+    double fs=44100,primaryCurrent=0,secondaryCurrent=0,previousV=0,previousSlope=0;
 };
 
 class DualTransformerGain {

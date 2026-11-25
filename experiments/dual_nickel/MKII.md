@@ -1,6 +1,6 @@
 # Nickel Opto Mk II
 
-Mk II is a separate VST3 with product code `NOm2`. Retained controls use their original parameter IDs. The original target, `NickelOpto`, still builds under its original name and product code. Mk II 2.0.2 runs the full signal path at four times the host rate. The FIR up/downsampling wraps the wet and dry mix together, and its integer latency is reported to the host.
+Mk II is a separate VST3 with product code `NOm2`. Retained controls use their original parameter IDs. The original target, `NickelOpto`, still builds under its original name and product code. Mk II 2.0.3 runs the full signal path at four times the host rate. Polyphase allpass IIR oversampling wraps the wet and dry mix together, and its integer latency is reported to the host. The transformer uses a warm-start secant with a residual test and a bracketed fallback. Receiver and diode solves use bounded initial predictions, and LED current tables are built during preparation from the electrical model.
 
 ## Audio and control circuits
 

@@ -6,6 +6,7 @@
 // No artificial harmonic injection, bypass gain multiplier, or digital
 // envelope gain stage: audio is solved through a resistive LDR shunt network.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include "SidechainFollower.hpp"
@@ -18,6 +19,43 @@ inline double dB(double x) noexcept { return std::pow(10.0,x/20.0); }
 inline double toDb(double x) noexcept {return 20.0*std::log10(std::max(x,1.e-16));}
 inline double tauRC(double seconds,double sampleTime) noexcept {
     return sampleTime/(std::max(1.e-7,seconds)+sampleTime);
+}
+inline double seriesDiode(double voltage, double resistance, double saturation,
+                          double thermal, double upperCurrent, bool usePredictor) noexcept {
+    const auto drops = [&](double i) noexcept {
+        return i * resistance + thermal * std::log1p(i / saturation);
+    };
+    if (usePredictor) {
+        // Newton in junction-voltage coordinates, seeded by the tighter
+        // of the resistor-only and diode-only upper bounds.
+        const double junctionLimit = voltage / thermal;
+        const double ohmicLimit = std::log1p(upperCurrent / saturation);
+        double junction = std::min(junctionLimit, ohmicLimit);
+        const double beta = saturation * resistance / thermal;
+        for (int i = 0; i < 5; ++i) {
+            const double exponential = std::exp(junction);
+            junction -= (junction + beta * (exponential - 1.) - junctionLimit)
+                      / (1. + beta * exponential);
+        }
+        // Retain the previous solver's 12-bit bracket midpoint. Verify
+        // the predicted bin so values near diode turn-on remain identical.
+        constexpr double steps = 4096.;
+        const double width = upperCurrent / steps;
+        const double root = saturation * std::expm1(junction);
+        if (width > 0. && std::isfinite(root)) {
+            const double bin = std::clamp(std::floor(root / width), 0., steps - 1.);
+            const double lower = bin * width;
+            if (drops(lower) <= voltage && drops(lower + width) > voltage)
+                return lower + .5 * width;
+        }
+    }
+    double lo = 0., hi = upperCurrent;
+    for (int i = 0; i < 12; ++i) {
+        const double current = .5 * (lo + hi);
+        if (drops(current) > voltage) hi = current;
+        else lo = current;
+    }
+    return .5 * (lo + hi);
 }
 struct OptoParts {
     double rSeries=10000.0, rReceive=47000.0, cellDark=1e6;
@@ -166,7 +204,24 @@ private:
 class LdrCell {
 public:
     void prepare(double sampleRate,OptoParts part={}, bool useMkII=false) noexcept {
-        p=part;fs=std::max(1000.,sampleRate);mkII=useMkII;reset();
+        p=part;fs=std::max(1000.,sampleRate);mkII=useMkII;
+        if (mkII) {
+            const auto savedKind = cellKind;
+            const bool savedLimiter = limiter;
+            for (const auto kind : {CellKind::NSL32, CellKind::VTL5C2, CellKind::VTL5C1}) {
+                cellKind = kind;
+                for (const bool limit : {false, true}) {
+                    limiter = limit;
+                    auto& table = ledCurves[ledCurveIndex()];
+                    for (std::size_t i = 0; i < table.size(); ++i)
+                        table[i] = float(solveLedCurrent(p.ledSupply * double(i) / ledCurveIntervals));
+                }
+            }
+            cellKind = savedKind;
+            limiter = savedLimiter;
+        }
+        resistanceAnchor = physicalConductance(20.);
+        reset();
     }
     void reset() noexcept {
         lightFast=lightSlow=illumination=lightAdaptation=0.;
@@ -176,7 +231,7 @@ public:
     void setLimiter(bool enabled) noexcept { limiter=enabled; }
     void select(CellKind kind) noexcept {
         if(kind==cellKind)return;
-        cellKind=kind;reset();
+        cellKind=kind;resistanceAnchor=physicalConductance(20.);reset();
     }
     CellKind selected() const noexcept {return cellKind;}
     double darkResistance() const noexcept {
@@ -282,6 +337,14 @@ public:
                std::log1p(std::max(0.,current)/is);
     }
     double ledCurrent(double control) const noexcept {
+        if (!mkII || cellKind == CellKind::T4B) return solveLedCurrent(control);
+        const double position = std::clamp(control / p.ledSupply, 0., 1.) * ledCurveIntervals;
+        const auto first = std::min(std::size_t(position), ledCurveIntervals - 1);
+        const auto& table = ledCurves[ledCurveIndex()];
+        return std::lerp(double(table[first]), double(table[first + 1]), position - double(first));
+    }
+private:
+    double solveLedCurrent(double control) const noexcept {
         const double voltage=std::clamp(control,0.,p.ledSupply);
         if(voltage<=0.)return 0.;
         const double bjtVt=std::max(.01,p.ledLimiterN*p.thermalV);
@@ -305,6 +368,7 @@ public:
         }
         return .5*(lo+hi);
     }
+public:
     double process(double audioVolts,double ledControlVolts) noexcept {
         return processAtLedCurrent(audioVolts,ledCurrent(ledControlVolts));
     }
@@ -321,15 +385,16 @@ public:
         const double normalized=(cellKind==CellKind::VTL5C2 ||
                                  cellKind==CellKind::VTL5C1)?
             std::max(0.,physicalConductance(current*1000.)-darkG)/
-            std::max(1e-12,physicalConductance(20.)-darkG):
+            std::max(1e-12,resistanceAnchor-darkG):
             current/p.ledReferenceA;
         return processIllumination(audioVolts,
                    std::max(0.,normalized),current,false);
     }
     double processIllumination(double audioVolts,double intensity,
                                double current,bool isPanel) noexcept {
-        const double lightTarget=std::pow(std::max(0.,intensity),
-                                          p.conductanceExponent);
+        const double positiveLight = std::max(0., intensity);
+        const double lightTarget = p.conductanceExponent == 1. ? positiveLight
+                                  : std::pow(positiveLight, p.conductanceExponent);
         // CdS photoconductance consists of a prompt carrier population
         // and a physically separate slowly occupied trap population.
         // Crucially the slow trap CHARGES over hundreds of milliseconds
@@ -385,7 +450,7 @@ public:
         const double gdark=1./darkResistance();
         const double gfull=isPanel?1./750.:
                            (cellKind==CellKind::VTL5C2 || cellKind==CellKind::VTL5C1)?
-                           physicalConductance(20.):1./p.rAt20mA;
+                           resistanceAnchor:1./p.rAt20mA;
         const double conductance=gdark+(gfull-gdark)*illumination;
         lastResistance=1./std::max(gdark,conductance);
         // KCL: output node connected to voltage source through Rseries,
@@ -431,6 +496,15 @@ public:
     }
     double gainReduction() const noexcept { return -toDb(relativeGain()); }
 private:
+    static constexpr std::size_t ledCurveIntervals = 4096;
+    std::size_t ledCurveIndex() const noexcept {
+        const int cellIndex = cellKind == CellKind::VTL5C1 ? 2 : int(cellKind);
+        return std::size_t(2 * cellIndex + int(limiter));
+    }
+    // Prepared off the audio thread from the electrical model for each
+    // LED and limiter combination. Interpolation replaces per-sample bisection.
+    std::array<std::array<float, ledCurveIntervals + 1>, 6> ledCurves;
+    double resistanceAnchor = .002;
     OptoParts p{};
     double fs=44100.,lightFast=0.,lightSlow=0.,illumination=0.,
            audioCapV=0.,panelAudioV=0.,panelTarget=0.,panelLight=0.,panelVoltage=0.,meterLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
@@ -443,8 +517,8 @@ private:
 // Attack and release change R; the capacitor is retained.
 class OpticalDetector {
 public:
-    void prepare(double sr,OptoParts part={}) noexcept {
-        p=part;fs=std::max(1000.,sr);filter.prepare(fs,p);reset();
+    void prepare(double sr,OptoParts part={}, bool predictor=false) noexcept {
+        p=part;fs=std::max(1000.,sr);usePredictor=predictor;filter.prepare(fs,p);reset();
     }
     void reset() noexcept {filter.reset(); storageV=0.;}
     void setSidechainHpF(bool value) noexcept {hpEnabled=value;}
@@ -465,14 +539,8 @@ public:
         const double dt=1./fs;
         double charging=0.;
         if(applied>storageV) {
-            double lo=0.,hi=applied/rCharge;
-            for(int n=0;n<12;++n) {
-                const double current=.5*(lo+hi);
-                const double vf=2*vt*std::log1p(current/p.rectifierIs);
-                if(current*rCharge+vf+storageV>applied)hi=current;
-                else lo=current;
-            }
-            charging=.5*(lo+hi);
+            charging = seriesDiode(applied - storageV, rCharge, p.rectifierIs,
+                                   2. * vt, applied / rCharge, usePredictor);
         }
         // Diode steering: the attack branch charges only during bridge
         // conduction; otherwise the storage capacitor discharges through the
@@ -488,15 +556,15 @@ private:
     OptoParts p{};
     HighPassCircuit filter;
     double fs=44100.,storageV=0.,attackMs=15.,releaseMs=250.;
-    bool hpEnabled=false;
+    bool hpEnabled=false, usePredictor=false;
 };
 class OpticalCompressor {
 public:
     void prepare(double hz,OptoParts part={}, bool useMkII=false) noexcept {
         p=part;fs=hz;mkII=useMkII;
         if (mkII) p.t4CdSAttackSeconds *= 5. / 3.;
-        detector.prepare(fs,p);leadDetector.prepare(fs,p);
-        sidechainFollower.prepare(fs);preTapFollower.prepare(fs);cell.prepare(fs,p,mkII);reset();
+        detector.prepare(fs,p,mkII);leadDetector.prepare(fs,p,mkII);
+        sidechainFollower.prepare(fs,mkII);preTapFollower.prepare(fs,mkII);cell.prepare(fs,p,mkII);reset();
     }
     void reset() noexcept {detector.reset();leadDetector.reset();sidechainFollower.reset();preTapFollower.reset();cell.reset();ledControl=lastOutput=0.;}
     // Only the fast VTL5C1 cartridge exposes adjustable detector RC.
@@ -593,15 +661,9 @@ public:
                                            : sidechainV);
             const double excess=pre-p.vtlHighTapBiasV;
             if(excess>0.) {
-                double lo=0.,hi=excess/p.vtlHighTapSeriesR;
-                const double vt=p.kneeDiodeN*p.thermalV;
-                for(int n=0;n<12;++n) {
-                    const double i=.5*(lo+hi);
-                    if(i*p.vtlHighTapSeriesR+
-                       vt*std::log1p(i/p.kneeDiodeIs)>excess)hi=i;
-                    else lo=i;
-                }
-                const double current=.5*(lo+hi);
+                const double vt = p.kneeDiodeN * p.thermalV;
+                const double current = seriesDiode(excess, p.vtlHighTapSeriesR,
+                    p.kneeDiodeIs, vt, excess / p.vtlHighTapSeriesR, mkII);
                 diodeHighTapVolts=std::copysign(
                     current*p.vtlHighTapSummingR,sidechainV);
             }
@@ -627,19 +689,12 @@ public:
         double diodeCurrent=0.;
         const double kneeOverdrive=overdrive-(limiter?0.:
              cell.selected()==CellKind::VTL5C1?p.vtl1KneeBiasV:p.compKneeBiasV);
-        if(kneeOverdrive>0.) {
+        if(kneeOverdrive>0. && (!mkII || !feedforward)) {
             // Biased diode branch. Shockley KCL:
             // Vover-bias=I*R+n*Vt*ln(1+I/Is).
-            double lo=0.,hi=kneeOverdrive/kneeR;
-            const double diodeVt=std::max(.01,p.kneeDiodeN*p.thermalV);
-            for(int n=0;n<12;++n) {
-                const double current=.5*(lo+hi);
-                const double junction=diodeVt*
-                    std::log1p(current/p.kneeDiodeIs);
-                if(current*kneeR+junction>kneeOverdrive)hi=current;
-                else lo=current;
-            }
-            diodeCurrent=.5*(lo+hi);
+            const double diodeVt = std::max(.01, p.kneeDiodeN * p.thermalV);
+            diodeCurrent = seriesDiode(kneeOverdrive, kneeR, p.kneeDiodeIs,
+                                       diodeVt, kneeOverdrive / kneeR, mkII);
         }
         const double inputCurrent=std::max(0.,overdrive)/p.ledDriverRin+
                                   diodeCurrent;
@@ -666,7 +721,9 @@ public:
                                    p.nslLeadClampBiasV;
             const double vt=std::max(.01,p.leadClampDiodeN*p.thermalV);
             double lo=0.,hi=inputI*leadRf;
-            for(int k=0;k<12;++k) {
+            if (mkII && hi <= reference) {
+                lo = hi * (1. - 1. / 4096.);
+            } else for(int k=0;k<12;++k) {
                 const double v=.5*(lo+hi);
                 const double diodeI=v>reference?
                      p.leadClampDiodeIs*std::expm1(

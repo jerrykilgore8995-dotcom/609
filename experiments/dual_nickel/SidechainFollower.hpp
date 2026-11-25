@@ -13,9 +13,11 @@
 namespace optocircuit {
 class SidechainFollower {
 public:
-    void prepare(double sr) noexcept {fs=std::max(1000.,sr);reset();}
+    void prepare(double sr, bool predictor=false) noexcept {
+        fs=std::max(1000.,sr); usePredictor=predictor; reset();
+    }
     void reset() noexcept {
-        capV=0.;base=.73;emitter=0.;dcEmitter=0.;failed=0;
+        capV=0.;base=.73;emitter=0.;dcEmitter=0.;failed=0;previousSource=0.;
         // Find actual quiescent emitter potential, not a fabricated 0.7V drop.
         for(int i=0;i<48;++i)solve(0.,false);
         dcEmitter=emitter;
@@ -36,7 +38,8 @@ private:
     static constexpr double re=15000.,rload=100000.;
     static constexpr double sourceR=100.25;
     double fs=44100.,cutoff=100.,capV=0.,base=.73,emitter=0.,dcEmitter=0.;
-    bool enabled=false;
+    bool enabled=false, usePredictor=false;
+    double previousSource=0.;
     int failed=0;
     double pot() const noexcept {
         // 100nF capacitor, 100k potentiometer, and shunt of the 5M
@@ -56,6 +59,13 @@ private:
         const double drive=signal+bias;
         const double sourceConductance=enabled?1./rcap:1./sourceR;
         const double oldCap=enabled?capV:0.;
+        if (usePredictor) {
+            const double source = signal - oldCap;
+            const double delta = source - previousSource;
+            b = std::clamp(b + delta, -13.5, 13.5);
+            e = std::clamp(e + delta, -14., 13.);
+            previousSource = source;
+        }
         for(int n=0;n<12;++n){
             const double vbe=std::clamp(b-e,-1.,1.);
             const double eb=std::exp(std::clamp(vbe/(nf*vt),-30.,32.));

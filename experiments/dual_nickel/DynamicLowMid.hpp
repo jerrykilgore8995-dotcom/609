@@ -38,7 +38,7 @@ struct LR4 {
 class DynamicLowMid {
 public:
     void prepare(double sampleRate) noexcept {
-        fs=std::max(1000.,sampleRate); rebuild();reset();
+        fs=std::max(1000.,sampleRate); updateTiming(); rebuild();reset();
     }
     void reset() noexcept {
         lpLo.reset();hpLo.reset();lpHi.reset();hpHi.reset();
@@ -57,8 +57,14 @@ public:
     void setThresholdDb(double db) noexcept {threshold=std::clamp(db,-50.,12.);}
     void setRatio(double r) noexcept {ratio=std::clamp(r,1.0,20.);}
     void setMaxCutDb(double v) noexcept {maxCut=std::clamp(v,0.,12.);}
-    void setAttackMs(double ms) noexcept {attack=std::clamp(ms,1.,80.)*.001;}
-    void setReleaseMs(double ms) noexcept {release=std::clamp(ms,20.,1000.)*.001;}
+    void setAttackMs(double ms) noexcept {
+        const double value = std::clamp(ms,1.,80.)*.001;
+        if (value != attack) { attack = value; updateTiming(); }
+    }
+    void setReleaseMs(double ms) noexcept {
+        const double value = std::clamp(ms,20.,1000.)*.001;
+        if (value != release) { release = value; updateTiming(); }
+    }
     bool isEnabled() const noexcept {return enabled;}
     double reductionDb() const noexcept {return enabled ? gr : 0.;}
     double lowCorner() const noexcept {return lo;}
@@ -106,34 +112,35 @@ private:
         // Only then does the detector discharge promptly and let the gain
         // envelope perform a predictable manual-style release. This is
         // C4-inspired, not Waves ARC or a proprietary Waves algorithm.
-        const double activityCoeff=1.-std::exp(-1./(fs*.002));
-        activityPower+=activityCoeff*(power-activityPower);
-        const bool programDropped=activityPower < rms*.20;
-        const double detectorTau=power>rms?attack:
-                                  programDropped?.0015:release;
-        rms+=(power-rms)*(1-std::exp(-1./(fs*std::max(1e-5,detectorTau))));
+        activityPower += activityCoeff * (power - activityPower);
+        const bool programDropped = activityPower < rms * .20;
+        const double coeff = power > rms ? attackCoeff : programDropped ? dropCoeff : releaseCoeff;
+        rms += (power - rms) * coeff;
         return rms;
     }
     double gainForPower(double detectorPower) noexcept {
         const double lev=10*std::log10(std::max(1e-15,detectorPower));
         const double over=std::max(0.,lev-threshold);
         const double reduction=std::min(maxCut,over*(1-1./ratio));
-        const double target=std::pow(10.,-reduction/20.);
         // On release evolve the gain-reduction envelope in dB, with
         // a knob-defined half-recovery time. Applying smoothing in
         // linear gain would make the nominal time level-dependent.
-        const double current=-20.*std::log10(std::max(1e-12,gain));
-        const bool recovering=reduction<current;
-        // Calibrate the fixed short activity-detection/discharge delay,
-        // rather than shortening the normal detector's hold on sustained
-        // guitar notes.
-        const double manualHalfLife=std::max(.001,
-            release-std::min(.012,release*.60));
-        const double tau=recovering?manualHalfLife/std::log(2.):attack;
-        const double coeff=1.-std::exp(-1./(fs*std::max(1e-5,tau)));
-        gr=std::max(0.,current+coeff*(reduction-current));
-        gain=std::pow(10.,-gr/20.);
+        const double coeff = reduction < gr ? recoveryCoeff : attackCoeff;
+        gr = std::max(0., gr + coeff * (reduction - gr));
+        gain = std::pow(10., -gr / 20.);
         return gain;
+    }
+    void updateTiming() noexcept {
+        const auto coefficient = [this](double seconds) {
+            return 1. - std::exp(-1. / (fs * seconds));
+        };
+        activityCoeff = coefficient(.002);
+        dropCoeff = coefficient(.0015);
+        attackCoeff = coefficient(attack);
+        releaseCoeff = coefficient(release);
+        // Shorten manual gain recovery by the fixed activity detector delay.
+        const double manualHalfLife = std::max(.001, release - std::min(.012, release * .60));
+        recoveryCoeff = coefficient(manualHalfLife / std::log(2.));
     }
     void rebuild() noexcept {
         lo=std::max(30.,center*std::pow(2.,-width*.5));
@@ -146,6 +153,7 @@ private:
     double fs=44100.,center=170.,width=1.3,lo=108.,hi=267.,
            threshold=-22.,ratio=4.,maxCut=4.,attack=.01,release=.15,
            rms=0.,activityPower=0.,gain=1.,gr=0.;
+    double activityCoeff=0., dropCoeff=0., attackCoeff=0., releaseCoeff=0., recoveryCoeff=0.;
     bool enabled=false;
     LR4 lpLo,hpLo,lpHi,hpHi,lpAlign,hpAlign,detectorLo,detectorHi;
 };
