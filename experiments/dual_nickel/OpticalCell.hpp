@@ -129,6 +129,8 @@ struct OptoParts {
     double t4CdSTrapChargeSeconds=.65;
     double t4CdSTrapRecoverySeconds=2.8;
     double t4CdSTrapConductanceFraction=.15;
+    double t4MkIIThresholdSlope=.67, t4MkIIForwardPad=.73;
+    double t4MkIIPanelKneeV=60., t4MkIICompSwingV=106., t4MkIILimitSwingV=125.;
 
 };
 class HighPassCircuit {
@@ -491,7 +493,9 @@ private:
 class OpticalCompressor {
 public:
     void prepare(double hz,OptoParts part={}, bool useMkII=false) noexcept {
-        p=part;fs=hz;mkII=useMkII;detector.prepare(fs,p);leadDetector.prepare(fs,p);
+        p=part;fs=hz;mkII=useMkII;
+        if (mkII) p.t4CdSAttackSeconds *= 5. / 3.;
+        detector.prepare(fs,p);leadDetector.prepare(fs,p);
         sidechainFollower.prepare(fs);preTapFollower.prepare(fs);cell.prepare(fs,p,mkII);reset();
     }
     void reset() noexcept {detector.reset();leadDetector.reset();sidechainFollower.reset();preTapFollower.reset();cell.reset();ledControl=lastOutput=0.;}
@@ -552,13 +556,26 @@ public:
             // rectified DC LED current. Feed the high-voltage driver with
             // sidechain audio (pre- or post-cell, according to FF switch).
             // Threshold controls sidechain amplifier sensitivity.
+            const double increase = -18. - threshold;
+            const double sensitivity = mkII && increase > 0.
+                ? increase * p.t4MkIIThresholdSlope : increase;
             const double gain=p.elPanelVoltageGain*
                  (limiter?1.:(1.+p.elCompDriveRf/p.elCompDriveRg))*
-                 dB(-18.-threshold)*
+                 dB(sensitivity)*
                  (limiter?p.elLimitFeedbackR/p.elCompFeedbackR:1.);
-            const double side=sidechainV;
-            const double panelAc=side*gain;
-            return mkII ? cell.updatePanelLight(panelAc) : panelAc;
+            double panelAc=sidechainV*gain;
+            if (!mkII) return panelAc;
+            if (feedforward) panelAc *= p.t4MkIIForwardPad;
+            // Finite EL amplifier swing. Preserve small-signal gain and
+            // progressively run out of voltage above the drive knee.
+            const double excess = std::abs(panelAc) - p.t4MkIIPanelKneeV;
+            if (excess > 0.) {
+                const double swing = limiter ? p.t4MkIILimitSwingV : p.t4MkIICompSwingV;
+                const double headroom = swing - p.t4MkIIPanelKneeV;
+                const double limited = p.t4MkIIPanelKneeV + headroom * excess / (headroom + excess);
+                panelAc = std::copysign(limited, panelAc);
+            }
+            return cell.updatePanelLight(panelAc);
         }
         const double detectorPad=feedforward?
             p.feedForwardShuntR/(p.feedForwardSeriesR+

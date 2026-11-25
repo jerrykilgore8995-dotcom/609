@@ -1,6 +1,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../AnalogOptoProcessor.hpp"
+#if defined(NICKEL_OPTO_MKII)
+#include "OptoOversampling.hpp"
+#endif
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -95,7 +98,16 @@ public:
             (x==juce::AudioChannelSet::mono()||x==juce::AudioChannelSet::stereo());
     }
     bool isMono() const noexcept {return getTotalNumInputChannels()==1;}
-    void prepareToPlay(double rate,int) override {
+    void prepareToPlay(double rate,int maxSamples) override {
+#if defined(NICKEL_OPTO_MKII)
+        oversamplingBlockSize = std::size_t(std::max(1, maxSamples));
+        oversampler = makeOptoOversampler(std::size_t(getTotalNumInputChannels()),
+                                          oversamplingBlockSize);
+        setLatencySamples(juce::roundToInt(oversampler->getLatencyInSamples()));
+        rate *= double(oversampler->getOversamplingFactor());
+#else
+        juce::ignoreUnused(maxSamples);
+#endif
         mono.prepare(rate,isMkII);stereo.prepare(rate,isMkII);
         if constexpr (isMkII) {
             inputGain.reset(rate,.01);
@@ -106,8 +118,49 @@ public:
         }
     }
     void releaseResources() override {}
+#if defined(NICKEL_OPTO_MKII)
+    void processBlockBypassed(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {
+        juce::ScopedNoDenormals noDenormals;
+        processOversampled(audio, true);
+    }
+#endif
     void processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {
         juce::ScopedNoDenormals noDenormals;
+        const int samples = audio.getNumSamples();
+        if (samples == 0 || audio.getNumChannels() == 0) return;
+        float blockPeak = 0.f;
+        for (int ch = 0; ch < audio.getNumChannels(); ++ch)
+            blockPeak = std::max(blockPeak, audio.getMagnitude(ch, 0, samples));
+        inputPeak.store(blockPeak,std::memory_order_relaxed);
+
+#if defined(NICKEL_OPTO_MKII)
+        processOversampled(audio, false);
+#else
+        processAudio(audio.getWritePointer(0),
+                     isMono() ? nullptr : audio.getWritePointer(1), samples);
+#endif
+    }
+private:
+#if defined(NICKEL_OPTO_MKII)
+    void processOversampled(juce::AudioBuffer<float>& audio, bool bypassed) {
+        if (!oversampler) return;
+        juce::dsp::AudioBlock<float> hostBlock(audio);
+        for (std::size_t offset = 0; offset < hostBlock.getNumSamples();
+              offset += oversamplingBlockSize) {
+            auto part = hostBlock.getSubBlock(offset, std::min(oversamplingBlockSize,
+                                                  hostBlock.getNumSamples() - offset));
+            auto internal = oversampler->processSamplesUp(part);
+            if (!bypassed)
+                processAudio(internal.getChannelPointer(0),
+                             isMono() ? nullptr : internal.getChannelPointer(1),
+                             int(internal.getNumSamples()));
+            oversampler->processSamplesDown(part);
+        }
+    }
+    std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
+    std::size_t oversamplingBlockSize = 0;
+#endif
+    void processAudio(float* l, float* r, int n) {
         const auto v=[&](const char* name) { return value(name); };
         if constexpr (isMkII) setGainTargets(false);
         // Every GUI control affects the actual signal path, not a preset
@@ -145,15 +198,8 @@ public:
             }
             return wetAmount;
         };
-        const int n=audio.getNumSamples();
-        // Input meter taps the unmodified block before compression/makeup.
-        float blockPeak=0.f;
-        for(int ch=0;ch<audio.getNumChannels();++ch)
-            blockPeak=std::max(blockPeak,audio.getMagnitude(ch,0,n));
-        inputPeak.store(blockPeak,std::memory_order_relaxed);
-        if(isMono()) {
+        if(!r) {
             apply(mono);
-            float* l=audio.getWritePointer(0);
             for(int i=0;i<n;++i) {
                 const float mix=mixForSample(mono);
                 const float dry=l[i];
@@ -165,10 +211,8 @@ public:
             lowGr[0].store(float(mono.lowMidGr()),std::memory_order_relaxed);
             gr[1].store(0.f,std::memory_order_relaxed);
             lowGr[1].store(0.f,std::memory_order_relaxed);
-        } else if(audio.getNumChannels()>=2) {
+        } else {
             apply(stereo);
-            auto* l=audio.getWritePointer(0);
-            auto* r=audio.getWritePointer(1);
             for(int i=0;i<n;++i) {
                 const float mix=mixForSample(stereo);
                 const float dryL=l[i],dryR=r[i];
@@ -183,6 +227,7 @@ public:
             lowGr[1].store(float(stereo.lowGrRight()),std::memory_order_relaxed);
         }
     }
+public:
     void getStateInformation(juce::MemoryBlock& data) override {
         if(auto xml=state.copyState().createXml())copyXmlToBinary(*xml,data);
     }

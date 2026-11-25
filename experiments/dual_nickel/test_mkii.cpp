@@ -95,6 +95,30 @@ void checkCellDynamics() {
     }
 }
 
+void checkT4Sensitivity() {
+    constexpr double internalRate = 2. * sampleRate;
+    for (const bool feedforward : {false, true}) {
+        optocircuit::OpticalCompressor opto;
+        opto.prepare(internalRate, {}, true);
+        opto.setCellKind(optocircuit::CellKind::T4B);
+        opto.setFeedforward(feedforward);
+        opto.setThresholdDb(-18.);
+        double first10ms = 0.;
+        double settled = 0.;
+        for (int i = 0; i < int(internalRate * 2.); ++i) {
+            const double phase = 2. * std::numbers::pi * 100. * i / internalRate;
+            opto.process(float(nickel::dbGain(12. - 24.) * std::sin(phase)));
+            const double gr = opto.reductionDb();
+            if (i < int(internalRate * .01)) first10ms = std::max(first10ms, gr);
+            if (i >= int(internalRate * 1.9)) settled = std::max(settled, gr);
+        }
+        check(settled > 4. && settled < 12., "T4B drive should stay in its calibrated range");
+        check(first10ms < .7 * settled, "T4B should not hit its steady GR on short peaks");
+        std::cout << "T4B 100 Hz +12 dBu, " << (feedforward ? "FF" : "FB")
+                  << " first 10 ms/settled peak GR " << first10ms << '/' << settled << " dB\n";
+    }
+}
+
 void checkStereo() {
     for (int kind = 0; kind < 4; ++kind) {
         std::array<double, 4> gr{};
@@ -185,6 +209,7 @@ int main() {
         std::cout << std::fixed << std::setprecision(3);
         checkStereo();
         checkCellDynamics();
+        checkT4Sensitivity();
         checkReceiver();
         reportTiming();
         std::cout << "NICKEL_OPTO_MKII=PASS\n";

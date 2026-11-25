@@ -66,25 +66,36 @@ public:
         const double targetBP=std::clamp(base-.73,-15.,15.);
         const double rem=22.;
         const double outputRC=loadR+.15+dt/100.e-6;
-        auto evaluate=[&](const Vec& x) noexcept {
-            const double bn=x[0],bp=x[1],en=x[2],ep=x[3],vo=x[4];
-            const auto n=currents(device5088,bn-en,bn-15.);
-            const auto p=currents(device5087,ep-bp,-15.-bp);
-            const double nBE=bn-en,nBC=bn-15.;
-            const double pBE=bp-ep,pBC=bp+15.;
-            const double cbeN=n.cbe*(nBE-prevBE[0])/dt;
-            const double cbcN=n.cbc*(nBC-prevBC[0])/dt;
-            const double cbeP=p.cbe*(pBE-prevBE[1])/dt;
-            const double cbcP=p.cbc*(pBC-prevBC[1])/dt;
-            Vec f{};
-            f[0]=(bn-targetBN)/(100.+device5088.rb)+n.ib+cbeN+cbcN;
-            f[1]=(bp-targetBP)/(100.+device5087.rb)-p.ib+cbeP+cbcP;
-            f[2]=-(n.ic+n.ib)-cbeN+(en-vo)/(rem+device5088.re);
-            f[3]=p.ic+p.ib-cbeP+(ep-vo)/(rem+device5087.re);
-            f[4]=(vo-en)/(rem+device5088.re)
-                 +(vo-ep)/(rem+device5087.re)
-                 +(vo-outputCap)/outputRC;
-            return f;
+        const double emitterNConductance = 1. / (rem + device5088.re);
+        const double emitterPConductance = 1. / (rem + device5087.re);
+        auto deviceResidual = [&](const GpDevice& device, double polarity,
+                                  std::size_t branch, double b, double e,
+                                  double target, double emitterG) noexcept {
+            const double vbe = b - e;
+            const double vbc = b - polarity * 15.;
+            const auto deviceCurrent = currents(device, polarity * vbe, polarity * vbc);
+            const double cbe = deviceCurrent.cbe * (vbe - prevBE[branch]) / dt;
+            const double cbc = deviceCurrent.cbc * (vbc - prevBC[branch]) / dt;
+            return std::array{
+                (b - target) / (100. + device.rb) + polarity * deviceCurrent.ib + cbe + cbc,
+                -polarity * (deviceCurrent.ic + deviceCurrent.ib) - cbe + e * emitterG
+            };
+        };
+        auto npnResidual = [&](double b, double e) noexcept {
+            return deviceResidual(device5088, 1., 0, b, e, targetBN, emitterNConductance);
+        };
+        auto pnpResidual = [&](double b, double e) noexcept {
+            return deviceResidual(device5087, -1., 1, b, e, targetBP, emitterPConductance);
+        };
+        auto residual = [&](const Vec& x, const auto& n, const auto& p) noexcept -> Vec {
+            const double vo = x[4];
+            return {n[0], p[0], n[1] - vo * emitterNConductance,
+                    p[1] - vo * emitterPConductance,
+                    (vo - x[2]) * emitterNConductance + (vo - x[3]) * emitterPConductance +
+                    (vo - outputCap) / outputRC};
+        };
+        auto evaluate = [&](const Vec& x) noexcept {
+            return residual(x, npnResidual(x[0], x[2]), pnpResidual(x[1], x[3]));
         };
         Vec x=state;
         x[0]=std::clamp(x[0]+base-previousSignal,-15.,15.);
@@ -95,18 +106,30 @@ public:
         previousSignal=base;
         bool converged=false;
         for(int step=0;step<15;++step) {
-            const Vec f=evaluate(x);
+            const auto n = npnResidual(x[0], x[2]);
+            const auto p = pnpResidual(x[1], x[3]);
+            const Vec f = residual(x, n, p);
             const double err=maxAbs(f);
             if(!std::isfinite(err))break;
             if(err<2.e-9){converged=true;break;}
+            // A transistor contributes only to its base and emitter rows.
+            // Differentiate each local branch once per node and stamp the
+            // linear resistors directly to avoid reevaluating both devices.
+            constexpr double h = 1.e-5;
             Matrix jac{};
-            for(int j=0;j<5;++j) {
-                Vec test=x;
-                const double h=1.e-5;
-                test[j]+=h;
-                const Vec g=evaluate(test);
-                for(int i=0;i<5;++i)jac[i][j]=(g[i]-f[i])/h;
+            const auto nb = npnResidual(x[0] + h, x[2]);
+            const auto ne = npnResidual(x[0], x[2] + h);
+            const auto pb = pnpResidual(x[1] + h, x[3]);
+            const auto pe = pnpResidual(x[1], x[3] + h);
+            for (int i = 0; i < 2; ++i) {
+                jac[2*i][0] = (nb[i] - n[i]) / h;
+                jac[2*i][2] = (ne[i] - n[i]) / h;
+                jac[2*i+1][1] = (pb[i] - p[i]) / h;
+                jac[2*i+1][3] = (pe[i] - p[i]) / h;
             }
+            jac[2][4] = jac[4][2] = -emitterNConductance;
+            jac[3][4] = jac[4][3] = -emitterPConductance;
+            jac[4][4] = emitterNConductance + emitterPConductance + 1. / outputRC;
             Vec delta{};
             for(int i=0;i<5;++i)delta[i]=-f[i];
             if(!linearSolve(jac,delta))break;

@@ -35,7 +35,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Nickel-Opto-Mk-II-Windows-x64-VST3
-          path: build/nickel-mkii/NickelOptoMkII_artefacts/Release/VST3/
+          path: build/nickel-mkii/NickelOptoMkII_artefacts/Release/VST3/*.vst3/**
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
