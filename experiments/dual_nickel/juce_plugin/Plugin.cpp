@@ -64,6 +64,8 @@ public:
         state(*this,nullptr,"NickelOptoState",makeParameters()) {}
     juce::AudioProcessorValueTreeState state;
     std::array<std::atomic<float>,2> gr{{0.f,0.f}};
+    // Read-only display telemetry; no change to the DSP signal path.
+    std::atomic<float> inputPeak{0.f};
     std::array<std::atomic<float>,2> lowGr{{0.f,0.f}};
     juce::String const getName() const override {return "Nickel Opto";}
     bool acceptsMidi() const override {return false;}
@@ -120,6 +122,11 @@ public:
         const float wetAmount=juce::jlimit(0.f,1.f,float(v("mix")*.01));
         const float dryAmount=1.f-wetAmount;
         const int n=audio.getNumSamples();
+        // Input meter taps the unmodified block before compression/makeup.
+        float blockPeak=0.f;
+        for(int ch=0;ch<audio.getNumChannels();++ch)
+            blockPeak=std::max(blockPeak,audio.getMagnitude(ch,0,n));
+        inputPeak.store(blockPeak,std::memory_order_relaxed);
         if(isMono()) {
             apply(mono);
             float* l=audio.getWritePointer(0);
@@ -335,7 +342,7 @@ public:
         mode.setLookAndFeel(&knobLook);
         mode.setColour(juce::ComboBox::textColourId,juce::Colour(0xfff3eee2));
         modeAttach=std::make_unique<ComboAttachment>(p.state,"mode",mode);
-        advanced.setButtonText("ADVANCED  +  LOW-MID");
+        advanced.setButtonText("ADVANCED");
         advanced.onClick=[this] {
             juce::CallOutBox::launchAsynchronously(
                 std::make_unique<OptionsPopup>(p),
@@ -352,7 +359,7 @@ public:
         mode.setLookAndFeel(nullptr);cellModel.setLookAndFeel(nullptr);
     }
     void resized() override {
-        input.setBounds(184,3,58,50);
+        input.setBounds(363,3,58,50);
         output.setBounds(1010,3,58,50);
         gain.setBounds(266,95,126,126);
         peak.setBounds(763,95,126,126);
@@ -360,7 +367,7 @@ public:
         cellModel.setBounds(971,96,182,29);
         attack.setBounds(972,153,84,81);
         release.setBounds(1073,153,84,81);
-        advanced.setBounds(505,11,190,29);
+        advanced.setBounds(505,11,170,29);
     }
     void paint(juce::Graphics& g) override {
         const auto ink=juce::Colour(0xff383530);
@@ -368,10 +375,34 @@ public:
         g.fillAll(juce::Colour(0xff121417));
         g.setColour(juce::Colour(0xffc7b69a));
         g.setFont(juce::FontOptions(11.f,juce::Font::bold));
-        g.drawText("INPUT DRIVE",82,16,103,20,juce::Justification::right);
+        g.drawText("INPUT DRIVE",256,16,102,20,juce::Justification::right);
         g.drawText("OUTPUT TRIM",1071,16,111,20,juce::Justification::left);
         g.setFont(juce::FontOptions(13.f,juce::Font::bold));
         g.drawText("NICKEL   /   OPTO",22,10,240,24,juce::Justification::left);
+        // Two hardware-style LED bargraphs on the top rail: input peak and optical GR.
+        const auto drawBar=[&](const char* title,int y,float fraction,bool grMeter) {
+            g.setFont(juce::FontOptions(10.f,juce::Font::bold));
+            g.setColour(juce::Colour(0xffcfccc0));
+            g.drawText(title,697,y-1,42,14,juce::Justification::centredRight);
+            constexpr int segments=22;
+            const int lit=juce::jlimit(0,segments,int(std::ceil(fraction*segments)));
+            for(int i=0;i<segments;++i) {
+                const float x=745.f+float(i)*10.35f;
+                const juce::Colour active=i>=19?juce::Colour(0xffe13e32):
+                     i>=15?juce::Colour(0xffffcf40):juce::Colour(0xff45d56f);
+                g.setColour(i<lit?active:juce::Colour(0xff2b3430));
+                g.fillRoundedRectangle(x,float(y),7.4f,9.f,1.1f);
+            }
+            g.setFont(juce::FontOptions(9.f));
+            g.setColour(juce::Colour(0xffb7b6ac));
+            const auto value=grMeter
+                ?juce::String(juce::jlimit(0.f,20.f,displayGr),1)+" dB"
+                :juce::String(juce::Decibels::gainToDecibels(displayInput,-60.f),1)+" dBFS";
+            g.drawText(value,979,y-2,70,14,juce::Justification::centredLeft);
+        };
+        drawBar("INPUT",11,juce::jlimit(0.f,1.f,
+            (juce::Decibels::gainToDecibels(displayInput,-60.f)+60.f)/60.f),false);
+        drawBar("GR",31,juce::jlimit(0.f,1.f,displayGr/20.f),true);
         g.setColour(juce::Colour(0xff73777c));g.drawLine(0.f,52.f,1200.f,52.f);
         // Brushed silver three-rack-unit style faceplate (no borrowed logos).
         juce::ColourGradient metal(juce::Colour(0xffe9e7df),0.f,55.f,
@@ -440,22 +471,33 @@ public:
         g.setGradientFill(lamp);g.fillRoundedRectangle(glass,3.f);
         const auto meterCenter=juce::Point<float>(glass.getCentreX(),glass.getBottom()+18.f);
         g.setColour(juce::Colour(0xff625137));
-        for(int i=0;i<=10;++i) {
-            const float theta=juce::degreesToRadians(200.f+140.f*i/10.f);
+        for(int i=0;i<=20;++i) {
+            const float theta=juce::degreesToRadians(200.f+140.f*i/20.f);
             auto point=[&](float rad) {
                 return juce::Point<float>(meterCenter.x+std::cos(theta)*rad,
                                            meterCenter.y+std::sin(theta)*rad);
             };
-            const auto a=point(147.f),b=point(i%2==0?132.f:138.f);
+            // Scale lowered and shortened to make the printed dB numbers readable.
+            const auto a=point(129.f),b=point(i%2==0?118.f:123.f);
             g.drawLine(a.x,a.y,b.x,b.y,i%2==0?1.7f:1.f);
+            if(i%4==0) {
+                const auto labelPoint=point(106.f);
+                g.setFont(juce::FontOptions(10.f,juce::Font::bold));
+                g.setColour(juce::Colour(0xff4d3c28));
+                g.drawText(juce::String(i),int(labelPoint.x)-13,
+                           int(labelPoint.y)-7,26,14,juce::Justification::centred);
+                g.setColour(juce::Colour(0xff625137));
+            }
         }
-        g.setFont(juce::FontOptions(11.f,juce::Font::bold));
-        g.drawText("GAIN REDUCTION",glass.toNearestInt().withTrimmedTop(16)
-                                    .withHeight(24),juce::Justification::centred);
+        g.setFont(juce::FontOptions(10.f,juce::Font::bold));
+        g.setColour(juce::Colour(0xff554630));
+        g.drawText("GAIN REDUCTION  (dB)",int(glass.getX()+65.f),
+                   int(glass.getBottom()-20.f),int(glass.getWidth()-130.f),16,
+                   juce::Justification::centred);
         const float reduction=juce::jlimit(0.f,20.f,p.gr[0].load());
         const float theta=juce::degreesToRadians(200.f+140.f*reduction/20.f);
-        const juce::Point<float> tip(meterCenter.x+std::cos(theta)*127.f,
-                                     meterCenter.y+std::sin(theta)*127.f);
+        const juce::Point<float> tip(meterCenter.x+std::cos(theta)*113.f,
+                                     meterCenter.y+std::sin(theta)*113.f);
         g.setColour(juce::Colour(0xff25221d));g.drawLine(meterCenter.x,
                     meterCenter.y,tip.x,tip.y,2.4f);
         g.fillEllipse(meterCenter.x-5,meterCenter.y-5,10,10);
@@ -503,9 +545,17 @@ private:
     }
     void timerCallback() override {
         updateCellVisibility();
+        // Smooth visuals only; no alteration of compression timing or audio.
+        const float peak=p.inputPeak.load(std::memory_order_relaxed);
+        displayInput=std::max(peak,displayInput*.88f);
+        const float grNow=std::max(p.gr[0].load(std::memory_order_relaxed),
+                                   p.gr[1].load(std::memory_order_relaxed));
+        displayGr=std::max(grNow,displayGr*.83f);
         repaint(430,76,302,152);
+        repaint(690,3,370,47);
     }
     NickelOptoProcessor& p;
+    float displayInput=0.f,displayGr=0.f;
     BakeliteLook knobLook;
     juce::Slider input,output,gain,peak,attack,release;
     std::vector<std::unique_ptr<SliderAttachment>> knobAttachments;
