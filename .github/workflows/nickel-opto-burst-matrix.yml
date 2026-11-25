@@ -36,7 +36,7 @@ jobs:
       - name: Validate nodal 2N5088 sidechain HPF and optical GR at 55 to 10kHz
         run: set -o pipefail; ./build/nickel/nickel_sidechain_follower | tee buffered-sidechain-results.csv
       - name: Record non-gating knee and timing matrix at bass mids highs and varied threshold
-        run: ./build/nickel/nickel_sidechain_audit > sidechain-knee-timing-matrix.csv
+        run: ./build/nickel/nickel_sidechain_audit | tee sidechain-knee-timing-matrix.csv
       - name: Publish measurements
         uses: actions/upload-artifact@v4
         if: always()
