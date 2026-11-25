@@ -1,0 +1,38 @@
+name: Nickel Opto four-cell character and harmonic measurements
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/SidechainFollower.hpp'
+      - 'experiments/dual_nickel/measure_all_opto_cells.cpp'
+      - 'experiments/dual_nickel/test_opto_variants.cpp'
+      - '.github/workflows/nickel-all-cells.yml'
+  workflow_dispatch:
+jobs:
+  four-cell-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile optocell diagnostics without DSP-library downloads
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra experiments/dual_nickel/test_opto_variants.cpp -o opto-variants
+          g++ -std=c++20 -O2 -Wall -Wextra experiments/dual_nickel/measure_all_opto_cells.cpp -o opto-matrix
+      - name: Run all four optical cell regression checks
+        run: ./opto-variants | tee optical-cell-regression.txt
+      - name: Characterize knee ratio attack release and K2 through K10
+        run: ./opto-matrix > optical-cell-four-way-matrix.csv
+      - name: Print compact matrix summary
+        run: |
+          grep '^DEVICE' optical-cell-four-way-matrix.csv
+          grep '^PULSE' optical-cell-four-way-matrix.csv
+          echo "Transfer, knee and harmonic data are in the full CSV artifact."
+      - name: Publish all measurements regardless of regression result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NickelOpto-VTL5C1-NSL32-VTL5C2-T4B-Measurements
+          path: |
+            optical-cell-regression.txt
+            optical-cell-four-way-matrix.csv
