@@ -1,6 +1,6 @@
 # Nickel Opto Mk II
 
-Mk II is a separate VST3 with product code `NOm2`. Its controls retain the original parameter IDs. The original target, `NickelOpto`, still builds under its original name and product code. Mk II 2.0.1 runs the full signal path at twice the host rate. The FIR up/downsampling wraps the wet and dry mix together, and its integer latency is reported to the host.
+Mk II is a separate VST3 with product code `NOm2`. Retained controls use their original parameter IDs. The original target, `NickelOpto`, still builds under its original name and product code. Mk II 2.0.2 runs the full signal path at four times the host rate. The FIR up/downsampling wraps the wet and dry mix together, and its integer latency is reported to the host.
 
 ## Audio and control circuits
 
@@ -8,9 +8,9 @@ Mk II is a separate VST3 with product code `NOm2`. Its controls retain the origi
 - **Optical control:** Each channel computes its own sidechain from its own pre/post shunt signal. The stereo bus uses high selection after detection and feeds one shared LED driver voltage (LED cells) or illumination level (T4B-style) to both channels. Each output retains an independent audio circuit. The optional low-mid stage similarly links detected power. The VTL5C2 high-level diode tap now samples the actual pre-shunt node.
 - **LED cells:** VTL5C1 and VTL5C2 retain their resistance/current anchors, with slower conductance onset under weak LED drive and a separate light-adaptation state. The adaptation is stronger in C1, which still has the faster intrinsic dark decay. Sub-mA transfer, short-term adaptation and exact time constants are engineering fits. NSL-32 targets the legacy Silonex revision. The Advanced Photonix Rev. C sheet gives materially different values and is a separate reference. The LED driver models finite source impedance, supply compliance and the transistor shunt across the diode load.
 - **T4B-style:** The sidechain drives an AC EL model, which advances its own light state before stereo linking. The panel amplifier uses a feedforward pad and finite swing, with a gentler reduction control taper above the nominal sensitivity. Carrier onset is calibrated separately from slow trap occupancy, which increases recovery time following sustained exposure. A separate metering photocell feeds the analog-style needle. The digital GR readout remains a measurement of optical attenuation.
-- **Output:** Makeup Gain drives the 2N5088/2N5087 stage. The 600 Ω and 10 kΩ settings change its electrical load. Output Trim follows the driver. Input Drive, Makeup, Trim and Mix use 10 ms control ramps in Mk II.
+- **Output:** Makeup Gain and Output Trim apply linear gain to the optical output. The sound engine can pass signals above digital full scale to the host. Input Drive, Makeup, Trim and Mix use 10 ms control ramps in Mk II.
 
-The receiver uses a small circuit solve in the existing magnetics. The 525 repository has 2520 and JE-990 circuit references, including alternate 2520 compensation models. A discrete amplifier would also need the surrounding feedback, input-impedance and load networks specified. The single-transistor receiver gives the transformer a defined load and leaves time for the existing sample-rate output solve.
+The receiver uses a small circuit solve in the existing magnetics. The 525 repository has 2520 and JE-990 circuit references, including alternate 2520 compensation models. A discrete amplifier would also need the surrounding feedback, input-impedance and load networks specified. The single-transistor receiver gives the transformer a defined load.
 
 ## Reference designs
 

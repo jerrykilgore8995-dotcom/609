@@ -11,6 +11,7 @@
 
 namespace {
 constexpr double sampleRate = 44100.;
+constexpr int oversamplingFactor = 4;
 constexpr int blockSize = 512;
 constexpr std::array names{"NSL-32", "VTL5C2", "T4B", "VTL5C1"};
 
@@ -96,7 +97,7 @@ void checkCellDynamics() {
 }
 
 void checkT4Sensitivity() {
-    constexpr double internalRate = 2. * sampleRate;
+    constexpr double internalRate = oversamplingFactor * sampleRate;
     for (const bool feedforward : {false, true}) {
         optocircuit::OpticalCompressor opto;
         opto.prepare(internalRate, {}, true);
@@ -180,7 +181,6 @@ void checkReceiver() {
 void checkReceiverHeadroom() {
     analogopto::MonoEngine engine;
     engine.prepare(sampleRate, true);
-    engine.setLoadOhms(600.);
     engine.setThresholdDb(18.);
     double fundamentalSin = 0., fundamentalCos = 0.;
     double harmonicSin = 0., harmonicCos = 0.;
@@ -197,23 +197,31 @@ void checkReceiverHeadroom() {
     const double fundamental = std::hypot(fundamentalSin, fundamentalCos);
     const double k28 = 20. * std::log10(harmonic / fundamental);
     check(k28 < -98., "Receiver cutoff at full-scale 100 Hz");
-    check(engine.outputSolverFailures() == 0, "Output solver failed during the headroom sweep");
-    std::cout << "100 Hz full-scale, 600 ohms, K28 normalized: " << k28 << " dBFS\n";
+    std::cout << "100 Hz full-scale, K28 normalized: " << k28 << " dBFS\n";
+}
+
+void checkDigitalOutput() {
+    analogopto::MonoEngine engine;
+    engine.prepare(sampleRate * oversamplingFactor, true);
+    engine.setLinearGains(1., 2., .75);
+    check(engine.processOutput(.25f) == .375f, "Incorrect digital makeup/trim gain");
+    check(engine.processOutput(-1.f) == -1.5f, "Digital output should preserve peaks above full scale");
 }
 
 void reportTiming() {
     for (int kind = 0; kind < 4; ++kind) {
         analogopto::StereoEngine engine;
-        engine.prepare(sampleRate, true);
+        engine.prepare(sampleRate * oversamplingFactor, true);
         engine.setOptoCell(kind);
         double checksum = 0.;
         std::array<double, 85> blockMs{};
         for (std::size_t block = 0; block < blockMs.size(); ++block) {
             const auto before = std::chrono::steady_clock::now();
-            for (int i = 0; i < blockSize; ++i) {
-                const int sample = int(block) * blockSize + i;
-                float left = tone(sample, 110., 12.);
-                float right = tone(sample, 196., 12.);
+            constexpr int internalBlockSize = blockSize * oversamplingFactor;
+            for (int i = 0; i < internalBlockSize; ++i) {
+                const int sample = int(block) * internalBlockSize + i;
+                float left = tone(sample, 110. / oversamplingFactor, 12.);
+                float right = tone(sample, 196. / oversamplingFactor, 12.);
                 engine.process(left, right);
                 checksum += left + right;
             }
@@ -222,7 +230,7 @@ void reportTiming() {
         }
         std::sort(blockMs.begin(), blockMs.end());
         check(std::isfinite(checksum), "Non-finite stereo timing render");
-        std::cout << names[kind] << " stereo 512 p50/p95/max milliseconds: "
+        std::cout << names[kind] << " stereo 4x engine per host 512 p50/p95/max milliseconds: "
                   << blockMs[42] << '/' << blockMs[80] << '/' << blockMs.back() << '\n';
     }
 }
@@ -236,6 +244,7 @@ int main() {
         checkT4Sensitivity();
         checkReceiver();
         checkReceiverHeadroom();
+        checkDigitalOutput();
         reportTiming();
         std::cout << "NICKEL_OPTO_MKII=PASS\n";
     } catch (const std::exception& error) {

@@ -10,6 +10,7 @@
 #include "NodalBjtOutput.hpp"
 #include <algorithm>
 #include <cmath>
+#include <optional>
 namespace analogopto {
 class MonoEngine {
 public:
@@ -20,11 +21,17 @@ public:
         xfmr.prepare(fs,core,useMkII);
         low.prepare(fs);
         comp.prepare(fs,{},useMkII);
-        output.prepare(fs);
+        if (useMkII) {
+            legacyOutput.reset();
+        } else {
+            if (!legacyOutput) legacyOutput.emplace();
+            legacyOutput->prepare(fs);
+        }
         reset();
     }
     void reset() noexcept {
-        xfmr.reset();low.reset();comp.reset();output.reset();
+        xfmr.reset();low.reset();comp.reset();
+        if (legacyOutput) legacyOutput->reset();
     }
     void setInputDb(double db) noexcept {
         drive=std::clamp(db,-18.,18.);
@@ -42,7 +49,9 @@ public:
         makeupGain=makeup;
         outputGain=outputTrim;
     }
-    void setLoadOhms(double r) noexcept {output.setOutputLoadOhms(r);}
+    void setLoadOhms(double r) noexcept {
+        if (legacyOutput) legacyOutput->setOutputLoadOhms(r);
+    }
     void setAttackMs(double x) noexcept {comp.setAttackMs(x);}
     void setReleaseMs(double x) noexcept {comp.setReleaseMs(x);}
     void setThresholdDb(double x) noexcept {comp.setThresholdDb(x);}
@@ -66,9 +75,8 @@ public:
     double ledCompPreFraction() const noexcept {return comp.ledCompPreFraction();}
     double lowMidGr() const noexcept {return low.reductionDb();}
     double photocellResistance() const noexcept {return comp.ldrOhms();}
-    int outputSolverFailures() const noexcept {return output.failureCount();}
+    int outputSolverFailures() const noexcept {return legacyOutput ? legacyOutput->failureCount() : 0;}
     float lastOpticalOutput() const noexcept {return comp.lastAttenuatorOutput();}
-    double outputLoad() const noexcept {return output.outputLoadOhms();}
     float processMagnetic(float input) noexcept {
         // The optional multiband stage has a buffered 47 kΩ input.
         // Otherwise the receiver drives the optical divider directly.
@@ -100,8 +108,10 @@ public:
         return processOutput(comp.render(audio,control,sharedLedCurrent));
     }
     float processOutput(float attenuated) noexcept {
-        const float driverOut=output.process(float(attenuated*makeupGain));
-        return float(driverOut*outputGain);
+        const double level = attenuated * makeupGain;
+        if (legacyOutput)
+            return float(legacyOutput->process(float(level)) * outputGain);
+        return float(level * outputGain);
     }
     float process(float input) noexcept {
         const float prepared=processBeforeOpto(input);
@@ -115,7 +125,7 @@ private:
     nickel::Transformer xfmr;
     lowmid::DynamicLowMid low;
     optocircuit::OpticalCompressor comp;
-    nickel::NodalOutputDriver output;
+    std::optional<nickel::NodalOutputDriver> legacyOutput{std::in_place};
 };
 // Channel-independent nonlinear audio path, linked RMS/optical detection.
 // The detector sees whichever channel has the larger instantaneous amplitude

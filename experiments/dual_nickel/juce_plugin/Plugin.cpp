@@ -60,9 +60,10 @@ Layout makeParameters(){
     p.add(std::make_unique<juce::AudioParameterChoice>(
           juce::ParameterID{"cell",1},"Optical Cell",
           juce::StringArray{"NSL-32","VTL5C2","T4B-style","VTL5C1"},0));
-    p.add(std::make_unique<juce::AudioParameterChoice>(
-          juce::ParameterID{"load",1},"Output Load",
-          juce::StringArray{"600 ohm","10k ohm"},1));
+    if constexpr (!isMkII)
+        p.add(std::make_unique<juce::AudioParameterChoice>(
+              juce::ParameterID{"load",1},"Output Load",
+              juce::StringArray{"600 ohm","10k ohm"},1));
     return p;
 }
 }
@@ -187,7 +188,7 @@ private:
             dsp.setPalmThresholdDb(v("pmthreshold"));
             dsp.setPalmAttackMs(v("pmattack"));
             dsp.setPalmReleaseMs(v("pmrelease"));
-            dsp.setLoadOhms(v("load")<.5?600.:10000.);
+            if constexpr (!isMkII) dsp.setLoadOhms(v("load")<.5?600.:10000.);
         };
         const float wetAmount=juce::jlimit(0.f,1.f,float(v("mix")*.01));
         const auto mixForSample = [&](auto& dsp) {
@@ -333,9 +334,11 @@ public:
         createToggle("palm","LOW-MID ENABLE",1);
         createToggle("link","LINK INPUT/OUTPUT",2);
         createToggle("ff","FEEDFORWARD",3);
-        load.addItem("600 OHM",1);load.addItem("10 kOHM",2);
-        addAndMakeVisible(load);
-        loadAttach=std::make_unique<ComboAttachment>(p.state,"load",load);
+        if constexpr (!isMkII) {
+            load.addItem("600 OHM",1);load.addItem("10 kOHM",2);
+            addAndMakeVisible(load);
+            loadAttach=std::make_unique<ComboAttachment>(p.state,"load",load);
+        }
         setSize(850,330);
     }
     void resized() override {
@@ -348,7 +351,7 @@ public:
         }
         for(int i=0;i<int(toggles.size());++i)
             toggles[std::size_t(i)].button->setBounds(20+i*205,296,197,25);
-        load.setBounds(575,75,235,28);
+        if constexpr (!isMkII) load.setBounds(575,75,235,28);
     }
     void paint(juce::Graphics& g) override {
         g.fillAll(juce::Colour(0xff24282d));
@@ -359,7 +362,8 @@ public:
         g.setColour(juce::Colour(0xff6e7277));g.drawLine(15.f,139.f,835.f,139.f);
         g.setColour(juce::Colour(0xffd4d5d0));
         g.setFont(juce::FontOptions(11.f));
-        g.drawText("OUTPUT LOAD",575,54,235,18,juce::Justification::centred);
+        if constexpr (!isMkII)
+            g.drawText("OUTPUT LOAD",575,54,235,18,juce::Justification::centred);
     }
 private:
     struct Knob {
