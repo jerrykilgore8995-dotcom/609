@@ -33,7 +33,7 @@ jobs:
       - name: Test bass kick and guitar bus proxy at 100 and 160 bpm
         run: ./build/nickel/nickel_t4_source_profiles | tee t4-bass-kick-guitar-proxies.csv
       - name: Validate nodal 2N5088 sidechain HPF and optical GR at 55 to 10kHz
-        run: ./build/nickel/nickel_sidechain_follower | tee buffered-sidechain-results.csv
+        run: set -o pipefail; ./build/nickel/nickel_sidechain_follower | tee buffered-sidechain-results.csv
       - name: Publish measurements
         uses: actions/upload-artifact@v4
         if: always()
