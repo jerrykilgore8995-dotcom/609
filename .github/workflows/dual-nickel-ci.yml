@@ -26,11 +26,12 @@ jobs:
         run: ./build/nickel/nickel_opto_resistor_tune | tee opto-compressor-resistors.csv
       - name: Calibrate T4 limiter detector pre-post resistor summing
         run: ./build/nickel/nickel_t4_limiter_tune | tee t4-limiter-resistors.csv
-      - name: Calibrate normal line level knee independently for three optocells
+      - name: Calibrate normal line level knee for the existing optocells
         run: ./build/nickel/nickel_line_level_knee_tune | tee line-level-knee-calibration.csv
       - name: Measure full nickel transformer output compression at 1kHz with INPUT 0dB
         run: ./build/nickel/nickel_full_line_level | tee nickel-full-path-line-level.csv
-      - name: Measure all three optical cells with short and long 1kHz bursts\n        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv\n      - name: Run full physics and signal-path tests
+      - name: Measure optical cells with short and long 1kHz bursts
+        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv\n      - name: Run full physics and signal-path tests
         run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization|opto_memory_calibration|opto_cell_variants'
       - name: Output MNA convergence and CPU results
         run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
@@ -74,4 +75,5 @@ jobs:
             opto-compressor-resistors.csv
             t4-limiter-resistors.csv
             line-level-knee-calibration.csv
-            nickel-full-path-line-level.csv\n            opto-cell-burst-matrix.csv
+            nickel-full-path-line-level.csv
+            opto-cell-burst-matrix.csv
