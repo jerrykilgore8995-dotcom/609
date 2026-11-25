@@ -41,8 +41,16 @@ int main(){
   check(c.selected()==optocircuit::CellKind::T4B,5);
   const double dark=c.resistance();
   double peak=0,initial=0,after50=0,after1000=0,halfRecoveryMs=-1.;
+  // Compare identical actual excitation ACROSS the EL panel, not identical
+  // source voltage after changing the effective driver impedance.
+  // Legacy 47k/5nF attenuated the prior 120Vrms source at 1k.
+  constexpr double panelC=5.e-9,legacySourceR=47000.,newSourceR=100.;
+  const double a=2.*optocircuit::pi*1000.*panelC;
+  const double matchedSourceVac=120.*std::sqrt(
+      (1.+std::pow(a*newSourceR,2.))/
+      (1.+std::pow(a*legacySourceR,2.)));
   for(int i=0;i<int(1.*fs);++i) {
-    c.processAtPanelVac(1.,120.*std::sqrt(2.)*
+    c.processAtPanelVac(1.,matchedSourceVac*std::sqrt(2.)*
                       std::sin(2.*optocircuit::pi*1000.*i/fs));
     peak=std::max(peak,c.gainReduction());
   }
@@ -55,7 +63,8 @@ int main(){
        halfRecoveryMs=1000.*i/fs;
     if(i==int(1.*fs))after1000=c.gainReduction();
   }
-  std::cout<<"T4B dark_R="<<dark<<" drive_120VAC_peak_GR="<<peak
+  std::cout<<"T4B dark_R="<<dark<<" matched_panel_source_VAC="<<matchedSourceVac
+    <<" matched_peak_GR="<<peak
     <<" onset_GR="<<initial<<" GR_off_50ms="<<after50
     <<" GR_off_1000ms="<<after1000
     <<" recovery_50percent_ms="<<halfRecoveryMs
