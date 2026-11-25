@@ -1,0 +1,26 @@
+name: NSL32 VTL5C2 device reference calibration
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/measure_led_datasheet.cpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - '.github/workflows/nickel-led-device-reference.yml'
+  workflow_dispatch:
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+      - name: Build only physical photocell reference measurement
+        run: cmake --build build/nickel --target nickel_led_datasheet --parallel 2
+      - name: Measure 3.5ms rise and 100k/500k dark resistance recovery
+        run: set -o pipefail; ./build/nickel/nickel_led_datasheet | tee optical-datasheet-timing.csv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NSL32-VTL5C2-physical-photocell-reference
+          path: optical-datasheet-timing.csv
