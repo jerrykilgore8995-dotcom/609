@@ -18,8 +18,8 @@ int main() {
  std::cout<<std::fixed<<std::setprecision(6);
  std::cout<<"rc_ohms,driver_gain,level_dbu,sample_rate,mode,GR_1khz,GR_5khz,GR_10khz,GR_20khz\n";
  for(double sr:{44100.,96000.})
- for(double r:{47000.,4700.,1000.,680.,470.,220.})
- for(double g:{25.,30.,45.})
+ for(double r:{220.,150.,100.,68.,47.,22.})
+ for(double g:{24.5})
  for(double level:{4.,12.})
  for(int ff:{0,1})
  std::cout<<r<<","<<g<<","<<level<<","<<sr<<","<<ff<<","
