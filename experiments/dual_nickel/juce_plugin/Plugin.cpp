@@ -166,6 +166,32 @@ private:
 // All existing parameter IDs are retained for preset compatibility.
 class BakeliteLook final : public juce::LookAndFeel_V4 {
 public:
+    void drawComboBox(juce::Graphics& g,int width,int height,bool,
+                      int,int,int,int,juce::ComboBox& box) override {
+        const auto metal=juce::Colour(0xff5b5a55);
+        g.setColour(juce::Colour(0xff292a2b));
+        g.fillRoundedRectangle(0.f,0.f,float(width),float(height),3.f);
+        g.setColour(metal);
+        g.drawRoundedRectangle(1.f,1.f,float(width-2),float(height-2),3.f,1.5f);
+        if(box.getName()=="mode-toggle") {
+            const float cy=float(height)/2.f;
+            const bool limit=box.getSelectedId()==2;
+            g.setColour(juce::Colour(0xffc5c2b8));
+            g.fillEllipse(8.f,cy-7.f,14.f,14.f);
+            g.setColour(juce::Colour(0xff0d0d0e));
+            g.fillEllipse(12.f,cy-4.f,8.f,8.f);
+            g.setColour(juce::Colour(0xffdfd9c9));
+            const float y=limit?cy-7.f:cy+6.f;
+            g.drawLine(16.f,cy,24.f,y,3.1f);
+        } else {
+            juce::Path arrow;
+            const float x=float(width)-16.f,y=float(height)*.5f;
+            arrow.startNewSubPath(x-4.f,y-2.f);
+            arrow.lineTo(x,y+2.f);arrow.lineTo(x+4.f,y-2.f);
+            g.setColour(juce::Colour(0xffe0dacb));
+            g.strokePath(arrow,juce::PathStrokeType(1.6f));
+        }
+    }
     void drawRotarySlider(juce::Graphics& g,int x,int y,int width,int height,
                           float sliderPos,float start,float end,
                           juce::Slider& slider) override {
@@ -299,10 +325,15 @@ public:
         cellModel.addItem("T4B-STYLE",3);
         cellModel.addItem("VTL5C1",4);
         addAndMakeVisible(cellModel);
+        cellModel.setLookAndFeel(&knobLook);
+        cellModel.setColour(juce::ComboBox::textColourId,juce::Colour(0xfff3eee2));
         cellAttach=std::make_unique<ComboAttachment>(p.state,"cell",cellModel);
+        mode.setName("mode-toggle");
         mode.addItem("COMPRESS",1);
         mode.addItem("LIMIT",2);
         addAndMakeVisible(mode);
+        mode.setLookAndFeel(&knobLook);
+        mode.setColour(juce::ComboBox::textColourId,juce::Colour(0xfff3eee2));
         modeAttach=std::make_unique<ComboAttachment>(p.state,"mode",mode);
         advanced.setButtonText("ADVANCED  +  LOW-MID");
         advanced.onClick=[this] {
@@ -318,6 +349,7 @@ public:
         input.setLookAndFeel(nullptr);output.setLookAndFeel(nullptr);
         gain.setLookAndFeel(nullptr);peak.setLookAndFeel(nullptr);
         attack.setLookAndFeel(nullptr);release.setLookAndFeel(nullptr);
+        mode.setLookAndFeel(nullptr);cellModel.setLookAndFeel(nullptr);
     }
     void resized() override {
         input.setBounds(184,3,58,50);
