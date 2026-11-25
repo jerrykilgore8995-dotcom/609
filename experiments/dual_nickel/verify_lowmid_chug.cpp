@@ -35,7 +35,7 @@ static Timings burst(double fs,double atk,double rel){
    if(i==N-1)t.peak=d.reductionDb();
    if(t.atk<0.&&d.reductionDb()>=.632*6.)t.atk=1000.*i/fs;
  }
- for(int i=0;i<int(4*fs);++i){
+ for(int i=0;i<int(8*fs);++i){
    d.process(0.f);
    if(t.rel<0 && d.reductionDb()<=.5*t.peak)t.rel=1000.*i/fs;
  }
