@@ -61,8 +61,11 @@ struct OptoParts {
     double nslCompPreampRf=0.,vtlCompPreampRf=0.;
     // Dedicated VTL5C1 switch deck: no alteration to the other cells.
     double vtl1CompPreampRf=0.;
-    double vtl1CompFeedbackR=5000.,vtl1CompKneeSeriesR=68000.;
-    double vtl1CompInputTapR=100000.,vtl1CompFeedbackTapR=25000.;
+    double vtl1CompFeedbackR=4700.,vtl1CompKneeSeriesR=68000.;
+    // 100k to preattenuator plus 11.111k feedback tap gives 10% PRE and
+    // 90% POST-cell feedback, controlling the asymptotic compression slope.
+    // Resistor values tuned from measured VTL5C1 transfer curve, not DSP ratio.
+    double vtl1CompInputTapR=100000.,vtl1CompFeedbackTapR=11111.111;
     double vtl1LeadDetectorRf=50000.,vtl1LeadDriverRf=4000.;
     double vtl1LeadClampBiasV=.8,vtl1CompClampTopR=68000.;
     double vtl1KneeBiasV=0.;
