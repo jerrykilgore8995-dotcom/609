@@ -24,16 +24,16 @@ static double toneGain(double fs,double hz,bool enabled,double cut,double thresh
  return 20*std::log10(std::max(1.e-15,output)/input);
 }
 struct Timings {double atk=-1,rel=-1,peak=0;};
-static Timings burst(double fs,double atk,double rel){
+static Timings burst(double fs,double atk,double rel,double cut=8.){
  DynamicLowMid d;d.prepare(fs);d.setEnabled(true);d.setCenterHz(170.);
- d.setWidthOctaves(1.3);d.setMaxCutDb(8.);d.setThresholdDb(-35.);
+ d.setWidthOctaves(1.3);d.setMaxCutDb(cut);d.setThresholdDb(-35.);
  d.setAttackMs(atk);d.setReleaseMs(rel);
  const int N=int(fs*1.5);
  double maxGr=0.;Timings t{};
  for(int i=0;i<N;++i){
    d.process(float(.4*std::sin(pi2*170*i/fs)));
    if(i==N-1)t.peak=d.reductionDb();
-   if(t.atk<0.&&d.reductionDb()>=.632*6.)t.atk=1000.*i/fs;
+   if(t.atk<0.&&d.reductionDb()>=.632*.75*cut)t.atk=1000.*i/fs;
  }
  for(int i=0;i<int(8*fs);++i){
    d.process(0.f);
@@ -63,6 +63,15 @@ int main(){
   auto t=burst(fs,a,r);
   std::cout<<"PULSE,"<<fs<<","<<a<<","<<r<<","<<t.atk<<","<<t.rel<<","<<t.peak<<"\n";
   if(!(t.peak>1.&&t.rel>0.))return 4;
+ }
+ // Test default 4dB range, in addition to 8dB diagnostic.
+ for(double fs:{44100.,96000.})
+ for(double rel:{20.,150.,500.,1000.}) {
+   auto t=burst(fs,10.,rel,4.);
+   std::cout<<"DEFAULT_4DB,"<<fs<<",10,"<<rel<<","
+     <<t.atk<<","<<t.rel<<","<<t.peak<<"\n";
+   if(!(t.peak>=3.5 && t.rel>0. && std::abs(t.rel-rel)<std::max(5.,rel*.1)))
+      return 6;
  }
  std::cout<<"LOWMID_CHUG_TEST=PASS\n";
 }
