@@ -1,0 +1,21 @@
+name: VTL5C1 soft knee and timing matrix
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/verify_vtl5c1_dynamics.cpp'
+      - '.github/workflows/vtl5c1-dynamics.yml'
+  workflow_dispatch:
+jobs:
+  dynamics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -O2 experiments/dual_nickel/verify_vtl5c1_dynamics.cpp -o vtl-dynamics
+      - run: ./vtl-dynamics > vtl5c1-knee-ratio-attack-release.csv
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VTL5C1-soft-knee-ratio-timing-matrix
+          path: vtl5c1-knee-ratio-attack-release.csv
