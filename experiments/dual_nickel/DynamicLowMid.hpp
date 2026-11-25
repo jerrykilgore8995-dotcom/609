@@ -98,7 +98,14 @@ public:
         // linear gain would make the nominal time level-dependent.
         const double current=-20.*std::log10(std::max(1e-12,gain));
         const bool recovering=reduction<current;
-        const double tau=recovering?release/std::log(2.):attack;
+        // Account for the brief RMS-detector discharge that occurs before
+        // the gain envelope can begin its measured half-recovery. This is a
+        // calibration of the control's *measured* 50%-GR timing, not ARC.
+        // The detector delay saturates near 20ms for long releases and is
+        // smaller at the 20ms setting.
+        const double manualHalfLife=std::max(.001,
+            release-std::min(.020,release*.45));
+        const double tau=recovering?manualHalfLife/std::log(2.):attack;
         const double coeff=1.-std::exp(-1./(fs*std::max(1e-5,tau)));
         gr=std::max(0.,current+coeff*(reduction-current));
         gain=std::pow(10.,-gr/20.);
