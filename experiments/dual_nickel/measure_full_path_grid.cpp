@@ -12,6 +12,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <vector>
 using analogopto::MonoEngine;
 constexpr double fs=44100.,twoPi=6.283185307179586,pk=nickel::fullScalePeakVolts;
 constexpr int n=4410;  // 100ms coherent block, 10 Hz bins.
