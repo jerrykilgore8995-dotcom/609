@@ -66,7 +66,7 @@ int main(){
   check(c.meterPhotocellOhms()>meterOn,7);
   optocircuit::OpticalCompressor comp;
   comp.prepare(fs);
-  for(int selection=0;selection<3;++selection){
+  for(int selection=0;selection<4;++selection){
     comp.setCellKind(static_cast<optocircuit::CellKind>(selection));
     check(int(comp.selectedCellKind())==selection,8);
     comp.setThresholdDb(-18);
@@ -80,5 +80,29 @@ int main(){
       <<" gain_reduction_db="<<comp.reductionDb()
       <<" resistance_ohms="<<comp.ldrOhms()<<"\n";
   }
+    // VTL5C1 physical material type 1: nominal 20k/600/200 ohms
+  // at 1/10/40 mA; turn-off to 100k within 35ms after 40mA illumination.
+  for(const auto [mA,target]:{
+      std::pair<double,double>{1.,20000.},{10.,600.},{40.,200.}}){
+    optocircuit::LdrCell cell;cell.prepare(fs);
+    cell.select(optocircuit::CellKind::VTL5C1);
+    for(int i=0;i<int(3*fs);++i)cell.processAtLedCurrent(1.,mA*.001);
+    const double measured=cell.resistance();
+    std::cout<<"VTL5C1 LED_mA="<<mA<<" resistance_ohm="<<measured<<"\n";
+    check(measured>target*.9 && measured<target*1.1,20);
+    if(mA==40.) {
+        for(int i=0;i<int(.035*fs);++i)cell.processAtLedCurrent(0.,0.);
+        std::cout<<"VTL5C1 off_35ms_resistance_ohm="<<cell.resistance()<<"\n";
+        check(cell.resistance()>=100000.,21);
+    }
+  }
+  optocircuit::OpticalCompressor settings;
+  settings.prepare(fs);
+  check(!settings.variableTimingEnabled(),22);
+  settings.setCellKind(optocircuit::CellKind::VTL5C1);
+  check(settings.variableTimingEnabled(),23);
+  settings.setAttackMs(100.);settings.setReleaseMs(2000.);
+  settings.setCellKind(optocircuit::CellKind::VTL5C2);
+  check(!settings.variableTimingEnabled(),24);
   std::cout<<"OPTO_MODEL_SWITCH=PASS\n";
 }
