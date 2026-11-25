@@ -4,6 +4,8 @@ on:
     branches: [feature/dual-nickel-zener-prototype]
     paths:
       - 'experiments/dual_nickel/measure_feedback_phase.cpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/AnalogOptoProcessor.hpp'
       - '.github/workflows/nickel-feedback-phase.yml'
   workflow_dispatch:
 jobs:
