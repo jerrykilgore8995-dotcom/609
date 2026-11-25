@@ -59,6 +59,9 @@ public:
         const double base=signal-.01*(daVoltage-oldDa);
         // Voltage driver resistor and device base resistance enter the base
         // node KCL. This models actual base loading unlike ideal base drive.
+        // The ±15 V supply limits the transistor base drive. Emitter and
+        // output nodes must remain free to reach their actual nonlinear
+        // saturation solution, not an artificial ±13.5 V bound.
         const double targetBN=std::clamp(base+.73,-15.,15.);
         const double targetBP=std::clamp(base-.73,-15.,15.);
         const double rem=22.;
@@ -86,9 +89,9 @@ public:
         Vec x=state;
         x[0]=std::clamp(x[0]+base-previousSignal,-15.,15.);
         x[1]=std::clamp(x[1]+base-previousSignal,-15.,15.);
-        x[2]=std::clamp(x[2]+base-previousSignal,-13.5,13.5);
-        x[3]=std::clamp(x[3]+base-previousSignal,-13.5,13.5);
-        x[4]=std::clamp(x[4]+base-previousSignal,-13.5,13.5);
+        x[2]=std::clamp(x[2]+base-previousSignal,-18.,18.);
+        x[3]=std::clamp(x[3]+base-previousSignal,-18.,18.);
+        x[4]=std::clamp(x[4]+base-previousSignal,-18.,18.);
         previousSignal=base;
         bool converged=false;
         for(int step=0;step<15;++step) {
@@ -112,7 +115,7 @@ public:
                 Vec candidate=x;
                 for(int i=0;i<5;++i)
                     candidate[i]=std::clamp(x[i]+alpha*delta[i],
-                                i<2?-15.:-13.5,i<2?15.:13.5);
+                                i<2?-15.:-18.,i<2?15.:18.);
                 if(maxAbs(evaluate(candidate))<err) {
                     x=candidate;accepted=true;break;
                 }
@@ -126,9 +129,9 @@ public:
             // operating point. Keep capacitor charge history untouched:
             // only the instantaneous five-node algebraic solve is retried.
             Vec fresh{targetBN,targetBP,
-                      std::clamp(base,-13.5,13.5),
-                      std::clamp(base,-13.5,13.5),
-                      std::clamp(base,-13.5,13.5)};
+                      std::clamp(base,-18.,18.),
+                      std::clamp(base,-18.,18.),
+                      std::clamp(base,-18.,18.)};
             // Retry unconditionally from the physical seed. A trapped
             // previous solution can have a smaller residual than the seed
             // yet still lie in an invalid Newton basin. Comparing initial
@@ -154,7 +157,7 @@ public:
                     Vec trial=x;
                     for(int i=0;i<5;++i)
                         trial[i]=std::clamp(x[i]+alpha*step[i],
-                          i<2?-15.:-13.5,i<2?15.:13.5);
+                          i<2?-15.:-18.,i<2?15.:18.);
                     const double err=maxAbs(evaluate(trial));
                     if(std::isfinite(err) && err<bestErr) {
                         x=trial;bestErr=err;accepted=true;break;
