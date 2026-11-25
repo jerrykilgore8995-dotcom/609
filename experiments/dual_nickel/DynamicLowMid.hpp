@@ -85,13 +85,13 @@ public:
         // Retain the original asymmetric peak/RMS detector while a low-mid
         // signal is present: its slow discharge is essential to the original
         // -25dB threshold / 170Hz guitar activation.  A SHORT independent
-        // 3ms activity sensor notices an actual reduction in program energy.
+        // 2ms activity sensor notices an actual reduction in program energy.
         // Only then does the detector discharge promptly and let the gain
         // envelope perform a predictable manual-style release. This is
         // C4-inspired, not Waves ARC or a proprietary Waves algorithm.
-        const double activityCoeff=1.-std::exp(-1./(fs*.003));
+        const double activityCoeff=1.-std::exp(-1./(fs*.002));
         activityPower+=activityCoeff*(power-activityPower);
-        const bool programDropped=activityPower < rms*.10;
+        const bool programDropped=activityPower < rms*.20;
         const double detectorTau=power>rms?attack:
                                   programDropped?.0015:release;
         rms+=(power-rms)*(1-std::exp(-1./(fs*std::max(1e-5,detectorTau))));
@@ -108,7 +108,7 @@ public:
         // rather than shortening the normal detector's hold on sustained
         // guitar notes.
         const double manualHalfLife=std::max(.001,
-            release-std::min(.010,release*.30));
+            release-std::min(.012,release*.50));
         const double tau=recovering?manualHalfLife/std::log(2.):attack;
         const double coeff=1.-std::exp(-1./(fs*std::max(1e-5,tau)));
         gr=std::max(0.,current+coeff*(reduction-current));
