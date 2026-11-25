@@ -10,13 +10,13 @@ from pathlib import Path
 p=Path(sys.argv[1] if len(sys.argv)>1 else "sidechain-knee-timing-matrix.csv")
 rows=list(csv.DictReader(p.open()))
 def num(x,key):return float(x[key])
-by={ (r["measurement"],r["cell"],r["freq_hz"],r["hpf_hz"],r["threshold_dbu"],r["input_dbu"],r["burst_ms"]):r for r in rows }
+by={ (r["measurement"],r["cell"],float(r["freq_hz"]),float(r["hpf_hz"]),float(r["threshold_dbu"]),float(r["input_dbu"]),float(r["burst_ms"])):r for r in rows }
 stat=[r for r in rows if r["measurement"]=="static"]
 tim=[r for r in rows if r["measurement"]=="timing"]
 flags=[];checks=0
 for r in stat:
  if float(r["freq_hz"])!=1000 or float(r["hpf_hz"])==0:continue
- key=("static",r["cell"],r["freq_hz"],"0.00000",r["threshold_dbu"],r["input_dbu"],"0.00000")
+ key=("static",r["cell"],num(r,"freq_hz"),0.,num(r,"threshold_dbu"),num(r,"input_dbu"),0.)
  base=by.get(key)
  if not base:continue
  a=num(r,"GR_average_db");b=num(base,"GR_average_db")
@@ -46,7 +46,7 @@ for (cell,freq,hpf,th),group in __import__("itertools").groupby(
 # 1kHz release and attack at 1s burst when HPF enabled compared to off.
 for r in tim:
  if num(r,"freq_hz")!=1000 or num(r,"hpf_hz")==0 or num(r,"burst_ms")!=1000:continue
- key=("timing",r["cell"],r["freq_hz"],"0.00000",r["threshold_dbu"],r["input_dbu"],r["burst_ms"])
+ key=("timing",r["cell"],num(r,"freq_hz"),0.,num(r,"threshold_dbu"),num(r,"input_dbu"),num(r,"burst_ms"))
  base=by.get(key)
  if base is None:continue
  for field in ["attack90_ms","release50_ms","release10_ms"]:
