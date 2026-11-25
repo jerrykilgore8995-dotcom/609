@@ -111,9 +111,15 @@ struct OptoParts {
     // T4 electroluminescent panel coupling (not an LED). These are
     // explicitly provisional driver parameters until a T4 sample is swept:
     // high-voltage panel amplifier / AC excitation threshold.
-    double elPanelVoltageGain=45., elPanelTurnOnVac=35.;
+    double elPanelVoltageGain=24.5, elPanelTurnOnVac=35.;
     double elPanelReferenceVac=115.,elPanelCapF=5e-9;
-    double elPanelDriveR=47000., elPanelRiseSeconds=.0008;
+    // Effective output impedance of the EL driver, not an internal T4B
+    // resistor. The old 47k/5nF combination imposed an unjustified 677Hz
+    // pole and erased gain reduction at 20k even with sidechain HPF bypassed.
+    // 220ohm + 24.5 driver voltage gain fit the original 1k GR within
+    // a few percent while making 20k GR broadly flat. Provisional until
+    // direct T4B sidechain driver voltage/current hardware measurements.
+    double elPanelDriveR=220., elPanelRiseSeconds=.0008;
     double elPanelFallSeconds=.003;
     // T4B CdS carrier/trap lifetimes (not detector attack/release). Distinct
     // from NSL-32 and VTL5C2; calibration controls only the T4B photocell.
