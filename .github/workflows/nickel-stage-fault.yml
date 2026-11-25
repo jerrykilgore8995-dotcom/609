@@ -1,0 +1,22 @@
+name: Nickel Opto high-drive failure localization
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/measure_stage_fault.cpp'
+      - '.github/workflows/nickel-stage-fault.yml'
+  workflow_dispatch:
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/nickel --target nickel_stage_fault --parallel 2
+      - run: ./build/nickel/nickel_stage_fault | tee stage-fault.csv
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NickelOpto-high-drive-stage-fault-trace
+          path: stage-fault.csv
