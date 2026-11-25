@@ -32,6 +32,21 @@ jobs:
           $found=Get-ChildItem build/nickel-opto -Recurse -Filter '*.vst3'
           $found | ForEach-Object { Write-Host $_.FullName }
           if (-not $found) { throw "No VST3 built" }
+      - name: Build the actual JUCE GUI capture utility
+        run: cmake --build build/nickel-opto --config Release --target NickelOptoCapture --parallel 2
+      - name: Capture the actual compiled editor (NSL32 and VTL5C1)
+        shell: pwsh
+        run: |
+          $exe=Get-ChildItem build/nickel-opto -Recurse -Filter "NickelOptoCapture.exe" | Select-Object -First 1
+          if (-not $exe) { throw "Actual JUCE GUI capture utility missing" }
+          & $exe.FullName
+          if ($LASTEXITCODE -ne 0) { throw "GUI capture failed: $LASTEXITCODE" }
+          Get-Item NickelOpto-Actual-GUI-*.png | Format-Table Name,Length
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NickelOpto-ACTUAL-JUCE-GUI-Screenshots
+          path: NickelOpto-Actual-GUI-*.png
       - uses: actions/upload-artifact@v4
         with:
           name: NickelOpto-Windows-x64-VST3
