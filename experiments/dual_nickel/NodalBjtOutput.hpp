@@ -119,7 +119,50 @@ public:
             }
             if(!accepted)break;
         }
-        if(!converged && maxAbs(evaluate(x))>5.e-7)++failed;
+        if(!converged && maxAbs(evaluate(x))>5.e-7) {
+            // The normal warm-start Newton method occasionally leaves the
+            // physical solution basin during a large input transition.
+            // Retry from a physically plausible complementary follower
+            // operating point. Keep capacitor charge history untouched:
+            // only the instantaneous five-node algebraic solve is retried.
+            Vec fresh{targetBN,targetBP,
+                      std::clamp(base,-13.5,13.5),
+                      std::clamp(base,-13.5,13.5),
+                      std::clamp(base,-13.5,13.5)};
+            double bestErr=maxAbs(evaluate(x));
+            if(maxAbs(evaluate(fresh))<bestErr) {
+                x=fresh;
+                bestErr=maxAbs(evaluate(x));
+            }
+            for(int iter=0;iter<60 && bestErr>5.e-7;++iter) {
+                const Vec f=evaluate(x);
+                Matrix jac{};
+                for(int j=0;j<5;++j) {
+                    Vec plus=x,minus=x;
+                    const double h=1.e-5;
+                    plus[j]+=h;minus[j]-=h;
+                    const Vec fp=evaluate(plus),fm=evaluate(minus);
+                    for(int i=0;i<5;++i)
+                        jac[i][j]=(fp[i]-fm[i])/(2*h);
+                }
+                Vec step{};
+                for(int i=0;i<5;++i)step[i]=-f[i];
+                if(!linearSolve(jac,step))break;
+                bool accepted=false;
+                for(double alpha=1.;alpha>=1./4096.;alpha*=.5) {
+                    Vec trial=x;
+                    for(int i=0;i<5;++i)
+                        trial[i]=std::clamp(x[i]+alpha*step[i],
+                          i<2?-15.:-13.5,i<2?15.:13.5);
+                    const double err=maxAbs(evaluate(trial));
+                    if(std::isfinite(err) && err<bestErr) {
+                        x=trial;bestErr=err;accepted=true;break;
+                    }
+                }
+                if(!accepted)break;
+            }
+            if(bestErr>5.e-7)++failed;
+        }
         state=x;
         prevBE={x[0]-x[2],x[1]-x[3]};
         prevBC={x[0]-15.,x[1]+15.};
