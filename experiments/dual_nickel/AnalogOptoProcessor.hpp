@@ -93,8 +93,11 @@ public:
         return processOutput(attenuated);
     }
     double detectOptical(float audio) noexcept {return comp.detectOwn(audio);}
-    float renderOptical(float audio,double control) noexcept {
-        return processOutput(comp.render(audio,control));
+    double ledCurrentForControl(double control) const noexcept {
+        return comp.ledCurrentForControl(control);
+    }
+    float renderOptical(float audio,double control,double sharedLedCurrent) noexcept {
+        return processOutput(comp.render(audio,control,sharedLedCurrent));
     }
     float processOutput(float attenuated) noexcept {
         const float driverOut=output.process(float(attenuated*makeupGain));
@@ -177,8 +180,10 @@ public:
             const double controlL = left.detectOptical(pl);
             const double controlR = right.detectOptical(pr);
             const double control = std::max(controlL, controlR);
-            l = left.renderOptical(pl, control);
-            r = right.renderOptical(pr, control);
+            // Matched LED drivers fed by the same voltage draw the same current.
+            const double ledCurrent = optoCell == 2 ? -1. : left.ledCurrentForControl(control);
+            l = left.renderOptical(pl, control, ledCurrent);
+            r = right.renderOptical(pr, control, ledCurrent);
             return;
         }
         const float dl=left.lowMidDetector(ml);

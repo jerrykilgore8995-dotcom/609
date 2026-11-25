@@ -157,7 +157,8 @@ public:
     }
 
 private:
-    static constexpr double thermalV = .02585, emitterR = 8200., idleCurrent = 24. / emitterR;
+    // Bias for the full-scale negative swing even as the LDR loads the emitter.
+    static constexpr double thermalV = .02585, emitterR = 4700., idleCurrent = 24. / emitterR;
     static constexpr double beta = 1122., highInjection = .01492, earlyV = 62.37;
     static constexpr double biasNetworkR = 10000., inputCap = 122.e-12;
     static constexpr double idleBaseCurrent() noexcept {
@@ -236,8 +237,8 @@ public:
         for(int i=0;i<9 && !converged;++i) {
             const double eps=std::max(1.e-5,1.e-4*std::abs(guess));
             const double fp=candidate(guess+eps);
-            const double fm=candidate(guess-eps);
-            const double slope=(fp-fm)/(2*eps);
+            const double slope=coupledReceiver ? (fp-f)/eps
+                                               : (fp-candidate(guess-eps))/(2*eps);
             double proposed=std::abs(slope)>1.e-12 && std::isfinite(slope)
                 ?guess-f/slope : .5*(lo+hi);
             const double guard=1.e-7*(hi-lo);

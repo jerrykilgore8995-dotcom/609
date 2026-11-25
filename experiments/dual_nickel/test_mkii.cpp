@@ -177,6 +177,30 @@ void checkReceiver() {
     }
 }
 
+void checkReceiverHeadroom() {
+    analogopto::MonoEngine engine;
+    engine.prepare(sampleRate, true);
+    engine.setLoadOhms(600.);
+    engine.setThresholdDb(18.);
+    double fundamentalSin = 0., fundamentalCos = 0.;
+    double harmonicSin = 0., harmonicCos = 0.;
+    for (int i = 0; i < int(3. * sampleRate); ++i) {
+        const double out = engine.process(tone(i, 100., 24.));
+        if (i < int(2. * sampleRate)) continue;
+        const double phase = 2. * std::numbers::pi * 100. * i / sampleRate;
+        fundamentalSin += out * std::sin(phase);
+        fundamentalCos += out * std::cos(phase);
+        harmonicSin += out * std::sin(28. * phase);
+        harmonicCos += out * std::cos(28. * phase);
+    }
+    const double harmonic = std::hypot(harmonicSin, harmonicCos);
+    const double fundamental = std::hypot(fundamentalSin, fundamentalCos);
+    const double k28 = 20. * std::log10(harmonic / fundamental);
+    check(k28 < -98., "Receiver cutoff at full-scale 100 Hz");
+    check(engine.outputSolverFailures() == 0, "Output solver failed during the headroom sweep");
+    std::cout << "100 Hz full-scale, 600 ohms, K28 normalized: " << k28 << " dBFS\n";
+}
+
 void reportTiming() {
     for (int kind = 0; kind < 4; ++kind) {
         analogopto::StereoEngine engine;
@@ -211,6 +235,7 @@ int main() {
         checkCellDynamics();
         checkT4Sensitivity();
         checkReceiver();
+        checkReceiverHeadroom();
         reportTiming();
         std::cout << "NICKEL_OPTO_MKII=PASS\n";
     } catch (const std::exception& error) {

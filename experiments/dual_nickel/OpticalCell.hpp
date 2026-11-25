@@ -424,12 +424,12 @@ public:
            1./(1./darkResistance()+std::max(0.,meterLight)/1200.):
            lastResistance;
     }
-    double gainReduction() const noexcept {
-        const double g=1./p.rSeries,r=1./p.rReceive,gd=1./darkResistance();
-        const double on=g/(g+r+1./lastResistance);
-        const double off=g/(g+r+gd);
-        return std::max(0.,-toDb(on/off));
+    double relativeGain() const noexcept {
+        const double network = 1. / p.rSeries + 1. / p.rReceive;
+        return std::min(1., (network + 1. / darkResistance()) /
+                             (network + 1. / lastResistance));
     }
+    double gainReduction() const noexcept { return -toDb(relativeGain()); }
 private:
     OptoParts p{};
     double fs=44100.,lightFast=0.,lightSlow=0.,illumination=0.,
@@ -710,7 +710,10 @@ public:
         }
         return std::clamp(source,0.,p.ledSupply);
     }
-    float render(float x, double control) noexcept {
+    double ledCurrentForControl(double control) const noexcept {
+        return cell.ledCurrent(control);
+    }
+    float render(float x, double control, double sharedLedCurrent = -1.) noexcept {
         const double audio = double(x) * 17.3677;
         double y;
         if (cell.selected() == CellKind::T4B) {
@@ -718,7 +721,8 @@ public:
                      : cell.processAtPanelVac(audio, control);
         } else {
             ledControl = control;
-            y = cell.process(audio, ledControl);
+            y = sharedLedCurrent >= 0. ? cell.processAtLedCurrent(audio, sharedLedCurrent)
+                                        : cell.process(audio, ledControl);
         }
         lastOutput = y / 17.3677;
         return float(lastOutput);
@@ -732,7 +736,7 @@ public:
     // is artificially delayed into the detector summing network.
     float process(float x) noexcept { return render(x, detectOwn(x)); }
     float detectorInput(float x) const noexcept {
-        const float postEstimate=float(x*dB(-cell.gainReduction()));
+        const float postEstimate=float(x*cell.relativeGain());
         if(cell.selected()==CellKind::T4B && !feedforward) {
             const double f=detectorPreFraction();
             return float(f*x+(1.-f)*postEstimate);
