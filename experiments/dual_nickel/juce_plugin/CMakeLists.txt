@@ -23,3 +23,10 @@ target_link_libraries(NickelOpto PRIVATE juce::juce_audio_processors
                                             juce::juce_gui_basics
                                             juce::juce_recommended_config_flags
                                             chowdsp_wdf)
+
+# Offscreen capture utility renders the compiled editor's own paint method.
+juce_add_console_app(NickelOptoCapture PRODUCT_NAME "Nickel Opto GUI Capture")
+target_sources(NickelOptoCapture PRIVATE CaptureActualGUI.cpp)
+target_compile_features(NickelOptoCapture PRIVATE cxx_std_20)
+target_compile_definitions(NickelOptoCapture PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 NOMINMAX)
+target_link_libraries(NickelOptoCapture PRIVATE juce::juce_audio_processors juce::juce_gui_basics juce::juce_recommended_config_flags chowdsp_wdf)
