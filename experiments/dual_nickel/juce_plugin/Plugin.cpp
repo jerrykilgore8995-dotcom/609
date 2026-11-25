@@ -245,18 +245,18 @@ public:
         load.addItem("600 OHM",1);load.addItem("10 kOHM",2);
         addAndMakeVisible(load);
         loadAttach=std::make_unique<ComboAttachment>(p.state,"load",load);
-        setSize(850,300);
+        setSize(850,330);
     }
     void resized() override {
         const int xs[]={18,155,292,429,566,703};
-        const int ys[]={42,168};
+        const int ys[]={35,177};
         for(auto& k:knobs) {
             const int x=xs[k.column],y=ys[k.row];
             k.title->setBounds(x,y,127,20);
-            k.slider->setBounds(x+26,y+20,78,76);
+            k.slider->setBounds(x+26,y+20,78,64);
         }
         for(int i=0;i<int(toggles.size());++i)
-            toggles[std::size_t(i)].button->setBounds(20+i*205,270,197,25);
+            toggles[std::size_t(i)].button->setBounds(20+i*205,296,197,25);
         load.setBounds(575,75,235,28);
     }
     void paint(juce::Graphics& g) override {
@@ -264,8 +264,8 @@ public:
         g.setColour(juce::Colour(0xffd2ba8a));
         g.setFont(juce::FontOptions(16.f,juce::Font::bold));
         g.drawText("SIGNAL / SIDECHAIN",18,9,300,26,juce::Justification::left);
-        g.drawText("C4-STYLE DYNAMIC LOW-MID",18,133,500,26,juce::Justification::left);
-        g.setColour(juce::Colour(0xff6e7277));g.drawLine(15.f,128.f,835.f,128.f);
+        g.drawText("C4-STYLE DYNAMIC LOW-MID",18,146,500,26,juce::Justification::left);
+        g.setColour(juce::Colour(0xff6e7277));g.drawLine(15.f,139.f,835.f,139.f);
         g.setColour(juce::Colour(0xffd4d5d0));
         g.setFont(juce::FontOptions(11.f));
         g.drawText("OUTPUT LOAD",575,54,235,18,juce::Justification::centred);
