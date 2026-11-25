@@ -1,11 +1,51 @@
 # Nickel Opto — selectable optical cells and fidelity notes
 
-This implementation has three operational choices in the existing VST3
-dropdown: **NSL-32** (default), **VTL5C2**, **T4B-style**.
-VTL5C1 is deliberately excluded at the user's request. All options
+This implementation has four operational choices in the VST3 dropdown:
+**NSL-32** (default), **VTL5C2**, **T4B-style**, and **VTL5C1**.
+The VTL5C1 was added on request after an investigation of fast CdS recovery. All options
 attenuate the same modeled resistor-network audio node: they differ in
 how they generate illumination, translate illumination to resistance,
 and retain photo-carrier history.
+
+## VTL5C1 (Excelitas / PerkinElmer)
+Published 25 C points: 1mA = 20 kohm, 10mA = 600 ohm,
+40mA = 200 ohm, dark resistance 50 Mohm, 2.5ms turn-on (63%),
+35ms maximum to 100 kohm after the LED is switched off.
+Reference: https://www.farnell.com/datasheets/87223.pdf
+
+The model uses the resistance/current anchors with log interpolation,
+its own light and trap states, and a fast recovery calibrated to the
+100-kohm endpoint rather than treating 35ms as an exponential time
+constant. The user-adjustable detector RC attack (10-100ms) and release
+(50-2000ms) operate **only** in VTL5C1 mode. The other LED cartridges
+select fixed 15ms/250ms detector resistors; actual optical GR onset
+and recovery remain program- and cell-dependent. T4B is a separate
+AC EL panel with its own dynamics.
+
+## Cell-origin distortion and even-order harmonic caveat
+
+The PerkinElmer photocell catalog states that photocell voltage
+dependence produces distortion, and with simultaneous DC and AC cell
+voltage both odd and even harmonics can appear:
+https://www.alldatasheet.com/html-pdf/84387/PERKINELMER/VTL5C1/25005/41/VTL5C1.html
+
+The signal-path LDR is nominally unbiased in Nickel Opto. It is
+incorrect to claim a large inherent K2 with no voltage asymmetry or
+DC bias measured across that cell. The modeled shunt conduction is
+I = G(light)*V*(1+a*(V/10)^2), solved in node KCL, with provisional
+a=0.002. This is an **unvalidated low-level placeholder** that makes
+the photocell non-ohmic while preserving zero-bias inversion symmetry.
+It creates K3 at zero bias; K2 can occur when DC is present across
+that same nonlinear material. We do NOT add an unphysical DC voltage
+or a fixed K2 synthesizer. Exact harmonic strengths of NSL-32,
+VTL5C1, VTL5C2 and T4B require measured cell voltage-vs-current and
+bias curves; this model is not yet a calibrated match.
+
+The `measure_all_opto_cells.cpp` bench reports device resistance,
+compression knee and local ratios, 63% optical GR attack, 50% and
+10% optical GR recovery, and K2-K10 with zero and 2V DC bias. For
+T4B, this harmonic bench includes EL modulation and should not be
+misread as a measurement of intrinsic dark CdS only.
 
 ## VTL5C2 (Excelitas/PerkinElmer)
 
@@ -28,9 +68,7 @@ we extrapolate toward darkness. This is intentionally NOT a linear
 current-to-resistance or a generic change of attack/release coefficients.
 There are separate fast carrier and small slow-trap populations; their
 time constants must be calibrated further using the manufacturer's
-response-time curves and individually measured units. At present we
-do not model VTL5C2 capacitance as an explicit frequency-dependent
-parallel branch in the LDR attenuation node. The LED drive uses its
+response-time curves and individually measured units. The audio LDR node includes a 5pF VTL5C2 capacitance branch. The LED drive uses its
 40 mA published limit.
 
 ## T4B-style (LA-2A family, not a Vactrol)
@@ -83,8 +121,8 @@ not a guessed resistor preset masquerading as a measured T4.
   stereo optical engines. The change resets the cell state, avoiding
   leftover light-memory from another optical material.
 - `juce_plugin/Plugin.cpp` owns the automation-capable dropdown.
-  The current generic GUI is deliberately retained pending the
-  user's preferred physical faceplate.
+  The current generic GUI is retained pending the user's preferred physical
+  faceplate. The fast-cell attack/release knobs are disabled for other cells.
 - `test_opto_variants.cpp` checks datasheet VTL5C2 points and
   its 40mA/500ms turn-off limit, a **120 Vrms AC / 1kHz** T4 panel
   turn-on/recovery and second photocell, and real runtime switching.
