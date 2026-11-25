@@ -108,7 +108,7 @@ public:
         // rather than shortening the normal detector's hold on sustained
         // guitar notes.
         const double manualHalfLife=std::max(.001,
-            release-std::min(.012,release*.50));
+            release-std::min(.012,release*.60));
         const double tau=recovering?manualHalfLife/std::log(2.):attack;
         const double coeff=1.-std::exp(-1./(fs*std::max(1e-5,tau)));
         gr=std::max(0.,current+coeff*(reduction-current));
