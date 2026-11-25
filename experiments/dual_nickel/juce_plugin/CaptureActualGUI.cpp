@@ -28,8 +28,11 @@ static bool capture(const juce::String& filename, int mode) {
     editor->resized();
     const int width=editor->getWidth(),height=editor->getHeight();
     juce::Image snapshot(juce::Image::ARGB,width,height,true);
-    juce::Graphics g(snapshot);
-    paintCompiledComponentTree(*editor,g);
+    {
+        juce::Graphics g(snapshot);
+        paintCompiledComponentTree(*editor,g);
+        // Flush the native graphics context before PNG encoding.
+    }
     juce::File out=juce::File::getCurrentWorkingDirectory().getChildFile(filename);
     juce::FileOutputStream stream(out);
     if(!stream.openedOk())return false;
