@@ -628,18 +628,24 @@ public:
         lastOutput=y/17.3677;
         return float(lastOutput);
     }
-    // A physical feedback compressor senses its attenuator output. The
-    // previous output sample is fed to the RC detector (one-sample loop delay).
+    // The analog resistor summing junction sees input and post-cell audio
+    // at the SAME instant. Using lastOutput (previous AUDIO sample) creates a
+    // false 1-sample comb/phase cancellation near Nyquist, notably at 20 kHz
+    // with 44.1 kHz sampling. Use the previously solved, slowly changing CdS
+    // conductance to predict the CURRENT sample's post-cell audio. The optical
+    // control state is still causal (one-sample old), but no audio waveform
+    // is artificially delayed into the detector summing network.
     float process(float x) noexcept {
+        const float postEstimate=float(x*dB(-cell.gainReduction()));
         if(cell.selected()==CellKind::T4B && !feedforward) {
             const double f=detectorPreFraction();
-            return process(x,float(f*x+(1.-f)*lastOutput));
+            return process(x,float(f*x+(1.-f)*postEstimate));
         }
         if(!limiter && !feedforward && cell.selected()!=CellKind::T4B) {
             const double f=ledCompPreFraction();
-            return process(x,float(f*x+(1.-f)*lastOutput));
+            return process(x,float(f*x+(1.-f)*postEstimate));
         }
-        return process(x,feedforward?x:float(lastOutput));
+        return process(x,feedforward?x:postEstimate);
     }
     float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
     double reductionDb() const noexcept {return cell.gainReduction();}
