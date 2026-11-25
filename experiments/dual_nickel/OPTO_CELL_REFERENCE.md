@@ -136,3 +136,43 @@ reference optical assembly measurements. Quantify actual
 compression ratio/threshold, GR overshoot, frequency response,
 IMD and CPU, including source/sample-rate dependence. Do not
 mistake nominal knob values for measured optical time constants.
+
+## November 2026: sidechain high-frequency diagnosis
+
+A shared digital implementation fault mixed the current input audio sample with
+the *previous* post-attenuator output sample. At 20 kHz / 44.1 kHz, that
+misaligned feedback sum produced severe phase cancellation, despite the
+2N5088 follower and bridge detector being nearly flat in isolation.
+
+Feedback is now evaluated using current input audio and the most recently
+solved CdS attenuation (a slowly evolving physical state), in mono and
+stereo. The optocell control remains causal without delaying the AUDIO
+waveform through a non-existent physical one-sample path. The measured LED
+feedback-mode optical GR at 1 kHz vs 20 kHz is within approximately 0.001 dB
+at 44.1 kHz (+12 dBu isolated tests), versus several dB before.
+
+T4B-style EL panel behavior was independently affected by a provisional
+47-kohm driver source resistance feeding 5 nF EL capacitance (677 Hz
+low-pass corner), which eliminated virtually all 20 kHz illumination.
+A 100-ohm *effective* EL driver output impedance with voltage gain 24.5
+replaces that speculative source value. These are fitted effective
+circuit parameters, NOT claimed hardware component values.
+This preserves 1 kHz optical GR while giving approximately 0.27 dB lower
+20 kHz GR in high-level T4B feedback, and approximately 0.97 dB lower
+20 kHz GR in T4B feedforward. The LA-2A factory R37 flat-sidechain
+setting is the general response target, but T4B model fidelity still
+requires measured EL illumination versus amplitude and frequency.
+
+Sources:
+- https://help.uaudio.com/hc/en-us/articles/4419496124180-Teletronix-LA-2A-Leveler-Collection-Manual
+- https://www.uaudio.com/blogs/ua/la-2a-collection-tips-tricks
+
+The standalone `measure_sidechain_20khz.cpp` verifies the transistor
+buffer and diode storage at 44.1/96 kHz. The `measure_feedback_phase.cpp`
+runs **all four cells** in both feedback/feedforward modes at 44.1/96 kHz
+and tracks 1k/5k/10k/15k/20k gain reduction at two audio levels.
+The `measure_full_path_grid.cpp` includes the actual transformer and
+output BJT, plus frequency response, phase and THD. T4B device timing
+regression now preserves the same panel excitation after drive-impedance
+changes instead of confusing a stronger panel exposure with photocell speed.
+
