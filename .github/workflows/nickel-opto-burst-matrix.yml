@@ -8,6 +8,7 @@ on:
       - 'experiments/dual_nickel/SidechainFollower.hpp'
       - 'experiments/dual_nickel/test_sidechain_follower.cpp'
       - 'experiments/dual_nickel/measure_sidechain_audit.cpp'
+      - 'experiments/dual_nickel/report_sidechain_audit.py'
       - 'experiments/dual_nickel/tune_t4_recovery.cpp'
       - 'experiments/dual_nickel/tune_t4_attack.cpp'
       - 'experiments/dual_nickel/measure_t4_source_profiles.cpp'
@@ -37,6 +38,8 @@ jobs:
         run: set -o pipefail; ./build/nickel/nickel_sidechain_follower | tee buffered-sidechain-results.csv
       - name: Record non-gating knee and timing matrix at bass mids highs and varied threshold
         run: ./build/nickel/nickel_sidechain_audit | tee sidechain-knee-timing-matrix.csv
+      - name: Flag greater than 10 percent deviations and report optical onset without failing
+        run: python3 experiments/dual_nickel/report_sidechain_audit.py sidechain-knee-timing-matrix.csv | tee sidechain-audit-summary.txt
       - name: Publish measurements
         uses: actions/upload-artifact@v4
         if: always()
@@ -49,3 +52,5 @@ jobs:
             t4-bass-kick-guitar-proxies.csv
             buffered-sidechain-results.csv
             sidechain-knee-timing-matrix.csv
+            sidechain-audit-report.json
+            sidechain-audit-summary.txt
