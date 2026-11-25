@@ -93,3 +93,6 @@ target_compile_features(nickel_t4_recovery_tune PRIVATE cxx_std_20)
 
 add_executable(nickel_t4_attack_tune tune_t4_attack.cpp)
 target_compile_features(nickel_t4_attack_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_t4_source_profiles measure_t4_source_profiles.cpp)
+target_compile_features(nickel_t4_source_profiles PRIVATE cxx_std_20)
