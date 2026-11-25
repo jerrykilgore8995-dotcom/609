@@ -5,6 +5,7 @@ on:
     paths:
       - 'experiments/dual_nickel/measure_full_path_grid.cpp'
       - 'experiments/dual_nickel/NodalBjtOutput.hpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
       - '.github/workflows/nickel-full-path-grid.yml'
   workflow_dispatch:
 jobs:
