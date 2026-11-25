@@ -4,6 +4,7 @@ on:
     branches: [feature/dual-nickel-zener-prototype]
     paths:
       - 'experiments/dual_nickel/verify_vtl5c1_dynamics.cpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
       - '.github/workflows/vtl5c1-dynamics.yml'
   workflow_dispatch:
 jobs:
