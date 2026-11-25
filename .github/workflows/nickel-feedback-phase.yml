@@ -1,0 +1,21 @@
+name: Nickel Opto all-cell feedback phase diagnostic
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/measure_feedback_phase.cpp'
+      - '.github/workflows/nickel-feedback-phase.yml'
+  workflow_dispatch:
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -O2 experiments/dual_nickel/measure_feedback_phase.cpp -o phase-probe
+      - run: ./phase-probe > four-optocell-feedback-frequency.csv
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NickelOpto-feedback-vs-feedforward-frequency
+          path: four-optocell-feedback-frequency.csv
