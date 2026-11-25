@@ -37,7 +37,7 @@ public:
     void setFeedforward(bool b) noexcept {comp.setFeedforward(b);}
     void setLimiter(bool b) noexcept {comp.setLimiter(b);}
     void setOptoCell(int kind) noexcept {
-        comp.setCellKind(static_cast<optocircuit::CellKind>(std::clamp(kind,0,2)));
+        comp.setCellKind(static_cast<optocircuit::CellKind>(std::clamp(kind,0,3)));
     }
     void setScHpf(bool enable) noexcept {comp.setSidechainHpF(enable);}
     void setScHpfHz(double hz) noexcept {comp.setSidechainHz(hz);}
