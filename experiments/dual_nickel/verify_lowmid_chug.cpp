@@ -2,7 +2,6 @@
 // Verify transparent reconstruction, steady selective cut, attack/release,
 // threshold/range controls, sample-rate invariance and stereo linked GR.
 #include "DynamicLowMid.hpp"
-#include "AnalogOptoProcessor.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
