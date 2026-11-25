@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include "SidechainFollower.hpp"
 namespace optocircuit {
 // Three distinct optical assemblies: a calibrated NSL-32 reference,
 // a manufacturer-datasheet VTL5C2, and an EL-driven dual-CdS T4B-style unit.
@@ -386,13 +387,13 @@ private:
 class OpticalCompressor {
 public:
     void prepare(double hz,OptoParts part={}) noexcept {
-        p=part;fs=hz;detector.prepare(fs,p);leadDetector.prepare(fs,p);t4Sidechain.prepare(fs,p);cell.prepare(fs,p);reset();
+        p=part;fs=hz;detector.prepare(fs,p);leadDetector.prepare(fs,p);t4Sidechain.prepare(fs,p);sidechainFollower.prepare(fs);cell.prepare(fs,p);reset();
     }
-    void reset() noexcept {detector.reset();leadDetector.reset();t4Sidechain.reset();cell.reset();ledControl=lastOutput=0.;}
+    void reset() noexcept {detector.reset();leadDetector.reset();t4Sidechain.reset();sidechainFollower.reset();cell.reset();ledControl=lastOutput=0.;}
     void setAttackMs(double x) noexcept {detector.setAttackMs(x);leadDetector.setAttackMs(x);}
     void setReleaseMs(double x) noexcept {detector.setReleaseMs(x);leadDetector.setReleaseMs(x);}
-    void setSidechainHpF(bool x) noexcept {hpfEnabled=x;detector.setSidechainHpF(x);leadDetector.setSidechainHpF(x);}
-    void setSidechainHz(double x) noexcept {detector.setCornerHz(x);leadDetector.setCornerHz(x);t4Sidechain.setCornerHz(x);}
+    void setSidechainHpF(bool x) noexcept {hpfEnabled=x;sidechainFollower.setEnabled(x);detector.setSidechainHpF(false);leadDetector.setSidechainHpF(false);}
+    void setSidechainHz(double x) noexcept {sidechainFollower.setCutoffHz(x);}
     void setThresholdDb(double x) noexcept {threshold=std::clamp(x,-45.,18.);}
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
@@ -411,10 +412,13 @@ public:
     }
     void setCellKind(CellKind kind) noexcept {
         if(cell.selected()==kind)return;
-        cell.select(kind);detector.reset();leadDetector.reset();t4Sidechain.reset();ledControl=lastOutput=0.;
+        cell.select(kind);detector.reset();leadDetector.reset();t4Sidechain.reset();sidechainFollower.reset();ledControl=lastOutput=0.;
     }
     CellKind selectedCellKind() const noexcept {return cell.selected();}
     float process(float x,float sidechain) noexcept {
+        // A single physical 2N5088 buffered HPF sits BEFORE all detector
+        // branches, including the T4B AC panel driver and VTL high tap.
+        const double sidechainV=sidechainFollower.process(double(sidechain)*17.3677);
         if(cell.selected()==CellKind::T4B) {
             // A T4B is illuminated by an *AC*-excited EL panel, not by
             // rectified DC LED current. Feed the high-voltage driver with
@@ -424,9 +428,7 @@ public:
                  (limiter?1.:(1.+p.elCompDriveRf/p.elCompDriveRg))*
                  dB(-18.-threshold)*
                  (limiter?p.elLimitFeedbackR/p.elCompFeedbackR:1.);
-            const double side=hpfEnabled?t4Sidechain.process(
-                               double(sidechain)*17.3677):
-                               double(sidechain)*17.3677;
+            const double side=sidechainV;
             const double panelAc=side*gain;
             const double y=cell.processAtPanelVac(double(x)*17.3677,
                                                   panelAc);
@@ -444,7 +446,7 @@ public:
             // Real rectified diode branch from the attenuator input:
             // Vpre - Vbias = I*Rseries + nVt*ln(1+I/Is).
             // This feeds the detector summing node, NOT the audio signal.
-            const double pre=std::abs(double(x)*17.3677);
+            const double pre=std::abs(sidechainV);
             const double excess=pre-p.vtlHighTapBiasV;
             if(excess>0.) {
                 double lo=0.,hi=excess/p.vtlHighTapSeriesR;
@@ -457,11 +459,11 @@ public:
                 }
                 const double current=.5*(lo+hi);
                 diodeHighTapVolts=std::copysign(
-                    current*p.vtlHighTapSummingR,double(x));
+                    current*p.vtlHighTapSummingR,sidechainV);
             }
         }
         const double detected=detector.process(
-             (double(sidechain)*17.3677*detectorPad+
+             (sidechainV*detectorPad+
               diodeHighTapVolts)*detectorDrive*preampGain);
         const double thresholdV=.775*dB(threshold);
         // Two physical branches feed the LED-driver summing junction:
@@ -504,8 +506,8 @@ public:
             const bool vtl=cell.selected()==CellKind::VTL5C2;
             const double leadInputGain=1.+
                  (vtl?p.vtlLeadDetectorRf:p.nslLeadDetectorRf)/p.leadDetectorRg;
-            const double leadDetected=leadDetector.process(double(sidechain)*
-                        17.3677*detectorDrive*leadInputGain);
+            const double leadDetected=leadDetector.process(sidechainV*
+                        detectorDrive*leadInputGain);
             const double inputI=std::max(0.,leadDetected-thresholdV)/
                         p.leadDriverRin;
             const double leadRf=vtl?p.vtlLeadDriverRf:p.nslLeadDriverRf;
@@ -574,6 +576,7 @@ private:
     bool feedforward=false,hpfEnabled=false,limiter=false;
     OpticalDetector detector,leadDetector;
     HighPassCircuit t4Sidechain;
+    SidechainFollower sidechainFollower;
     LdrCell cell;
 };
 } // namespace optocircuit
