@@ -180,24 +180,15 @@ public:
         g.fillRoundedRectangle(0.f,0.f,float(width),float(height),3.f);
         g.setColour(metal);
         g.drawRoundedRectangle(1.f,1.f,float(width-2),float(height-2),3.f,1.5f);
-        if(box.getName()=="mode-toggle") {
-            const float cy=float(height)/2.f;
-            const bool limit=box.getSelectedId()==2;
-            g.setColour(juce::Colour(0xffc5c2b8));
-            g.fillEllipse(8.f,cy-7.f,14.f,14.f);
-            g.setColour(juce::Colour(0xff0d0d0e));
-            g.fillEllipse(12.f,cy-4.f,8.f,8.f);
-            g.setColour(juce::Colour(0xffdfd9c9));
-            const float y=limit?cy-7.f:cy+6.f;
-            g.drawLine(16.f,cy,24.f,y,3.1f);
-        } else {
-            juce::Path arrow;
-            const float x=float(width)-16.f,y=float(height)*.5f;
-            arrow.startNewSubPath(x-4.f,y-2.f);
-            arrow.lineTo(x,y+2.f);arrow.lineTo(x+4.f,y-2.f);
-            g.setColour(juce::Colour(0xffe0dacb));
-            g.strokePath(arrow,juce::PathStrokeType(1.6f));
-        }
+        // Use the same right-side drop-down indicator for mode and cell.
+        // The former left-side toggle illustration collided with JUCE's
+        // ComboBox text, obscuring the COMPRESS selection.
+        juce::Path arrow;
+        const float x=float(width)-16.f,y=float(height)*.5f;
+        arrow.startNewSubPath(x-4.f,y-2.f);
+        arrow.lineTo(x,y+2.f);arrow.lineTo(x+4.f,y-2.f);
+        g.setColour(juce::Colour(0xffe0dacb));
+        g.strokePath(arrow,juce::PathStrokeType(1.6f));
     }
     void drawRotarySlider(juce::Graphics& g,int x,int y,int width,int height,
                           float sliderPos,float start,float end,
@@ -335,7 +326,6 @@ public:
         cellModel.setLookAndFeel(&knobLook);
         cellModel.setColour(juce::ComboBox::textColourId,juce::Colour(0xfff3eee2));
         cellAttach=std::make_unique<ComboAttachment>(p.state,"cell",cellModel);
-        mode.setName("mode-toggle");
         mode.addItem("COMPRESS",1);
         mode.addItem("LIMIT",2);
         addAndMakeVisible(mode);
