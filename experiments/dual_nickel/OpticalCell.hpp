@@ -12,7 +12,7 @@
 namespace optocircuit {
 // Three distinct optical assemblies: a calibrated NSL-32 reference,
 // a manufacturer-datasheet VTL5C2, and an EL-driven dual-CdS T4B-style unit.
-enum class CellKind : int { NSL32=0, VTL5C2=1, T4B=2 };
+enum class CellKind : int { NSL32=0, VTL5C2=1, T4B=2, VTL5C1=3 };
 constexpr double pi=3.1415926535897932384626433832795;
 inline double dB(double x) noexcept { return std::pow(10.0,x/20.0); }
 inline double toDb(double x) noexcept {return 20.0*std::log10(std::max(x,1.e-16));}
@@ -155,7 +155,8 @@ public:
     }
     CellKind selected() const noexcept {return cellKind;}
     double darkResistance() const noexcept {
-        return cellKind==CellKind::VTL5C2?1000000.:
+        return cellKind==CellKind::VTL5C1?50000000.:
+               cellKind==CellKind::VTL5C2?1000000.:
                cellKind==CellKind::T4B?10000000.:p.cellDark;
     }
     static double logInterpolate(double x,double x1,double y1,
@@ -165,6 +166,20 @@ public:
         return std::exp(std::log(y1)+f*(std::log(y2)-std::log(y1)));
     }
     double physicalConductance(double milliamps) const noexcept {
+        if(cellKind==CellKind::VTL5C1) {
+            // Excelitas/PerkinElmer VTL5C1 25 C typical steady-state
+            // 1 mA -> 20k, 10 mA -> 600, 40 mA -> 200 ohms.
+            // Separate type-1 CdS material and 50 Mohm dark state.
+            if(milliamps<=0.) return 1./darkResistance();
+            double r=0.;
+            if(milliamps<1.)
+                r=20000.*std::pow(1./milliamps,
+                                  std::log(20000./600.)/std::log(10.));
+            else if(milliamps<=10.)
+                r=logInterpolate(milliamps,1.,20000.,10.,600.);
+            else r=logInterpolate(std::min(40.,milliamps),10.,600.,40.,200.);
+            return 1./std::min(darkResistance(),r);
+        }
         if(cellKind==CellKind::VTL5C2) {
             // Published VTL5C2 light-adapted ON resistances, per datasheet.
             // 1mA: 5.5k, 10mA: 800, 40mA: 200. Between points: log-log
@@ -214,7 +229,8 @@ public:
     double ledForwardVoltage(double current) const noexcept {
         // Excelitas VTL5C2 typical forward drop ~1.65V at 20mA.
         // Select its own diode saturation current, leaving NSL-32 unchanged.
-        const double is=cellKind==CellKind::VTL5C2?2.8e-16:p.ledIs;
+        const double is=(cellKind==CellKind::VTL5C2 ||
+                         cellKind==CellKind::VTL5C1)?2.8e-16:p.ledIs;
         return std::max(.01,p.ledN*p.thermalV)*
                std::log1p(std::max(0.,current)/is);
     }
@@ -224,7 +240,7 @@ public:
         const double bjtVt=std::max(.01,p.ledLimiterN*p.thermalV);
         const double reference=p.ledLimiterRail*p.ledLimiterBottomOhms/
             std::max(1.,(limiter?p.limitClampTopR:p.compClampTopR)+p.ledLimiterBottomOhms);
-        double lo=0.,hi=cellKind==CellKind::VTL5C2?.040:p.maxLedA;
+        double lo=0.,hi=(cellKind==CellKind::VTL5C2 || cellKind==CellKind::VTL5C1)?.040:p.maxLedA;
         for(int i=0;i<24;++i) {
             const double current=.5*(lo+hi);
             const double ledNode=ledForwardVoltage(current)
@@ -248,12 +264,13 @@ public:
     // intentionally current-limited LED driver.
     double processAtLedCurrent(double audioVolts,double ledAmps) noexcept {
         const double current=std::clamp(ledAmps,0.,
-            cellKind==CellKind::VTL5C2?.040:p.maxLedA);
+            (cellKind==CellKind::VTL5C2 || cellKind==CellKind::VTL5C1)?.040:p.maxLedA);
         lastLedCurrent=current;
         if(cellKind==CellKind::T4B)
             return processAtPanelVac(audioVolts,0.);
         const double darkG=1./darkResistance();
-        const double normalized=cellKind==CellKind::VTL5C2?
+        const double normalized=(cellKind==CellKind::VTL5C2 ||
+                                 cellKind==CellKind::VTL5C1)?
             std::max(0.,physicalConductance(current*1000.)-darkG)/
             std::max(1e-12,physicalConductance(20.)-darkG):
             current/p.ledReferenceA;
@@ -272,14 +289,18 @@ public:
         // without slowing initial conduction or faking an output envelope.
         const double dt=1./fs;
         const double rise=isPanel?p.t4CdSAttackSeconds:
+                         cellKind==CellKind::VTL5C1?.0025:
                          cellKind==CellKind::VTL5C2?.0035:p.attackCellSeconds;
         const double fastDecay=isPanel?p.t4CdSFastRecoverySeconds:
+                               cellKind==CellKind::VTL5C1?.0050:
                                cellKind==CellKind::VTL5C2?.065:
                                                      p.fastDarkRecoverySeconds;
         const double trapRise=isPanel?p.t4CdSTrapChargeSeconds:
+                              cellKind==CellKind::VTL5C1?.12:
                               cellKind==CellKind::VTL5C2?.45:
                                                     p.trapChargeSeconds;
         const double trapDecay=isPanel?p.t4CdSTrapRecoverySeconds:
+                               cellKind==CellKind::VTL5C1?.20:
                                cellKind==CellKind::VTL5C2?1.0:
                                                     p.trapRecoverySeconds;
         const double tFast=lightTarget>lightFast?rise:fastDecay;
@@ -287,12 +308,13 @@ public:
         lightFast+=tauRC(tFast,dt)*(lightTarget-lightFast);
         lightSlow+=tauRC(tTrap,dt)*(lightTarget-lightSlow);
         const double w=isPanel?p.t4CdSTrapConductanceFraction:
+             cellKind==CellKind::VTL5C1?.0001:
              cellKind==CellKind::VTL5C2?.002:
              std::clamp(p.trapConductanceFraction,0.,.1);
         illumination=std::max(0.,(1.-w)*lightFast+w*lightSlow);
         const double gdark=1./darkResistance();
         const double gfull=isPanel?1./750.:
-                           cellKind==CellKind::VTL5C2?
+                           (cellKind==CellKind::VTL5C2 || cellKind==CellKind::VTL5C1)?
                            physicalConductance(20.):1./p.rAt20mA;
         const double conductance=gdark+(gfull-gdark)*illumination;
         lastResistance=1./std::max(gdark,conductance);
@@ -303,7 +325,8 @@ public:
         // VTL5C2 manufacturer specifies about 5 pF output-cell
         // capacitance. Stamp its finite dynamic admittance alongside
         // the LDR shunt, rather than adding a post-audio filter.
-        const double cellCap=cellKind==CellKind::VTL5C2?5.e-12:0.;
+        const double cellCap=(cellKind==CellKind::VTL5C2 ||
+                              cellKind==CellKind::VTL5C1)?5.e-12:0.;
         const double capG=cellCap*fs;
         const double v=(audioVolts*sourceG+capG*panelAudioV)/
                        (sourceG+loadG+1./lastResistance+capG);
@@ -390,8 +413,23 @@ public:
         p=part;fs=hz;detector.prepare(fs,p);leadDetector.prepare(fs,p);t4Sidechain.prepare(fs,p);sidechainFollower.prepare(fs);cell.prepare(fs,p);reset();
     }
     void reset() noexcept {detector.reset();leadDetector.reset();t4Sidechain.reset();sidechainFollower.reset();cell.reset();ledControl=lastOutput=0.;}
-    void setAttackMs(double x) noexcept {detector.setAttackMs(x);leadDetector.setAttackMs(x);}
-    void setReleaseMs(double x) noexcept {detector.setReleaseMs(x);leadDetector.setReleaseMs(x);}
+    // Only the fast VTL5C1 cartridge exposes adjustable detector RC.
+    // Other cartridges retain the stock 15/250 ms RC; their optical
+    // carrier/trap/EL states remain their intrinsic dynamics.
+    void setAttackMs(double x) noexcept {
+        requestedAttackMs=std::clamp(x,10.,100.);configureDetectorTiming();
+    }
+    void setReleaseMs(double x) noexcept {
+        requestedReleaseMs=std::clamp(x,50.,2000.);configureDetectorTiming();
+    }
+    bool variableTimingEnabled() const noexcept {return cell.selected()==CellKind::VTL5C1;}
+    void configureDetectorTiming() noexcept {
+        const bool variable=variableTimingEnabled();
+        detector.setAttackMs(variable?requestedAttackMs:15.);
+        leadDetector.setAttackMs(variable?requestedAttackMs:15.);
+        detector.setReleaseMs(variable?requestedReleaseMs:250.);
+        leadDetector.setReleaseMs(variable?requestedReleaseMs:250.);
+    }
     void setSidechainHpF(bool x) noexcept {hpfEnabled=x;sidechainFollower.setEnabled(x);detector.setSidechainHpF(false);leadDetector.setSidechainHpF(false);}
     void setSidechainHz(double x) noexcept {sidechainFollower.setCutoffHz(x);}
     void setThresholdDb(double x) noexcept {threshold=std::clamp(x,-45.,18.);}
@@ -412,7 +450,7 @@ public:
     }
     void setCellKind(CellKind kind) noexcept {
         if(cell.selected()==kind)return;
-        cell.select(kind);detector.reset();leadDetector.reset();t4Sidechain.reset();sidechainFollower.reset();ledControl=lastOutput=0.;
+        cell.select(kind);detector.reset();leadDetector.reset();t4Sidechain.reset();sidechainFollower.reset();ledControl=lastOutput=0.;configureDetectorTiming();
     }
     CellKind selectedCellKind() const noexcept {return cell.selected();}
     float process(float x,float sidechain) noexcept {
@@ -573,6 +611,7 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,threshold=-18.,detectorDrive=1.,ledControl=0.,lastOutput=0.;
+    double requestedAttackMs=15.,requestedReleaseMs=250.;
     bool feedforward=false,hpfEnabled=false,limiter=false;
     OpticalDetector detector,leadDetector;
     HighPassCircuit t4Sidechain;
