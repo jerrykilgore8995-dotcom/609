@@ -43,7 +43,7 @@ public:
     void reset() noexcept {
         lpLo.reset();hpLo.reset();lpHi.reset();hpHi.reset();
         lpAlign.reset();hpAlign.reset();
-        detectorLo.reset();detectorHi.reset(); rms=0.;gain=1.;gr=0.;
+        detectorLo.reset();detectorHi.reset(); rms=activityPower=0.;gain=1.;gr=0.;
     }
     void setEnabled(bool b) noexcept {enabled=b;}
     void setCenterHz(double hz) noexcept {
@@ -82,12 +82,18 @@ public:
         // cascaded TWO release envelopes and used a logarithmic power
         // threshold, causing ~5x longer 50%-GR recovery than the label.
         //
-        // The detector retains the attack smoothing for low-frequency
-        // waveform immunity, but discharges promptly on falling energy.
-        // Gain reduction itself receives the user release time constant.
-        // This is a C4-inspired manual mode, NOT proprietary Waves ARC.
+        // Retain the original asymmetric peak/RMS detector while a low-mid
+        // signal is present: its slow discharge is essential to the original
+        // -25dB threshold / 170Hz guitar activation.  A SHORT independent
+        // 3ms activity sensor notices an actual reduction in program energy.
+        // Only then does the detector discharge promptly and let the gain
+        // envelope perform a predictable manual-style release. This is
+        // C4-inspired, not Waves ARC or a proprietary Waves algorithm.
+        const double activityCoeff=1.-std::exp(-1./(fs*.003));
+        activityPower+=activityCoeff*(power-activityPower);
+        const bool programDropped=activityPower < rms*.10;
         const double detectorTau=power>rms?attack:
-                                  std::min(.005,release*.05);
+                                  programDropped?.0015:release;
         rms+=(power-rms)*(1-std::exp(-1./(fs*std::max(1e-5,detectorTau))));
         const double lev=10*std::log10(std::max(1e-15,rms));
         const double over=std::max(0.,lev-threshold);
@@ -98,13 +104,11 @@ public:
         // linear gain would make the nominal time level-dependent.
         const double current=-20.*std::log10(std::max(1e-12,gain));
         const bool recovering=reduction<current;
-        // Account for the brief RMS-detector discharge that occurs before
-        // the gain envelope can begin its measured half-recovery. This is a
-        // calibration of the control's *measured* 50%-GR timing, not ARC.
-        // The detector delay saturates near 20ms for long releases and is
-        // smaller at the 20ms setting.
+        // Calibrate the fixed short activity-detection/discharge delay,
+        // rather than shortening the normal detector's hold on sustained
+        // guitar notes.
         const double manualHalfLife=std::max(.001,
-            release-std::min(.020,release*.45));
+            release-std::min(.010,release*.30));
         const double tau=recovering?manualHalfLife/std::log(2.):attack;
         const double coeff=1.-std::exp(-1./(fs*std::max(1e-5,tau)));
         gr=std::max(0.,current+coeff*(reduction-current));
@@ -122,7 +126,7 @@ private:
     }
     double fs=44100.,center=170.,width=1.3,lo=108.,hi=267.,
            threshold=-22.,ratio=4.,maxCut=4.,attack=.01,release=.15,
-           rms=0.,gain=1.,gr=0.;
+           rms=0.,activityPower=0.,gain=1.,gr=0.;
     bool enabled=false;
     LR4 lpLo,hpLo,lpHi,hpHi,lpAlign,hpAlign,detectorLo,detectorHi;
 };
