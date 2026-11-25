@@ -53,6 +53,7 @@ public:
     double ledCompPreFraction() const noexcept {return comp.ledCompPreFraction();}
     double lowMidGr() const noexcept {return low.reductionDb();}
     double photocellResistance() const noexcept {return comp.ldrOhms();}
+    int outputSolverFailures() const noexcept {return output.failureCount();}
     float lastOpticalOutput() const noexcept {return comp.lastAttenuatorOutput();}
     double outputLoad() const noexcept {return output.outputLoadOhms();}
     float processMagnetic(float input) noexcept {
