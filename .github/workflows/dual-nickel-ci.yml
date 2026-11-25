@@ -31,7 +31,8 @@ jobs:
       - name: Measure full nickel transformer output compression at 1kHz with INPUT 0dB
         run: ./build/nickel/nickel_full_line_level | tee nickel-full-path-line-level.csv
       - name: Measure optical cells with short and long 1kHz bursts
-        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv\n      - name: Run full physics and signal-path tests
+        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv
+      - name: Run full physics and signal-path tests
         run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization|opto_memory_calibration|opto_cell_variants'
       - name: Output MNA convergence and CPU results
         run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
