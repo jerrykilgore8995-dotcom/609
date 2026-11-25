@@ -108,3 +108,7 @@ target_compile_features(nickel_led_datasheet PRIVATE cxx_std_20)
 
 add_executable(nickel_opto_knee_fine measure_opto_knee_fine.cpp)
 target_compile_features(nickel_opto_knee_fine PRIVATE cxx_std_20)
+
+# Four-cartridge characterization, including isolated photocell harmonics.
+add_executable(nickel_opto_all_cells measure_all_opto_cells.cpp)
+target_compile_features(nickel_opto_all_cells PRIVATE cxx_std_20)
