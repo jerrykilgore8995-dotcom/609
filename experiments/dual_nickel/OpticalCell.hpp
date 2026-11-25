@@ -59,6 +59,13 @@ struct OptoParts {
     // These resistors are relay-selected with the optocell; no audio gain scaling.
     double detectorPreampRg=10000.;
     double nslCompPreampRf=0.,vtlCompPreampRf=0.;
+    // Dedicated VTL5C1 switch deck: no alteration to the other cells.
+    double vtl1CompPreampRf=0.;
+    double vtl1CompFeedbackR=5000.,vtl1CompKneeSeriesR=68000.;
+    double vtl1CompInputTapR=100000.,vtl1CompFeedbackTapR=25000.;
+    double vtl1LeadDetectorRf=50000.,vtl1LeadDriverRf=4000.;
+    double vtl1LeadClampBiasV=.8,vtl1CompClampTopR=68000.;
+    double vtl1KneeBiasV=0.;
     // Compressor's separate gentle LED-drive branch: buffered rectifier,
     // resistor-summed into driver, diode-shunted for a soft voltage knee.
     // Each cell relay selects its own detector input feedback resistor.
@@ -243,8 +250,10 @@ public:
         const double voltage=std::clamp(control,0.,p.ledSupply);
         if(voltage<=0.)return 0.;
         const double bjtVt=std::max(.01,p.ledLimiterN*p.thermalV);
+        const double top=limiter?p.limitClampTopR:
+             cellKind==CellKind::VTL5C1?p.vtl1CompClampTopR:p.compClampTopR;
         const double reference=p.ledLimiterRail*p.ledLimiterBottomOhms/
-            std::max(1.,(limiter?p.limitClampTopR:p.compClampTopR)+p.ledLimiterBottomOhms);
+            std::max(1.,top+p.ledLimiterBottomOhms);
         double lo=0.,hi=(cellKind==CellKind::VTL5C2 || cellKind==CellKind::VTL5C1)?.040:p.maxLedA;
         for(int i=0;i<24;++i) {
             const double current=.5*(lo+hi);
@@ -454,9 +463,11 @@ public:
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
     void setLimiter(bool enabled) noexcept {limiter=enabled;cell.setLimiter(enabled);}
     double ledCompPreFraction() const noexcept {
-        const bool vtl=cell.selected()==CellKind::VTL5C2;
-        const double in=vtl?p.vtlCompInputTapR:p.ledCompInputTapR;
-        const double feed=vtl?p.vtlCompFeedbackTapR:p.ledCompFeedbackTapR;
+        const CellKind kind=cell.selected();
+        const double in=kind==CellKind::VTL5C1?p.vtl1CompInputTapR:
+                        kind==CellKind::VTL5C2?p.vtlCompInputTapR:p.ledCompInputTapR;
+        const double feed=kind==CellKind::VTL5C1?p.vtl1CompFeedbackTapR:
+                          kind==CellKind::VTL5C2?p.vtlCompFeedbackTapR:p.ledCompFeedbackTapR;
         return feed/(in+feed);
     }
     double detectorPreFraction() const noexcept {
@@ -494,8 +505,9 @@ public:
             p.feedForwardShuntR/(p.feedForwardSeriesR+
                                 p.feedForwardShuntR):1.0;
         const double preampGain=limiter?1.:(1.+
-                  (cell.selected()==CellKind::VTL5C2?
-                   p.vtlCompPreampRf:p.nslCompPreampRf)/p.detectorPreampRg);
+                  (cell.selected()==CellKind::VTL5C1?p.vtl1CompPreampRf:
+                   cell.selected()==CellKind::VTL5C2?p.vtlCompPreampRf:
+                   p.nslCompPreampRf)/p.detectorPreampRg);
         double diodeHighTapVolts=0.;
         if(!limiter && !feedforward && cell.selected()==CellKind::VTL5C2) {
             // Real rectified diode branch from the attenuator input:
@@ -528,13 +540,16 @@ public:
         const double overdrive=detected-thresholdV;
         const double feedbackR=feedforward?p.feedForwardDriverFeedbackR:
                                (limiter?p.ledLimitFeedbackR:
+                                cell.selected()==CellKind::VTL5C1?p.vtl1CompFeedbackR:
                                 cell.selected()==CellKind::VTL5C2?
                                 p.vtlCompFeedbackR:p.ledCompFeedbackR);
         const double kneeR=limiter?p.limitKneeSeriesR:
+                           cell.selected()==CellKind::VTL5C1?p.vtl1CompKneeSeriesR:
                            cell.selected()==CellKind::VTL5C2?
                            p.vtlCompKneeSeriesR:p.compKneeSeriesR;
         double diodeCurrent=0.;
-        const double kneeOverdrive=overdrive-(limiter?0.:p.compKneeBiasV);
+        const double kneeOverdrive=overdrive-(limiter?0.:
+             cell.selected()==CellKind::VTL5C1?p.vtl1KneeBiasV:p.compKneeBiasV);
         if(kneeOverdrive>0.) {
             // Biased diode branch. Shockley KCL:
             // Vover-bias=I*R+n*Vt*ln(1+I/Is).
@@ -558,15 +573,20 @@ public:
         if(!limiter && !feedforward) {
             // Separate buffer + rectifier is only active for selected LED
             // compressor, never for T4B or limiter mode.
-            const bool vtl=cell.selected()==CellKind::VTL5C2;
+            const CellKind kind=cell.selected();
             const double leadInputGain=1.+
-                 (vtl?p.vtlLeadDetectorRf:p.nslLeadDetectorRf)/p.leadDetectorRg;
+                 (kind==CellKind::VTL5C1?p.vtl1LeadDetectorRf:
+                  kind==CellKind::VTL5C2?p.vtlLeadDetectorRf:
+                  p.nslLeadDetectorRf)/p.leadDetectorRg;
             const double leadDetected=leadDetector.process(sidechainV*
                         detectorDrive*leadInputGain);
             const double inputI=std::max(0.,leadDetected-thresholdV)/
                         p.leadDriverRin;
-            const double leadRf=vtl?p.vtlLeadDriverRf:p.nslLeadDriverRf;
-            const double reference=vtl?p.vtlLeadClampBiasV:p.nslLeadClampBiasV;
+            const double leadRf=kind==CellKind::VTL5C1?p.vtl1LeadDriverRf:
+                                kind==CellKind::VTL5C2?p.vtlLeadDriverRf:p.nslLeadDriverRf;
+            const double reference=kind==CellKind::VTL5C1?p.vtl1LeadClampBiasV:
+                                   kind==CellKind::VTL5C2?p.vtlLeadClampBiasV:
+                                   p.nslLeadClampBiasV;
             const double vt=std::max(.01,p.leadClampDiodeN*p.thermalV);
             double lo=0.,hi=inputI*leadRf;
             for(int k=0;k<12;++k) {
