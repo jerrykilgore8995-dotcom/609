@@ -41,9 +41,32 @@ static bool capture(const juce::String& filename, int mode) {
     stream.flush();
     return out.existsAsFile();
 }
+// Capture the same OptionsPopup component launched by the ADVANCED button.
+static bool captureAdvancedPopup() {
+    auto processor=std::unique_ptr<juce::AudioProcessor>(createPluginFilter());
+    auto* nickel=dynamic_cast<NickelOptoProcessor*>(processor.get());
+    if(nickel==nullptr)return false;
+    OptionsPopup popup(*nickel);
+    popup.setVisible(true);
+    popup.resized();
+    juce::Image snapshot(juce::Image::ARGB,popup.getWidth(),popup.getHeight(),true);
+    {
+        juce::Graphics g(snapshot);
+        paintCompiledComponentTree(popup,g);
+    }
+    auto out=juce::File::getCurrentWorkingDirectory().getChildFile(
+        "NickelOpto-Actual-GUI-Advanced.png");
+    juce::FileOutputStream stream(out);
+    if(!stream.openedOk())return false;
+    juce::PNGImageFormat png;
+    if(!png.writeImageToStream(snapshot,stream))return false;
+    stream.flush();
+    return out.existsAsFile();
+}
 int main() {
     juce::ScopedJuceInitialiser_GUI initialise;
     if(!capture("NickelOpto-Actual-GUI-NSL32.png",0))return 2;
     if(!capture("NickelOpto-Actual-GUI-VTL5C1.png",3))return 3;
+    if(!captureAdvancedPopup())return 4;
     return 0;
 }
