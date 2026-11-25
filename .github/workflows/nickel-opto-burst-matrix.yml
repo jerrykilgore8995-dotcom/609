@@ -8,6 +8,7 @@ on:
       - 'experiments/dual_nickel/SidechainFollower.hpp'
       - 'experiments/dual_nickel/test_sidechain_follower.cpp'
       - 'experiments/dual_nickel/measure_sidechain_audit.cpp'
+      - 'experiments/dual_nickel/measure_led_datasheet.cpp'
       - 'experiments/dual_nickel/report_sidechain_audit.py'
       - 'experiments/dual_nickel/tune_t4_recovery.cpp'
       - 'experiments/dual_nickel/tune_t4_attack.cpp'
@@ -23,7 +24,7 @@ jobs:
       - name: Configure optical cell measurement
         run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
       - name: Build only dedicated 1kHz optocell burst executable
-        run: cmake --build build/nickel --target nickel_sidechain_audit nickel_sidechain_follower nickel_t4_source_profiles nickel_opto_burst_matrix nickel_t4_recovery_tune nickel_t4_attack_tune nickel_opto_character nickel_opto_bursts nickel_opto_memory nickel_opto_variants --parallel 2
+        run: cmake --build build/nickel --target nickel_led_datasheet nickel_sidechain_audit nickel_sidechain_follower nickel_t4_source_profiles nickel_opto_burst_matrix nickel_t4_recovery_tune nickel_t4_attack_tune nickel_opto_character nickel_opto_bursts nickel_opto_memory nickel_opto_variants --parallel 2
       - name: Measure short and long attack and six-second recovery
         run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv
       - name: Measure T4B fast and trap recovery resistor-coupled CdS dynamics
@@ -40,6 +41,8 @@ jobs:
         run: ./build/nickel/nickel_sidechain_audit | tee sidechain-knee-timing-matrix.csv
       - name: Flag greater than 10 percent deviations and report optical onset without failing
         run: python3 experiments/dual_nickel/report_sidechain_audit.py sidechain-knee-timing-matrix.csv | tee sidechain-audit-summary.txt
+      - name: Check physical NSL-32 VTL5C2 LED rise and 10-second dark recovery against datasheet
+        run: ./build/nickel/nickel_led_datasheet | tee optical-datasheet-timing.csv
       - name: Publish measurements
         uses: actions/upload-artifact@v4
         if: always()
@@ -54,3 +57,4 @@ jobs:
             sidechain-knee-timing-matrix.csv
             sidechain-audit-report.json
             sidechain-audit-summary.txt
+            optical-datasheet-timing.csv
