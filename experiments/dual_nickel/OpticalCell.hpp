@@ -59,11 +59,11 @@ inline double seriesDiode(double voltage, double resistance, double saturation,
 }
 struct OptoParts {
     double rSeries=10000.0, rReceive=47000.0, cellDark=1e6;
-    // Provisional even-symmetric voltage-dependent conductance. Odd I(V)
-    // at zero DC bias; DC across a nonlinear CdS cell permits even orders.
-    // No synthetic K2 generator or imaginary fixed DC bias is introduced.
-    // Coefficient remains a conservative placeholder pending cell sweeps.
+    // Symmetric voltage dependence of the CdS film.
     double cellNonlinearityAt10V=0.002;
+    // Mk II mismatch between the two contact polarities in the illuminated
+    // current path. Provisional common values pending cell-by-cell I-V data.
+    double cellContactAsymmetry=.00043, cellContactKneeVolts=.35;
     double rAt20mA=500.0, ledReferenceA=0.020, maxLedA=.025;
     double ledIs=2.0e-18, ledN=2., thermalV=.02585;
     double ledSeriesOhms=220., ledSupply=12.;
@@ -466,16 +466,25 @@ public:
         const double rhs=audioVolts*sourceG+capG*panelAudioV;
         const double gCell=1./lastResistance;
         const double linear=sourceG+loadG+gCell+capG;
-        // Photoconductor I(V)=G*V*(1+a*(V/10)^2).  Solve KCL at the
-        // shunt junction; no output waveshaper.  An unbiased symmetric cell
-        // contributes odd orders only, while DC bias shifts this curve and
-        // permits second-order products.  Existing node capacitance stays.
-        const double cubic=gCell*p.cellNonlinearityAt10V/100.;
-        double v=rhs/linear;
-        for(int iteration=0;iteration<3;++iteration) {
-            const double f=linear*v+cubic*v*v*v-rhs;
-            const double slope=linear+3.*cubic*v*v;
-            v-=f/std::max(1e-12,slope);
+        // Photoconductor KCL: symmetric film current and a bounded
+        // polarity mismatch around zero voltage. The mismatch scales with
+        // photocurrent and vanishes in the dark. See PerkinElmer Fig. 3.
+        const double cubic = gCell * p.cellNonlinearityAt10V / 100.;
+        const double contact = mkII ? (conductance - gdark) * p.cellContactAsymmetry : 0.;
+        const double kneeSquared = p.cellContactKneeVolts * p.cellContactKneeVolts;
+        double v = rhs / linear;
+        for (int iteration = 0; iteration < 3; ++iteration) {
+            const double squared = v * v;
+            double current = cubic * squared * v;
+            double slope = linear + 3. * cubic * squared;
+            if (contact != 0.) {
+                const double scale = squared + kneeSquared;
+                const double contactG = contact / std::sqrt(scale);
+                current += contactG * squared;
+                slope += contactG * v * (1. + kneeSquared / scale);
+            }
+            const double error = linear * v + current - rhs;
+            v -= error / std::max(1e-12, slope);
         }
         panelAudioV=v;
         const double clean=sourceG/(sourceG+loadG+gdark);

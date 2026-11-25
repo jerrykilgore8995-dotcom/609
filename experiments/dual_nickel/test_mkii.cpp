@@ -200,6 +200,58 @@ void checkReceiverHeadroom() {
     std::cout << "100 Hz full-scale, K28 normalized: " << k28 << " dBFS\n";
 }
 
+void checkIsolatedPhotocellHarmonics() {
+    constexpr int samples = 4410; // 100 cycles of the 1 kHz test tone.
+    for (int kind = 0; kind < 4; ++kind) {
+        const auto measure = [kind](double polarity, double reductionDb) {
+            optocircuit::OptoParts parts;
+            parts.cellContactAsymmetry *= polarity;
+            optocircuit::LdrCell cell;
+            cell.prepare(sampleRate, parts, true);
+            const auto cellKind = static_cast<optocircuit::CellKind>(kind);
+            cell.select(cellKind);
+            const bool panel = cellKind == optocircuit::CellKind::T4B;
+            const double dark = 1. / cell.darkResistance();
+            const double full = panel ? 1. / 750. : cell.physicalConductance(20.);
+            const double conductance = 1. / parts.rSeries + 1. / parts.rReceive + dark;
+            const double light = conductance * (nickel::dbGain(reductionDb) - 1.) / (full - dark);
+            for (int i = 0; i < int(3 * sampleRate); ++i)
+                cell.processIllumination(0., light, 0., panel);
+            std::array<double, 5> cosine{}, sine{};
+            for (int i = -441; i < samples; ++i) {
+                const double phase = 2. * std::numbers::pi * 1000. * i / sampleRate;
+                const double y = cell.processIllumination(
+                    nickel::fullScalePeakVolts * nickel::dbGain(-18.) * std::sin(phase),
+                    light, 0., panel);
+                if (i < 0) continue;
+                for (const int k : {1, 2, 4}) {
+                    cosine[k] += y * std::cos(k * phase);
+                    sine[k] += y * std::sin(k * phase);
+                }
+            }
+            const double fundamental = std::hypot(cosine[1], sine[1]);
+            return std::array{cosine[2] / fundamental,
+                std::hypot(cosine[2], sine[2]) / fundamental,
+                std::hypot(cosine[4], sine[4]) / fundamental};
+        };
+        const auto positive = measure(1., 6.);
+        const auto negative = measure(-1., 6.);
+        const auto symmetric = measure(0., 6.);
+        const auto dark = measure(1., 0.);
+        const auto normalized = [](double amplitude) { return 20. * std::log10(amplitude) - 18.; };
+        check(normalized(positive[1]) > -100. && normalized(positive[1]) < -95.,
+              "Illuminated photocell should generate small but measurable K2");
+        check(symmetric[1] < 1.e-6 && dark[1] < 1.e-8,
+              "Photocell K2 should fall to the baseline with no asymmetry or light");
+        check(positive[0] * negative[0] < 0.
+              && std::abs(positive[0] + negative[0]) < positive[1] * .05,
+              "Reversing contact polarity should reverse K2 phase");
+        check(positive[2] > symmetric[2] * 10., "Photocell crossover should produce K4");
+        std::cout << names[kind] << " fixed light at 6 dB GR, normalized K2/K4 "
+                  << normalized(positive[1]) << '/' << normalized(positive[2]) << " dBFS\n";
+    }
+}
+
 void checkDigitalOutput() {
     analogopto::MonoEngine engine;
     engine.prepare(sampleRate * oversamplingFactor, true);
@@ -244,6 +296,7 @@ int main() {
         checkT4Sensitivity();
         checkReceiver();
         checkReceiverHeadroom();
+        checkIsolatedPhotocellHarmonics();
         checkDigitalOutput();
         reportTiming();
         std::cout << "NICKEL_OPTO_MKII=PASS\n";

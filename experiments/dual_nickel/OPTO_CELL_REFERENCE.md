@@ -22,30 +22,25 @@ select fixed 15ms/250ms detector resistors; actual optical GR onset
 and recovery remain program- and cell-dependent. T4B is a separate
 AC EL panel with its own dynamics.
 
-## Cell-origin distortion and even-order harmonic caveat
+## Photocell harmonic distortion
 
-The PerkinElmer photocell catalog states that photocell voltage
-dependence produces distortion, and with simultaneous DC and AC cell
-voltage both odd and even harmonics can appear:
-https://www.alldatasheet.com/html-pdf/84387/PERKINELMER/VTL5C1/25005/41/VTL5C1.html
+PerkinElmer's Figure 3 describes a residual second harmonic and suggests
+a possible crossover effect near the origin of the photocell I–V curve.
+Higher AC voltage can produce primarily odd orders. DC bias can increase
+even-order distortion. [PerkinElmer optical catalog, pp. 35–36](https://ka-electronics.com/images/pdf/Perkin_Elmer_Photocell_Vactrol_Catalog.pdf)
 
-The signal-path LDR is nominally unbiased in Nickel Opto. It is
-incorrect to claim a large inherent K2 with no voltage asymmetry or
-DC bias measured across that cell. The modeled shunt conduction is
-I = G(light)*V*(1+a*(V/10)^2), solved in node KCL, with provisional
-a=0.002. This is an **unvalidated low-level placeholder** that makes
-the photocell non-ohmic while preserving zero-bias inversion symmetry.
-It creates K3 at zero bias; K2 can occur when DC is present across
-that same nonlinear material. We do NOT add an unphysical DC voltage
-or a fixed K2 synthesizer. Exact harmonic strengths of NSL-32,
-VTL5C1, VTL5C2 and T4B require measured cell voltage-vs-current and
-bias curves; this model is not yet a calibrated match.
+The current Mk II shunt solve includes a symmetric film term plus a small
+polarity-dependent photocurrent. At low voltage the contact term varies
+quadratically with voltage and at higher voltage the polarity mismatch
+approaches a bounded fraction of the photocurrent. At zero light the
+contact term vanishes. The provisional asymmetry and crossover voltage
+are shared across the four cartridges. They need separate fixed-light
+bipolar I–V measurements for individual calibration.
 
-The `measure_all_opto_cells.cpp` bench reports device resistance,
-compression knee and local ratios, 63% optical GR attack, 50% and
-10% optical GR recovery, and K2-K10 with zero and 2V DC bias. For
-T4B, this harmonic bench includes EL modulation and should not be
-misread as a measurement of intrinsic dark CdS only.
+The Mk II regression measures K2 and K4 with fixed illumination and no
+input DC. Reversing the modeled contact mismatch reverses the phase of
+K2. The legacy cartridge bench also measures how adding DC changes the
+harmonics.
 
 ## VTL5C2 (Excelitas/PerkinElmer)
 

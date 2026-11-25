@@ -28,7 +28,7 @@ function(add_nickel_opto target product code version)
 endfunction()
 
 add_nickel_opto(NickelOpto "Nickel Opto" NOpt 0.1.0)
-add_nickel_opto(NickelOptoMkII "Nickel Opto Mk II" NOm2 2.0.3)
+add_nickel_opto(NickelOptoMkII "Nickel Opto Mk II" NOm2 2.0.4)
 target_compile_definitions(NickelOptoMkII PRIVATE NICKEL_OPTO_MKII=1)
 target_link_libraries(NickelOptoMkII PRIVATE juce::juce_dsp)
 # Offscreen capture utility renders the compiled editor's own paint method.
