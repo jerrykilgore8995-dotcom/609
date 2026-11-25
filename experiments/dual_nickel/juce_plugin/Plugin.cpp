@@ -398,6 +398,27 @@ public:
         g.setColour(ink);g.setFont(juce::FontOptions(12.f,juce::Font::bold));
         g.drawText("GAIN",271,220,116,18,juce::Justification::centred);
         g.drawText("PEAK REDUCTION",755,220,140,18,juce::Justification::centred);
+        // Printed radial dials on the brushed-metal faceplate, separate
+        // from the moving Bakelite knobs, like a physical hardware legend.
+        for(float cx:{329.f,826.f}) {
+            for(int tick=0;tick<=10;++tick) {
+                const float angle=juce::degreesToRadians(225.f+270.f*tick/10.f);
+                auto at=[&](float radius) {
+                    return juce::Point<float>(cx+std::sin(angle)*radius,
+                                             158.f-std::cos(angle)*radius);
+                };
+                const auto near=at(57.f),far=at(tick%5==0?66.f:62.f);
+                g.setColour(juce::Colour(0xff555049));
+                g.drawLine(near.x,near.y,far.x,far.y,tick%5==0?1.9f:1.f);
+            }
+        }
+        g.setFont(juce::FontOptions(10.f,juce::Font::bold));
+        g.setColour(ink);
+        g.drawText("0",254,202,26,17,juce::Justification::centred);
+        g.drawText("100",378,202,38,17,juce::Justification::centred);
+        g.drawText("0",747,202,26,17,juce::Justification::centred);
+        g.drawText("100",874,202,38,17,juce::Justification::centred);
+        g.setFont(juce::FontOptions(12.f,juce::Font::bold));
         g.drawText("COMPRESS / LIMIT",49,139,165,19,juce::Justification::centred);
         g.drawText("OPTO CELL",970,75,182,17,juce::Justification::centred);
         if(attack.isVisible()) {
@@ -444,7 +465,10 @@ private:
     void addRotary(juce::Slider& slider,const char* param,bool large) {
         slider.setName(large?"large":"small");
         slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        slider.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
+        if(&slider==&attack || &slider==&release)
+            slider.setTextBoxStyle(juce::Slider::TextBoxBelow,false,70,17);
+        else
+            slider.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
         slider.setLookAndFeel(&knobLook);
         slider.setRotaryParameters(juce::degreesToRadians(225.f),
                                    juce::degreesToRadians(495.f),true);
