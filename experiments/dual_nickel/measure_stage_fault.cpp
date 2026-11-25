@@ -34,5 +34,11 @@ int main(){
    std::cout<<cell<<","<<drive<<","<<level<<","<<freq<<",-18,"
        <<mag<<","<<after<<","<<output<<","<<cellgain<<","<<drivergain
        <<","<<m.opticalGr()<<","<<m.outputSolverFailures()<<"\n";
+   if(m.outputSolverFailures()!=0) {
+       std::cerr<<"OUTPUT_SOLVER_FAILED cell="<<cell
+                <<" drive="<<drive<<" level="<<level
+                <<" hz="<<freq<<" count="<<m.outputSolverFailures()<<"\n";
+       return 5;
+   }
  }
 }
