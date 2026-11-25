@@ -15,6 +15,31 @@ jobs:
       - uses: actions/checkout@v4
       - run: g++ -std=c++20 -O2 experiments/dual_nickel/verify_vtl5c1_dynamics.cpp -o vtl-dynamics
       - run: ./vtl-dynamics > vtl5c1-knee-ratio-attack-release.csv
+      - name: Summarize real soft knee ratio and measured RC response
+        run: |
+          python3 - <<'PY'
+          import csv, math
+          with open("vtl5c1-knee-ratio-attack-release.csv") as f:
+              rows=[r for r in csv.reader(f) if r and r[0] in ("KNEE","ATTACK","RELEASE")]
+          assert rows, "Missing calibration rows"
+          for r in rows:
+              assert all(math.isfinite(float(v)) for v in r[1:]), ("Nonfinite data",r)
+          for threshold in (-24.,-18.,-12.):
+              knee={float(r[2]):r for r in rows if r[0]=="KNEE" and float(r[1])==threshold}
+              r20=float(knee[20.][5]);r24=float(knee[24.][5])
+              low=float(knee[-4.][4]);on=float(knee[0.][4]);g4=float(knee[4.][4])
+              print("KNEE threshold",threshold,"GR(-4,0,+4)",low,on,g4,"local ratios +20/+24",r20,r24)
+              assert 0 <= low <= on <= g4 and r20>1 and r24>1
+              if not 5.0 <= r24 <= 6.0: print("CALIBRATION_NOTE: upper local ratio outside 5:1–6:1, tune resistor deck")
+          sample=lambda typ,key: sorted(
+              [r for r in rows if r[0]==typ and float(r[1])==-18. and float(r[2])==4.],
+              key=lambda r:float(r[key]))
+          a=sample("ATTACK",3);q=sample("RELEASE",4)
+          print("ATTACK_63_MS",[(float(r[3]),float(r[7])) for r in a])
+          print("RELEASE_50_MS",[(float(r[4]),float(r[8])) for r in q])
+          assert all(float(a[i][7])<float(a[i+1][7]) for i in range(len(a)-1))
+          assert all(float(q[i][8])<float(q[i+1][8]) for i in range(len(q)-1))
+          PY
       - if: always()
         uses: actions/upload-artifact@v4
         with:
