@@ -291,7 +291,7 @@ public:
         addRotary(input,"drive",false);
         addRotary(output,"output",false);
         addRotary(gain,"makeup",true);
-        addRotary(peak,"threshold",true);
+        addRotary(peak,"threshold",true); // reverse-mapped to hardware Peak Reduction
         addRotary(attack,"attack",false);
         addRotary(release,"release",false);
         cellModel.addItem("NSL-32",1);
@@ -417,8 +417,28 @@ private:
         slider.setRotaryParameters(juce::degreesToRadians(225.f),
                                    juce::degreesToRadians(495.f),true);
         addAndMakeVisible(slider);
-        knobAttachments.push_back(
-            std::make_unique<SliderAttachment>(p.state,param,slider));
+        if(&slider==&peak) {
+            // Physical LA-2A-style clockwise Peak Reduction increases GR.
+            // Preserve the underlying "threshold" automation ID and its
+            // -45..+18 dBu units; only invert the front-panel knob scale.
+            slider.setRange(0.,100.,.1);
+            peakAttach=std::make_unique<juce::ParameterAttachment>(
+                *p.state.getParameter("threshold"),
+                [this](float threshold) {
+                    peak.setValue((18.-double(threshold))*100./63.,
+                                  juce::dontSendNotification);
+                },nullptr);
+            slider.onDragStart=[this] {if(peakAttach)peakAttach->beginGesture();};
+            slider.onValueChange=[this] {
+                if(peakAttach)peakAttach->setValueAsPartOfGesture(
+                    float(18.-peak.getValue()*.63));
+            };
+            slider.onDragEnd=[this] {if(peakAttach)peakAttach->endGesture();};
+            peakAttach->sendInitialUpdate();
+        } else {
+            knobAttachments.push_back(
+                std::make_unique<SliderAttachment>(p.state,param,slider));
+        }
     }
     void updateCellVisibility() {
         const auto* val=p.state.getRawParameterValue("cell");
@@ -434,6 +454,7 @@ private:
     BakeliteLook knobLook;
     juce::Slider input,output,gain,peak,attack,release;
     std::vector<std::unique_ptr<SliderAttachment>> knobAttachments;
+    std::unique_ptr<juce::ParameterAttachment> peakAttach;
     juce::ComboBox mode,cellModel;
     juce::TextButton advanced;
     std::unique_ptr<ComboAttachment> modeAttach,cellAttach;
