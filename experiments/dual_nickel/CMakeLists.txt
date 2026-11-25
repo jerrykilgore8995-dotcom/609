@@ -96,3 +96,6 @@ target_compile_features(nickel_t4_attack_tune PRIVATE cxx_std_20)
 
 add_executable(nickel_t4_source_profiles measure_t4_source_profiles.cpp)
 target_compile_features(nickel_t4_source_profiles PRIVATE cxx_std_20)
+
+add_executable(nickel_sidechain_follower test_sidechain_follower.cpp)
+target_compile_features(nickel_sidechain_follower PRIVATE cxx_std_20)
