@@ -94,7 +94,7 @@ private:
 class StereoEngine {
 public:
     void prepare(double sr) noexcept {left.prepare(sr);right.prepare(sr);}
-    void reset() noexcept {left.reset();right.reset();previousDetector=0.;}
+    void reset() noexcept {left.reset();right.reset();}
     void setInputDb(double v) noexcept {left.setInputDb(v);right.setInputDb(v);}
     void setMakeupDb(double v) noexcept {left.setMakeupDb(v);right.setMakeupDb(v);}
     void setAttackMs(double v) noexcept {left.setAttackMs(v);right.setAttackMs(v);}
@@ -139,23 +139,27 @@ public:
         const float linkedLow=std::abs(dl)>=std::abs(dr)?dl:dr;
         const float pl=left.processLowMid(ml,linkedLow,true);
         const float pr=right.processLowMid(mr,linkedLow,true);
-        // Linked feedback is taken after each LDR attenuator, not from
-        // its input. Preserve one sample of detector delay for the physical
-        // rectifier/storage capacitor loop.
+        // A physical stereo-linked feedback sum contains both pre- and
+        // post-attenuator signals at the SAME audio instant. The former
+        // previousDetector path mixed n and n-1, producing fictitious
+        // near-Nyquist cancellation at 44.1k. Predict today's attenuated
+        // waveforms using last sample's slow optical conductance, then choose
+        // the larger-magnitude channel for a properly linked detector.
         const float beforeOpto=std::abs(pl)>=std::abs(pr)?pl:pr;
-        float detector=feedforward?beforeOpto:previousDetector;
+        const float postL=float(pl*nickel::dbGain(-left.opticalGr()));
+        const float postR=float(pr*nickel::dbGain(-right.opticalGr()));
+        const float afterOpto=std::abs(postL)>=std::abs(postR)?postL:postR;
+        float detector=feedforward?beforeOpto:afterOpto;
         if(!limiter && optoCell!=2 && !feedforward) {
             const double f=left.ledCompPreFraction();
-            detector=float(f*beforeOpto+(1.-f)*previousDetector);
+            detector=float(f*beforeOpto+(1.-f)*afterOpto);
         }
         if(optoCell==2 && !feedforward) {
             const double f=left.detectorPreFraction();
-            detector=float(f*beforeOpto+(1.-f)*previousDetector);
+            detector=float(f*beforeOpto+(1.-f)*afterOpto);
         }
         l=left.processFromOpto(pl,detector,true);
         r=right.processFromOpto(pr,detector,true);
-        const float ol=left.lastOpticalOutput(),or_=right.lastOpticalOutput();
-        previousDetector=std::abs(ol)>=std::abs(or_)?ol:or_;
     }
     double grLeft() const noexcept {return left.opticalGr();}
     double grRight() const noexcept {return right.opticalGr();}
@@ -163,7 +167,6 @@ public:
     double lowGrRight() const noexcept {return right.lowMidGr();}
 private:
     MonoEngine left,right;
-    float previousDetector=0.f;
     bool feedforward=false,limiter=false;
     int optoCell=0;
 };
