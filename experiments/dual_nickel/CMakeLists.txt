@@ -105,3 +105,6 @@ target_compile_features(nickel_sidechain_audit PRIVATE cxx_std_20)
 
 add_executable(nickel_led_datasheet measure_led_datasheet.cpp)
 target_compile_features(nickel_led_datasheet PRIVATE cxx_std_20)
+
+add_executable(nickel_opto_knee_fine measure_opto_knee_fine.cpp)
+target_compile_features(nickel_opto_knee_fine PRIVATE cxx_std_20)
