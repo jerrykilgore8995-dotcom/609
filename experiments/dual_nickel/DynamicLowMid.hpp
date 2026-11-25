@@ -77,14 +77,31 @@ public:
         const double lowAligned=lpAlign.process(low)+hpAlign.process(low);
         const double det=external?linkedDetector:mid;
         const double power=det*det;
-        const double tr=power>rms?attack:release;
-        rms+=(power-rms)*(1-std::exp(-1./(fs*std::max(1e-5,tr))));
+        // In MANUAL release the user's setting is a gain-reduction
+        // recovery reference, not a second RMS hold. The old topology
+        // cascaded TWO release envelopes and used a logarithmic power
+        // threshold, causing ~5x longer 50%-GR recovery than the label.
+        //
+        // The detector retains the attack smoothing for low-frequency
+        // waveform immunity, but discharges promptly on falling energy.
+        // Gain reduction itself receives the user release time constant.
+        // This is a C4-inspired manual mode, NOT proprietary Waves ARC.
+        const double detectorTau=power>rms?attack:
+                                  std::min(.005,release*.05);
+        rms+=(power-rms)*(1-std::exp(-1./(fs*std::max(1e-5,detectorTau))));
         const double lev=10*std::log10(std::max(1e-15,rms));
         const double over=std::max(0.,lev-threshold);
         const double reduction=std::min(maxCut,over*(1-1./ratio));
         const double target=std::pow(10.,-reduction/20.);
-        gain+= (target-gain)*(1-std::exp(-1./(fs*std::max(1e-5,tr))));
-        gr=-20*std::log10(std::max(1e-12,gain));
+        // On release evolve the gain-reduction envelope in dB, with
+        // a knob-defined half-recovery time. Applying smoothing in
+        // linear gain would make the nominal time level-dependent.
+        const double current=-20.*std::log10(std::max(1e-12,gain));
+        const bool recovering=reduction<current;
+        const double tau=recovering?release/std::log(2.):attack;
+        const double coeff=1.-std::exp(-1./(fs*std::max(1e-5,tau)));
+        gr=std::max(0.,current+coeff*(reduction-current));
+        gain=std::pow(10.,-gr/20.);
         return float(lowAligned+gain*mid+high);
     }
 private:
