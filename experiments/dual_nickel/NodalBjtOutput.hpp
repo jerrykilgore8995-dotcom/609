@@ -129,11 +129,12 @@ public:
                       std::clamp(base,-13.5,13.5),
                       std::clamp(base,-13.5,13.5),
                       std::clamp(base,-13.5,13.5)};
+            // Retry unconditionally from the physical seed. A trapped
+            // previous solution can have a smaller residual than the seed
+            // yet still lie in an invalid Newton basin. Comparing initial
+            // residuals alone can perpetuate a bad state for many samples.
+            x=fresh;
             double bestErr=maxAbs(evaluate(x));
-            if(maxAbs(evaluate(fresh))<bestErr) {
-                x=fresh;
-                bestErr=maxAbs(evaluate(x));
-            }
             for(int iter=0;iter<60 && bestErr>5.e-7;++iter) {
                 const Vec f=evaluate(x);
                 Matrix jac{};
