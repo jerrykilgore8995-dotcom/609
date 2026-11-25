@@ -7,9 +7,9 @@
 #include <iostream>
 using namespace optocircuit;
 constexpr double fs=44100.,peak=17.3677;
-static double output(double clampTop,double feedback,double kneeR,double level,double threshold) {
+static double output(double tapPreFraction,double feedback,double kneeR,double level,double threshold) {
  OptoParts p;
- p.vtl1CompClampTopR=clampTop;
+ p.vtl1CompFeedbackTapR=100000.*tapPreFraction/(1.-tapPreFraction);
  p.vtl1CompFeedbackR=feedback;
  p.vtl1CompKneeSeriesR=kneeR;
  OpticalCompressor c;c.prepare(fs,p);c.setCellKind(CellKind::VTL5C1);
@@ -26,9 +26,9 @@ static double output(double clampTop,double feedback,double kneeR,double level,d
 }
 int main(){
  std::cout<<std::fixed<<std::setprecision(6);
- std::cout<<"clamp_top_ohms,feedback_ohms,knee_ohms,threshold_dbu,input_dbu,output_dbu,GR_db,interval_ratio\n";
- for(double clamp:{68000.,56000.,47000.,39000.,33000.,27000.,22000.,15000.})
- for(double feedback:{3500.,5000.,7500.})
+ std::cout<<"pre_cell_fraction,feedback_ohms,knee_ohms,threshold_dbu,input_dbu,output_dbu,GR_db,interval_ratio\n";
+ for(double clamp:{0.02,0.05,0.10,0.20,0.30})
+ for(double feedback:{2800.,3200.,3500.,4000.,5000.})
  for(double threshold:{-18.}) {
    double oldLevel=0,oldOut=0;bool first=true;
    for(double level:{-6.,0.,4.,8.,12.,16.,20.,24.}) {
