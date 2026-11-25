@@ -1,0 +1,18 @@
+name: Nickel low-mid quick full-chain guard
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/DynamicLowMid.hpp'
+      - 'experiments/dual_nickel/test_analog_opto.cpp'
+      - '.github/workflows/nickel-lowmid-quick-chain.yml'
+  workflow_dispatch:
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S experiments/dual_nickel -B build/lowmid -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/lowmid --target nickel_analog_opto --parallel 2
+      - run: ctest --test-dir build/lowmid --output-on-failure -R '^analog_opto_pipeline$'
