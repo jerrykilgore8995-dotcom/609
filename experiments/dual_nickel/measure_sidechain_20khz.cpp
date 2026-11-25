@@ -6,7 +6,6 @@
 #include <iomanip>
 #include <iostream>
 using namespace optocircuit;
-constexpr double pi=3.1415926535897932384626433832795;
 int main() {
  std::cout<<std::fixed<<std::setprecision(7);
  std::cout<<"section,sample_rate,peak_input_V,frequency_hz,hpf_enabled,"
