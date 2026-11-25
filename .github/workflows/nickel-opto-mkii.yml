@@ -1,0 +1,44 @@
+name: Nickel Opto Mk II Windows VST3
+on:
+  push:
+    branches: [feature/nickel-opto-mk-ii]
+    paths:
+      - 'experiments/dual_nickel/**'
+      - '.github/workflows/nickel-opto-mkii.yml'
+  workflow_dispatch:
+
+jobs:
+  windows-vst3:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure engine bench
+        run: cmake -S experiments/dual_nickel -B build/mkii-bench -G "Visual Studio 17 2022" -A x64
+      - name: Run Mk II bench
+        shell: pwsh
+        run: |
+          cmake --build build/mkii-bench --config Release --parallel 2 --target nickel_opto_mkii
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./build/mkii-bench/Release/nickel_opto_mkii.exe | Tee-Object Nickel-Opto-Mk-II-measurements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Configure JUCE
+        run: cmake -S experiments/dual_nickel/juce_plugin -B build/nickel-mkii -G "Visual Studio 17 2022" -A x64
+      - name: Build Mk II VST3
+        run: cmake --build build/nickel-mkii --config Release --parallel 2 --target NickelOptoMkII_VST3
+      - name: Verify Windows binary
+        shell: pwsh
+        run: |
+          $plugin = 'build/nickel-mkii/NickelOptoMkII_artefacts/Release/VST3/Nickel Opto Mk II.vst3/Contents/x86_64-win/Nickel Opto Mk II.vst3'
+          if (!(Test-Path -LiteralPath $plugin)) { throw "Missing Windows VST3 binary" }
+          Get-FileHash -LiteralPath $plugin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nickel-Opto-Mk-II-Windows-x64-VST3
+          path: build/nickel-mkii/NickelOptoMkII_artefacts/Release/VST3/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Nickel-Opto-Mk-II-measurements
+          path: Nickel-Opto-Mk-II-measurements.txt

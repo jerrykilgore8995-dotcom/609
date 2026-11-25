@@ -13,23 +13,35 @@
 namespace analogopto {
 class MonoEngine {
 public:
-    void prepare(double sampleRate) noexcept {
+    void prepare(double sampleRate, bool useMkII = false) noexcept {
         fs=sampleRate;
         nickel::CoreParams core{};
         core.Ms=5e5;core.a=100.;core.k=150.;core.sourceR=50.;
-        xfmr.prepare(fs,core);
+        xfmr.prepare(fs,core,useMkII);
         low.prepare(fs);
-        comp.prepare(fs);
+        comp.prepare(fs,{},useMkII);
         output.prepare(fs);
         reset();
     }
     void reset() noexcept {
         xfmr.reset();low.reset();comp.reset();output.reset();
     }
-    void setInputDb(double db) noexcept {drive=std::clamp(db,-18.,18.);}
-    void setMakeupDb(double db) noexcept {makeup=std::clamp(db,-12.,18.);}
-    void setOutputTrimDb(double db) noexcept {trim=std::clamp(db,-24.,24.);}
-    void setLinkedAutoGain(bool link) noexcept {linked=link;}
+    void setInputDb(double db) noexcept {
+        drive=std::clamp(db,-18.,18.);
+        inputGain=nickel::dbGain(drive);
+        updateOutputGain();
+    }
+    void setMakeupDb(double db) noexcept {makeupGain=nickel::dbGain(std::clamp(db,-12.,18.));}
+    void setOutputTrimDb(double db) noexcept {
+        trim=std::clamp(db,-24.,24.);
+        updateOutputGain();
+    }
+    void setLinkedAutoGain(bool link) noexcept {linked=link;updateOutputGain();}
+    void setLinearGains(double input,double makeup,double outputTrim) noexcept {
+        inputGain=input;
+        makeupGain=makeup;
+        outputGain=outputTrim;
+    }
     void setLoadOhms(double r) noexcept {output.setOutputLoadOhms(r);}
     void setAttackMs(double x) noexcept {comp.setAttackMs(x);}
     void setReleaseMs(double x) noexcept {comp.setReleaseMs(x);}
@@ -49,6 +61,7 @@ public:
     void setPalmAttackMs(double v) noexcept {low.setAttackMs(v);}
     void setPalmReleaseMs(double v) noexcept {low.setReleaseMs(v);}
     double opticalGr() const noexcept {return comp.reductionDb();}
+    double meterGr() const noexcept {return comp.meterReductionDb();}
     double detectorPreFraction() const noexcept {return comp.detectorPreFraction();}
     double ledCompPreFraction() const noexcept {return comp.ledCompPreFraction();}
     double lowMidGr() const noexcept {return low.reductionDb();}
@@ -57,7 +70,9 @@ public:
     float lastOpticalOutput() const noexcept {return comp.lastAttenuatorOutput();}
     double outputLoad() const noexcept {return output.outputLoadOhms();}
     float processMagnetic(float input) noexcept {
-        return xfmr.process(float(input*nickel::dbGain(drive)));
+        // The optional multiband stage has a buffered 47 kΩ input.
+        // Otherwise the receiver drives the optical divider directly.
+        return xfmr.process(float(input*inputGain), low.isEnabled() ? 47000. : comp.audioInputOhms());
     }
     float processLowMid(float magnetic,float external,bool useExternal) noexcept {
         return low.process(magnetic,external,useExternal);
@@ -65,6 +80,8 @@ public:
     float lowMidDetector(float magnetic) noexcept {
         return float(low.detectBand(magnetic));
     }
+    double detectLowMidPower(float sample) noexcept {return low.detectOwnPower(sample);}
+    float renderLowMid(float sample, double control) noexcept {return low.renderLinked(sample, control);}
     float processBeforeOpto(float input) noexcept {
         const float magnetic=processMagnetic(input);
         return low.process(magnetic);
@@ -73,15 +90,24 @@ public:
                           bool externallyLinked) noexcept {
         const float attenuated=externallyLinked?
                      comp.process(prepared,stereoDetector):comp.process(prepared);
-        const float driverOut=output.process(float(attenuated*nickel::dbGain(makeup)));
-        return float(driverOut*nickel::dbGain(trim-(linked?drive:0.)));
+        return processOutput(attenuated);
+    }
+    double detectOptical(float audio) noexcept {return comp.detectOwn(audio);}
+    float renderOptical(float audio,double control) noexcept {
+        return processOutput(comp.render(audio,control));
+    }
+    float processOutput(float attenuated) noexcept {
+        const float driverOut=output.process(float(attenuated*makeupGain));
+        return float(driverOut*outputGain);
     }
     float process(float input) noexcept {
         const float prepared=processBeforeOpto(input);
         return processFromOpto(prepared,prepared,false);
     }
 private:
-    double fs=44100,drive=0,makeup=0,trim=0;
+    void updateOutputGain() noexcept {outputGain=nickel::dbGain(trim-(linked?drive:0.));}
+    double fs=44100,drive=0,trim=0;
+    double inputGain=1., makeupGain=1., outputGain=1.;
     bool linked=true;
     nickel::Transformer xfmr;
     lowmid::DynamicLowMid low;
@@ -93,10 +119,18 @@ private:
 // (with sign restored for rectification); opposite-phase L/R won't cancel.
 class StereoEngine {
 public:
-    void prepare(double sr) noexcept {left.prepare(sr);right.prepare(sr);}
+    void prepare(double sr, bool useMkII = false) noexcept {
+        mkII = useMkII;
+        left.prepare(sr,mkII);
+        right.prepare(sr,mkII);
+    }
     void reset() noexcept {left.reset();right.reset();}
     void setInputDb(double v) noexcept {left.setInputDb(v);right.setInputDb(v);}
     void setMakeupDb(double v) noexcept {left.setMakeupDb(v);right.setMakeupDb(v);}
+    void setLinearGains(double input,double makeup,double outputTrim) noexcept {
+        left.setLinearGains(input,makeup,outputTrim);
+        right.setLinearGains(input,makeup,outputTrim);
+    }
     void setAttackMs(double v) noexcept {left.setAttackMs(v);right.setAttackMs(v);}
     void setReleaseMs(double v) noexcept {left.setReleaseMs(v);right.setReleaseMs(v);}
     void setThresholdDb(double v) noexcept {left.setThresholdDb(v);right.setThresholdDb(v);}
@@ -134,6 +168,19 @@ public:
     void process(float& l,float& r) noexcept {
         const float ml=left.processMagnetic(l);
         const float mr=right.processMagnetic(r);
+        if (mkII) {
+            const double lowControl = std::max(left.detectLowMidPower(ml), right.detectLowMidPower(mr));
+            const float pl = left.renderLowMid(ml, lowControl);
+            const float pr = right.renderLowMid(mr, lowControl);
+            // Both detector paths finish before the control bus is combined.
+            // The isolated high-select bus drives identical optical attenuators.
+            const double controlL = left.detectOptical(pl);
+            const double controlR = right.detectOptical(pr);
+            const double control = std::max(controlL, controlR);
+            l = left.renderOptical(pl, control);
+            r = right.renderOptical(pr, control);
+            return;
+        }
         const float dl=left.lowMidDetector(ml);
         const float dr=right.lowMidDetector(mr);
         const float linkedLow=std::abs(dl)>=std::abs(dr)?dl:dr;
@@ -163,11 +210,12 @@ public:
     }
     double grLeft() const noexcept {return left.opticalGr();}
     double grRight() const noexcept {return right.opticalGr();}
+    double meterGr() const noexcept {return left.meterGr();}
     double lowGrLeft() const noexcept {return left.lowMidGr();}
     double lowGrRight() const noexcept {return right.lowMidGr();}
 private:
     MonoEngine left,right;
-    bool feedforward=false,limiter=false;
+    bool feedforward=false,limiter=false,mkII=false;
     int optoCell=0;
 };
 } // namespace analogopto

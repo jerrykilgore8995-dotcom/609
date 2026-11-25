@@ -120,3 +120,8 @@ target_link_libraries(nickel_full_path_grid PRIVATE chowdsp_wdf)
 add_executable(nickel_stage_fault measure_stage_fault.cpp)
 target_compile_features(nickel_stage_fault PRIVATE cxx_std_20)
 target_link_libraries(nickel_stage_fault PRIVATE chowdsp_wdf)
+
+add_executable(nickel_opto_mkii test_mkii.cpp)
+target_compile_features(nickel_opto_mkii PRIVATE cxx_std_20)
+target_link_libraries(nickel_opto_mkii PRIVATE chowdsp_wdf)
+add_test(NAME nickel_opto_mkii COMMAND nickel_opto_mkii)

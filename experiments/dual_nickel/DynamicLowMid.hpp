@@ -59,7 +59,8 @@ public:
     void setMaxCutDb(double v) noexcept {maxCut=std::clamp(v,0.,12.);}
     void setAttackMs(double ms) noexcept {attack=std::clamp(ms,1.,80.)*.001;}
     void setReleaseMs(double ms) noexcept {release=std::clamp(ms,20.,1000.)*.001;}
-    double reductionDb() const noexcept {return gr;}
+    bool isEnabled() const noexcept {return enabled;}
+    double reductionDb() const noexcept {return enabled ? gr : 0.;}
     double lowCorner() const noexcept {return lo;}
     double highCorner() const noexcept {return hi;}
     double detectBand(double x) noexcept {
@@ -76,6 +77,22 @@ public:
         // branches creates notches unrelated to the intended dynamic band.
         const double lowAligned=lpAlign.process(low)+hpAlign.process(low);
         const double det=external?linkedDetector:mid;
+        return float(lowAligned + gainForPower(detectPower(det)) * mid + high);
+    }
+    double detectOwnPower(float sample) noexcept {
+        return enabled ? detectPower(detectBand(sample)) : 0.;
+    }
+    float renderLinked(float sample, double power) noexcept {
+        if (!enabled) return sample;
+        const double low = lpLo.process(sample);
+        const double above = hpLo.process(sample);
+        const double mid = lpHi.process(above);
+        const double high = hpHi.process(above);
+        const double lowAligned = lpAlign.process(low) + hpAlign.process(low);
+        return float(lowAligned + gainForPower(power) * mid + high);
+    }
+private:
+    double detectPower(double det) noexcept {
         const double power=det*det;
         // In MANUAL release the user's setting is a gain-reduction
         // recovery reference, not a second RMS hold. The old topology
@@ -95,7 +112,10 @@ public:
         const double detectorTau=power>rms?attack:
                                   programDropped?.0015:release;
         rms+=(power-rms)*(1-std::exp(-1./(fs*std::max(1e-5,detectorTau))));
-        const double lev=10*std::log10(std::max(1e-15,rms));
+        return rms;
+    }
+    double gainForPower(double detectorPower) noexcept {
+        const double lev=10*std::log10(std::max(1e-15,detectorPower));
         const double over=std::max(0.,lev-threshold);
         const double reduction=std::min(maxCut,over*(1-1./ratio));
         const double target=std::pow(10.,-reduction/20.);
@@ -113,9 +133,8 @@ public:
         const double coeff=1.-std::exp(-1./(fs*std::max(1e-5,tau)));
         gr=std::max(0.,current+coeff*(reduction-current));
         gain=std::pow(10.,-gr/20.);
-        return float(lowAligned+gain*mid+high);
+        return gain;
     }
-private:
     void rebuild() noexcept {
         lo=std::max(30.,center*std::pow(2.,-width*.5));
         hi=std::min(fs*.35,center*std::pow(2.,width*.5));

@@ -8,6 +8,15 @@
 #include <vector>
 
 namespace {
+#if defined(NICKEL_OPTO_MKII)
+constexpr bool isMkII = true;
+constexpr auto productName = "Nickel Opto Mk II";
+constexpr auto panelName = "NICKEL   /   OPTO MK II";
+#else
+constexpr bool isMkII = false;
+constexpr auto productName = "Nickel Opto";
+constexpr auto panelName = "NICKEL   /   OPTO";
+#endif
 using Layout=juce::AudioProcessorValueTreeState::ParameterLayout;
 using SliderAttachment=juce::AudioProcessorValueTreeState::SliderAttachment;
 using ButtonAttachment=juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -64,10 +73,11 @@ public:
         state(*this,nullptr,"NickelOptoState",makeParameters()) {}
     juce::AudioProcessorValueTreeState state;
     std::array<std::atomic<float>,2> gr{{0.f,0.f}};
+    std::atomic<float> meterGr{0.f};
     // Read-only display telemetry; no change to the DSP signal path.
     std::atomic<float> inputPeak{0.f};
     std::array<std::atomic<float>,2> lowGr{{0.f,0.f}};
-    juce::String const getName() const override {return "Nickel Opto";}
+    juce::String const getName() const override {return productName;}
     bool acceptsMidi() const override {return false;}
     bool producesMidi() const override {return false;}
     bool isMidiEffect() const override {return false;}
@@ -86,22 +96,29 @@ public:
     }
     bool isMono() const noexcept {return getTotalNumInputChannels()==1;}
     void prepareToPlay(double rate,int) override {
-        mono.prepare(rate);stereo.prepare(rate);
+        mono.prepare(rate,isMkII);stereo.prepare(rate,isMkII);
+        if constexpr (isMkII) {
+            inputGain.reset(rate,.01);
+            makeupGain.reset(rate,.01);
+            outputGain.reset(rate,.01);
+            wetMix.reset(rate,.01);
+            setGainTargets(true);
+        }
     }
     void releaseResources() override {}
     void processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&) override {
         juce::ScopedNoDenormals noDenormals;
-        const auto v=[&](const char* name)->double {
-            const auto* atom=state.getRawParameterValue(name);
-            return atom ? atom->load(std::memory_order_relaxed):0.0;
-        };
+        const auto v=[&](const char* name) { return value(name); };
+        if constexpr (isMkII) setGainTargets(false);
         // Every GUI control affects the actual signal path, not a preset
         // abstraction or display-only parameter.
         const auto apply=[&](auto& dsp) {
-            dsp.setInputDb(v("drive"));
-            dsp.setMakeupDb(v("makeup"));
-            dsp.setOutputTrimDb(v("output"));
-            dsp.setLinkedAutoGain(v("link")>.5);
+            if constexpr (!isMkII) {
+                dsp.setInputDb(v("drive"));
+                dsp.setMakeupDb(v("makeup"));
+                dsp.setOutputTrimDb(v("output"));
+                dsp.setLinkedAutoGain(v("link")>.5);
+            }
             dsp.setThresholdDb(v("threshold"));
             dsp.setFeedforward(v("ff")>.5);
             dsp.setLimiter(v("mode")>.5);
@@ -120,7 +137,14 @@ public:
             dsp.setLoadOhms(v("load")<.5?600.:10000.);
         };
         const float wetAmount=juce::jlimit(0.f,1.f,float(v("mix")*.01));
-        const float dryAmount=1.f-wetAmount;
+        const auto mixForSample = [&](auto& dsp) {
+            if constexpr (isMkII) {
+                dsp.setLinearGains(inputGain.getNextValue(), makeupGain.getNextValue(),
+                                   outputGain.getNextValue());
+                return wetMix.getNextValue();
+            }
+            return wetAmount;
+        };
         const int n=audio.getNumSamples();
         // Input meter taps the unmodified block before compression/makeup.
         float blockPeak=0.f;
@@ -131,11 +155,13 @@ public:
             apply(mono);
             float* l=audio.getWritePointer(0);
             for(int i=0;i<n;++i) {
+                const float mix=mixForSample(mono);
                 const float dry=l[i];
                 const float wet=mono.process(dry);
-                l[i]=dryAmount*dry+wetAmount*wet;
+                l[i]=(1.f-mix)*dry+mix*wet;
             }
             gr[0].store(float(mono.opticalGr()),std::memory_order_relaxed);
+            meterGr.store(float(mono.meterGr()),std::memory_order_relaxed);
             lowGr[0].store(float(mono.lowMidGr()),std::memory_order_relaxed);
             gr[1].store(0.f,std::memory_order_relaxed);
             lowGr[1].store(0.f,std::memory_order_relaxed);
@@ -144,15 +170,17 @@ public:
             auto* l=audio.getWritePointer(0);
             auto* r=audio.getWritePointer(1);
             for(int i=0;i<n;++i) {
+                const float mix=mixForSample(stereo);
                 const float dryL=l[i],dryR=r[i];
                 stereo.process(l[i],r[i]);
-                l[i]=dryAmount*dryL+wetAmount*l[i];
-                r[i]=dryAmount*dryR+wetAmount*r[i];
+                l[i]=(1.f-mix)*dryL+mix*l[i];
+                r[i]=(1.f-mix)*dryR+mix*r[i];
             }
             gr[0].store(float(stereo.grLeft()),std::memory_order_relaxed);
             gr[1].store(float(stereo.grRight()),std::memory_order_relaxed);
-            lowGr[0].store(0.f,std::memory_order_relaxed);
-            lowGr[1].store(0.f,std::memory_order_relaxed);
+            meterGr.store(float(stereo.meterGr()),std::memory_order_relaxed);
+            lowGr[0].store(float(stereo.lowGrLeft()),std::memory_order_relaxed);
+            lowGr[1].store(float(stereo.lowGrRight()),std::memory_order_relaxed);
         }
     }
     void getStateInformation(juce::MemoryBlock& data) override {
@@ -164,6 +192,24 @@ public:
             state.replaceState(juce::ValueTree::fromXml(*xml));
     }
 private:
+    float value(const char* id) const noexcept {
+        return state.getRawParameterValue(id)->load(std::memory_order_relaxed);
+    }
+    void setGainTargets(bool initialize) noexcept {
+        const auto set = [initialize](auto& ramp, float target) {
+            if (initialize) ramp.setCurrentAndTargetValue(target);
+            else ramp.setTargetValue(target);
+        };
+        const float drive = value("drive");
+        const float trim = value("output") - (value("link") > .5f ? drive : 0.f);
+        set(inputGain, juce::Decibels::decibelsToGain(drive));
+        set(makeupGain, juce::Decibels::decibelsToGain(value("makeup")));
+        set(outputGain, juce::Decibels::decibelsToGain(trim));
+        set(wetMix, value("mix") * .01f);
+    }
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative>
+        inputGain{1.f}, makeupGain{1.f}, outputGain{1.f};
+    juce::SmoothedValue<float> wetMix{1.f};
     analogopto::MonoEngine mono;
     analogopto::StereoEngine stereo;
 };
@@ -368,7 +414,7 @@ public:
         g.drawText("INPUT DRIVE",256,16,102,20,juce::Justification::right);
         g.drawText("OUTPUT TRIM",1071,16,111,20,juce::Justification::left);
         g.setFont(juce::FontOptions(13.f,juce::Font::bold));
-        g.drawText("NICKEL   /   OPTO",22,10,240,24,juce::Justification::left);
+        g.drawText(panelName,22,10,240,24,juce::Justification::left);
         // Two hardware-style LED bargraphs on the top rail: input peak and optical GR.
         const auto drawBar=[&](const char* title,int y,float fraction,bool grMeter) {
             g.setFont(juce::FontOptions(10.f,juce::Font::bold));
@@ -484,7 +530,7 @@ public:
         g.drawText("GAIN REDUCTION  (dB)",int(glass.getX()+65.f),
                    int(glass.getBottom()-20.f),int(glass.getWidth()-130.f),16,
                    juce::Justification::centred);
-        const float reduction=juce::jlimit(0.f,20.f,p.gr[0].load());
+        const float reduction=juce::jlimit(0.f,20.f,p.meterGr.load(std::memory_order_relaxed));
         const float theta=juce::degreesToRadians(200.f+140.f*reduction/20.f);
         const juce::Point<float> tip(meterCenter.x+std::cos(theta)*113.f,
                                      meterCenter.y+std::sin(theta)*113.f);

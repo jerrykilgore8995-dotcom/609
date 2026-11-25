@@ -9,6 +9,7 @@
 #include <chowdsp_wdf/chowdsp_wdf.h>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace nickel {
 inline double dbGain(double db) noexcept { return std::pow(10.0, db / 20.0); }
@@ -94,19 +95,93 @@ public:
     }
 };
 
+// Transformer-coupled, emitter-degenerated 2N5088 receiver. The secondary
+// references the bias point through the bias network. Current drawn by the
+// base and the input capacitance is stamped into the winding equations.
+class LoadedReceiver {
+public:
+    struct Point { double baseCurrent, baseSlope, emitterVolts; };
+
+    Point evaluate(double baseAc) const noexcept {
+        // Solve Vb = Re*(Ie-Iq) + Vt*ln(Ie/Iq) for the emitter current.
+        // The collector swing sets the forward-active region of the model.
+        const double limitedBase = std::clamp(baseAc, -80., 23.5);
+        const double x = limitedBase - emitterOffset;
+        const double biasDrop = idleCurrent * emitterResistance;
+        double logCurrent = x > -.99 * biasDrop
+            ? std::log1p(x / (biasDrop + thermalV)) : std::min(-4., (x + biasDrop) / thermalV);
+        for (int iteration = 0; iteration < 5; ++iteration) {
+            const double drop = biasDrop * std::exp(logCurrent);
+            const double error = drop - biasDrop + thermalV * logCurrent - x;
+            if (std::abs(error) < 1.e-9) break;
+            logCurrent -= error / (drop + thermalV);
+        }
+        const double emitterDelta = biasDrop * std::expm1(logCurrent);
+        const double emitter = emitterOffset + emitterDelta;
+        const double current = (biasDrop + emitterDelta) / emitterResistance;
+        // Finite beta, high injection, and Early effect from the 2N5088
+        // reference card. The bias current is absorbed at the DC operating point.
+        const double early = earlyV + 24. - emitter;
+        const double baseCurrent = current * (1. + current / highInjection) * earlyV / (beta * early);
+        const double emitterSlope = current * emitterResistance /
+                                    (current * emitterResistance + thermalV);
+        const double baseSlope = emitterSlope * ((1. + 2. * current / highInjection)
+                                 * earlyV / (beta * early * emitterResistance) + baseCurrent / early);
+        return {baseCurrent - idleBaseCurrent(), baseAc == limitedBase ? baseSlope : 0., emitter};
+    }
+
+    void reset() noexcept { secondaryV = outputDc = emitterOffset = 0.; }
+    void setOutputLoad(double ohms) noexcept {
+        outputLoad = ohms;
+        emitterResistance = 1. / (1. / emitterR + 1. / outputLoad);
+        emitterOffset = outputDc * emitterResistance / outputLoad;
+    }
+    double terminalVoltage(double sourceV, double windingR, double fs) const noexcept {
+        const double capG = inputCap * fs;
+        const double sourceG = 1. / windingR;
+        const double rhs = sourceG * sourceV + capG * secondaryV;
+        const double sumG = sourceG + capG + 1. / biasNetworkR;
+        const double unloaded = rhs / sumG;
+        // Newton correction to the linear network solution. Below clipping
+        // the base current is small relative to the bias-network current.
+        const auto point = evaluate(unloaded);
+        return unloaded - point.baseCurrent / (sumG + point.baseSlope);
+    }
+    double commit(double terminal, double fs) noexcept {
+        secondaryV = terminal;
+        const double emitter = evaluate(terminal).emitterVolts;
+        // 10 µF output coupling capacitor, returned through the next stage.
+        outputDc += (emitter - outputDc) / (1. + fs * 10.e-6 * outputLoad);
+        constexpr double smallSignalCorrection = 1. + thermalV / 24.;
+        return (emitter - outputDc) * smallSignalCorrection;
+    }
+
+private:
+    static constexpr double thermalV = .02585, emitterR = 8200., idleCurrent = 24. / emitterR;
+    static constexpr double beta = 1122., highInjection = .01492, earlyV = 62.37;
+    static constexpr double biasNetworkR = 10000., inputCap = 122.e-12;
+    static constexpr double idleBaseCurrent() noexcept {
+        return idleCurrent * (1. + idleCurrent / highInjection) / (beta * (1. + 24. / earlyV));
+    }
+    double secondaryV = 0., outputDc = 0., emitterOffset = 0.;
+    double outputLoad = 57000., emitterResistance = 1. / (1. / emitterR + 1. / 57000.);
+};
+
 class Transformer {
 public:
-    void prepare(double sampleRate,CoreParams params) noexcept {
+    void prepare(double sampleRate,CoreParams params, bool useLoadedReceiver = false) noexcept {
         fs=std::max(1000.0,sampleRate);
         p=params;
+        coupledReceiver = useLoadedReceiver;
         core.prepare(p);
         receiver.prepare(fs,p.receiverR,p.receiverC);
         reset();
     }
     void reset() noexcept {
-        core.reset();primaryCurrent=secondaryCurrent=previousV=0.0;
+        core.reset();loadedReceiver.reset();primaryCurrent=secondaryCurrent=previousV=0.0;
     }
-    float process(float normalizedInput) noexcept {
+    float process(float normalizedInput, double receiverLoad = 57000.) noexcept {
+        if (coupledReceiver) loadedReceiver.setOutputLoad(receiverLoad);
         const double input=double(normalizedInput)*fullScalePeakVolts;
         const double dt=1.0/fs;
         const double r1=std::max(.01,p.sourceR+p.primaryR);
@@ -115,6 +190,15 @@ public:
         const double induct2=std::max(0.0,p.secondaryLeak)/dt;
         const double y1=1.0/(r1+induct1);
         const double y2=1.0/(r2+induct2);
+        const double secondaryWindingR = p.secondaryR + induct2;
+        const double secondaryHistory = induct2 * secondaryCurrent;
+        auto secondary = [&](double voltage) noexcept {
+            const double source = voltage + secondaryHistory;
+            if (!coupledReceiver)
+                return std::pair{source * y2, source * y2 * p.loadR};
+            const double terminal = loadedReceiver.terminalVoltage(source, secondaryWindingR, fs);
+            return std::pair{(source - terminal) / secondaryWindingR, terminal};
+        };
         const double capY=std::max(0.0,p.shuntC)/dt;
         const double lossY=1.0/std::max(1.0,p.coreLossR);
         const double b0=core.state().B;
@@ -127,7 +211,7 @@ public:
             const auto s=core.evolve(H);
             const double v=p.turns*p.coreArea*(s.B-b0)/dt;
             const double ip=y1*(input+induct1*primaryCurrent-v);
-            const double is=y2*(v+induct2*secondaryCurrent);
+            const double is=secondary(v).first;
             const double ic=capY*(v-previousV);
             const double f=ip-is-magnetizeScale*H-ic-lossY*v;
             return f;
@@ -180,11 +264,12 @@ public:
         core.commit(state);
         const double v=p.turns*p.coreArea*(state.B-b0)/dt;
         primaryCurrent=y1*(input+induct1*primaryCurrent-v);
-        secondaryCurrent=y2*(v+induct2*secondaryCurrent);
+        const auto [current, terminal] = secondary(v);
+        secondaryCurrent=current;
         previousV=v;
         // Secondary load voltage; WDF receiver damps HF winding parasitics.
-        const double secondaryLoad=secondaryCurrent*p.loadR;
-        const double output=receiver.process(secondaryLoad);
+        const double output=coupledReceiver ? loadedReceiver.commit(terminal, fs)
+                                            : receiver.process(terminal);
         return std::isfinite(output)
             ?float(std::clamp(output/fullScalePeakVolts,-100.0,100.0)) : 0.0f;
     }
@@ -192,6 +277,8 @@ private:
     CoreParams p{};
     MagneticCore core;
     WdfReceiver receiver;
+    LoadedReceiver loadedReceiver;
+    bool coupledReceiver = false;
     double fs=44100,primaryCurrent=0,secondaryCurrent=0,previousV=0;
 };
 

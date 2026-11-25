@@ -37,7 +37,7 @@ class NodalOutputDriver {
 public:
     void prepare(double sr) noexcept {fs=std::max(1000.,sr);reset();}
     void reset() noexcept {
-        inputCap=outputCap=daVoltage=0.;
+        inputCap=outputCap=daVoltage=previousSignal=0.;
         state={.73,-.73,0.,0.,0.};
         prevBE={0.,0.};prevBC={0.,0.};
         failed=0;

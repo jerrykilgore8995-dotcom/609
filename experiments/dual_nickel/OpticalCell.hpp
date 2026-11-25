@@ -163,12 +163,13 @@ private:
 // alters the audio KCL. No synthetic THD function.
 class LdrCell {
 public:
-    void prepare(double sampleRate,OptoParts part={}) noexcept {
-        p=part;fs=std::max(1000.,sampleRate);reset();
+    void prepare(double sampleRate,OptoParts part={}, bool useMkII=false) noexcept {
+        p=part;fs=std::max(1000.,sampleRate);mkII=useMkII;reset();
     }
     void reset() noexcept {
-        lightFast=lightSlow=illumination=0.;
-        audioCapV=panelAudioV=0.;panelLight=panelVoltage=meterLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
+        lightFast=lightSlow=illumination=lightAdaptation=0.;
+        meterFast=meterSlow=0.;
+        audioCapV=panelAudioV=0.;panelTarget=panelLight=panelVoltage=meterLight=0.; lastResistance=darkResistance(); lastGain=1.;lastLedCurrent=0.;
     }
     void setLimiter(bool enabled) noexcept { limiter=enabled; }
     void select(CellKind kind) noexcept {
@@ -223,6 +224,10 @@ public:
             std::max(0.,milliamps)/20.;
     }
     double processAtPanelVac(double audioVolts,double panelVac) noexcept {
+        const double light = updatePanelLight(panelVac);
+        return renderPanelLight(audioVolts, light, panelTarget > meterLight);
+    }
+    double updatePanelLight(double panelVac) noexcept {
         // Unlike an LED Vactrol, the T4 EL phosphor responds to AC
         // excitation voltage above its activation threshold. Driver gain
         // feeds the panel through an actual RC electrical network.
@@ -233,20 +238,38 @@ public:
         panelVoltage+=tauRC(p.elPanelDriveR*p.elPanelCapF,dt)*
                           (targetVoltage-panelVoltage);
         const double supply=std::abs(panelVoltage);
-        const double lightTarget=std::pow(std::max(0.,supply-
-                 p.elPanelTurnOnVac)/std::max(1.,p.elPanelReferenceVac-
-                 p.elPanelTurnOnVac),2.);
+        const double over = std::max(0., supply - p.elPanelTurnOnVac) /
+                            std::max(1., p.elPanelReferenceVac - p.elPanelTurnOnVac);
+        const double lightTarget = over * over;
+        panelTarget = lightTarget;
         const double time=lightTarget>panelLight?p.elPanelRiseSeconds:
                                                   p.elPanelFallSeconds;
         panelLight+=tauRC(time,dt)*(lightTarget-panelLight);
+        return panelLight;
+    }
+    double processPanelLight(double audioVolts, double light) noexcept {
+        return renderPanelLight(audioVolts, light, light > meterLight);
+    }
+    double renderPanelLight(double audioVolts, double light, bool brightening) noexcept {
+        const double dt = 1. / fs;
         // Separate CdS metering element illuminated by the SAME EL source.
         // Its dark recovery is independent of the audio attenuation cell.
-        meterLight+=tauRC(lightTarget>meterLight?.012:.19,dt)*
-                             (panelLight-meterLight);
+        if (mkII) {
+            const double fastTime = light > meterFast ? p.t4CdSAttackSeconds * 1.05
+                                                        : p.t4CdSFastRecoverySeconds * 1.08;
+            const double slowTime = light > meterSlow ? p.t4CdSTrapChargeSeconds
+                                                        : p.t4CdSTrapRecoverySeconds;
+            meterFast += tauRC(fastTime, dt) * (light - meterFast);
+            meterSlow += tauRC(slowTime, dt) * (light - meterSlow);
+            const double trap = p.t4CdSTrapConductanceFraction;
+            meterLight = (1. - trap) * meterFast + trap * meterSlow;
+        } else {
+            meterLight+=tauRC(brightening?.012:.19,dt)*(light-meterLight);
+        }
         // The T4 has two photocells; the gain photocell is modeled here.
         // EL and CdS response are separate states, so its recovery is not
         // inherited from an LED.
-        return processIllumination(audioVolts,panelLight,0.,true);
+        return processIllumination(audioVolts,light,0.,true);
     }
     double ledForwardVoltage(double current) const noexcept {
         // Excelitas VTL5C2 typical forward drop ~1.65V at 20mA.
@@ -327,7 +350,21 @@ public:
                                cellKind==CellKind::VTL5C1?.20:
                                cellKind==CellKind::VTL5C2?1.0:
                                                     p.trapRecoverySeconds;
-        const double tFast=lightTarget>lightFast?rise:fastDecay;
+        double tFast=lightTarget>lightFast?rise:fastDecay;
+        if (mkII && !isPanel) {
+            const bool fastVactrol = cellKind == CellKind::VTL5C1;
+            if (fastVactrol || cellKind == CellKind::VTL5C2) {
+                // PerkinElmer quotes the Vactrol's rise at 40 mA. It is
+                // slower at lower drive. Light adaptation shifts low-light
+                // sensitivity independently of the short dark-decay time.
+                const double remaining = std::clamp(1. - current / .04, 0., 1.);
+                if (lightTarget > lightFast)
+                    tFast *= 1. + (fastVactrol ? 1.2 : 1.8) * remaining * remaining;
+                const double exposure = current / (current + .00045);
+                const double historyTime = exposure > lightAdaptation ? 1.2 : 4.;
+                lightAdaptation += tauRC(historyTime, dt) * (exposure - lightAdaptation);
+            }
+        }
         const double tTrap=lightTarget>lightSlow?trapRise:trapDecay;
         lightFast+=tauRC(tFast,dt)*(lightTarget-lightFast);
         lightSlow+=tauRC(tTrap,dt)*(lightTarget-lightSlow);
@@ -336,6 +373,13 @@ public:
              cellKind==CellKind::VTL5C2?.002:
              std::clamp(p.trapConductanceFraction,0.,.1);
         illumination=std::max(0.,(1.-w)*lightFast+w*lightSlow);
+        if (mkII && !isPanel && (cellKind == CellKind::VTL5C1 || cellKind == CellKind::VTL5C2)) {
+            const bool fastVactrol = cellKind == CellKind::VTL5C1;
+            const double oneMilliamp = fastVactrol ? .0173 : .0724;
+            const double lowLight = std::max(0., 1. - illumination / oneMilliamp);
+            const double historyDepth = fastVactrol ? .45 : .14;
+            illumination /= 1. + historyDepth * lowLight * lightAdaptation;
+        }
         const double gdark=1./darkResistance();
         const double gfull=isPanel?1./750.:
                            (cellKind==CellKind::VTL5C2 || cellKind==CellKind::VTL5C1)?
@@ -387,9 +431,10 @@ public:
 private:
     OptoParts p{};
     double fs=44100.,lightFast=0.,lightSlow=0.,illumination=0.,
-           audioCapV=0.,panelAudioV=0.,panelLight=0.,panelVoltage=0.,meterLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
+           audioCapV=0.,panelAudioV=0.,panelTarget=0.,panelLight=0.,panelVoltage=0.,meterLight=0.,lastResistance=5e5,lastGain=1.,lastLedCurrent=0.;
     CellKind cellKind=CellKind::NSL32;
-    bool limiter=false;
+    bool limiter=false, mkII=false;
+    double lightAdaptation=0., meterFast=0., meterSlow=0.;
 };
 // Detector consists of physical AC coupling, Shockley-like rectifier,
 // and asymmetric charge/discharge of an actual RC storage capacitor.
@@ -445,10 +490,11 @@ private:
 };
 class OpticalCompressor {
 public:
-    void prepare(double hz,OptoParts part={}) noexcept {
-        p=part;fs=hz;detector.prepare(fs,p);leadDetector.prepare(fs,p);t4Sidechain.prepare(fs,p);sidechainFollower.prepare(fs);cell.prepare(fs,p);reset();
+    void prepare(double hz,OptoParts part={}, bool useMkII=false) noexcept {
+        p=part;fs=hz;mkII=useMkII;detector.prepare(fs,p);leadDetector.prepare(fs,p);
+        sidechainFollower.prepare(fs);preTapFollower.prepare(fs);cell.prepare(fs,p,mkII);reset();
     }
-    void reset() noexcept {detector.reset();leadDetector.reset();t4Sidechain.reset();sidechainFollower.reset();cell.reset();ledControl=lastOutput=0.;}
+    void reset() noexcept {detector.reset();leadDetector.reset();sidechainFollower.reset();preTapFollower.reset();cell.reset();ledControl=lastOutput=0.;}
     // Only the fast VTL5C1 cartridge exposes adjustable detector RC.
     // Other cartridges retain the stock 15/250 ms RC; their optical
     // carrier/trap/EL states remain their intrinsic dynamics.
@@ -466,8 +512,8 @@ public:
         detector.setReleaseMs(variable?requestedReleaseMs:250.);
         leadDetector.setReleaseMs(variable?requestedReleaseMs:250.);
     }
-    void setSidechainHpF(bool x) noexcept {hpfEnabled=x;sidechainFollower.setEnabled(x);detector.setSidechainHpF(false);leadDetector.setSidechainHpF(false);}
-    void setSidechainHz(double x) noexcept {sidechainFollower.setCutoffHz(x);}
+    void setSidechainHpF(bool x) noexcept {hpfEnabled=x;sidechainFollower.setEnabled(x);preTapFollower.setEnabled(x);detector.setSidechainHpF(false);leadDetector.setSidechainHpF(false);}
+    void setSidechainHz(double x) noexcept {sidechainFollower.setCutoffHz(x);preTapFollower.setCutoffHz(x);}
     void setThresholdDb(double x) noexcept {threshold=std::clamp(x,-45.,18.);}
     void setDetectorDrive(double x) noexcept {detectorDrive=std::clamp(x,.1,20.);}
     void setFeedforward(bool enabled) noexcept {feedforward=enabled;}
@@ -488,10 +534,16 @@ public:
     }
     void setCellKind(CellKind kind) noexcept {
         if(cell.selected()==kind)return;
-        cell.select(kind);detector.reset();leadDetector.reset();t4Sidechain.reset();sidechainFollower.reset();ledControl=lastOutput=0.;configureDetectorTiming();
+        cell.select(kind);detector.reset();leadDetector.reset();sidechainFollower.reset();preTapFollower.reset();ledControl=lastOutput=0.;configureDetectorTiming();
     }
     CellKind selectedCellKind() const noexcept {return cell.selected();}
     float process(float x,float sidechain) noexcept {
+        return render(x, detect(sidechain, sidechain));
+    }
+    double detectOwn(float x) noexcept {
+        return detect(detectorInput(x), x);
+    }
+    double detect(float sidechain, float preCell) noexcept {
         // A single physical 2N5088 buffered HPF sits BEFORE all detector
         // branches, including the T4B AC panel driver and VTL high tap.
         const double sidechainV=sidechainFollower.process(double(sidechain)*17.3677);
@@ -506,10 +558,7 @@ public:
                  (limiter?p.elLimitFeedbackR/p.elCompFeedbackR:1.);
             const double side=sidechainV;
             const double panelAc=side*gain;
-            const double y=cell.processAtPanelVac(double(x)*17.3677,
-                                                  panelAc);
-            lastOutput=y/17.3677;
-            return float(lastOutput);
+            return mkII ? cell.updatePanelLight(panelAc) : panelAc;
         }
         const double detectorPad=feedforward?
             p.feedForwardShuntR/(p.feedForwardSeriesR+
@@ -523,7 +572,8 @@ public:
             // Real rectified diode branch from the attenuator input:
             // Vpre - Vbias = I*Rseries + nVt*ln(1+I/Is).
             // This feeds the detector summing node, NOT the audio signal.
-            const double pre=std::abs(sidechainV);
+            const double pre=std::abs(mkII ? preTapFollower.process(double(preCell)*17.3677)
+                                           : sidechainV);
             const double excess=pre-p.vtlHighTapBiasV;
             if(excess>0.) {
                 double lo=0.,hi=excess/p.vtlHighTapSeriesR;
@@ -630,9 +680,30 @@ public:
             }
             source=.5*(lo+hi);
         }
-        ledControl=std::clamp(source,0.,p.ledSupply);
-        const double y=cell.process(double(x)*17.3677,ledControl);
-        lastOutput=y/17.3677;
+        // Finite swing and source impedance belong to the LED driver.
+        // This is a reduced single-supply driver model, with the measured
+        // LED forward curve and the existing shunt-transistor load downstream.
+        if (mkII && source > 0.) {
+            constexpr double linearSwing = 8.5;
+            if (source > linearSwing) {
+                const double headroom = p.ledSupply - linearSwing;
+                const double excess = source - linearSwing;
+                source = linearSwing + headroom * excess / (headroom + excess);
+            }
+        }
+        return std::clamp(source,0.,p.ledSupply);
+    }
+    float render(float x, double control) noexcept {
+        const double audio = double(x) * 17.3677;
+        double y;
+        if (cell.selected() == CellKind::T4B) {
+            y = mkII ? cell.processPanelLight(audio, control)
+                     : cell.processAtPanelVac(audio, control);
+        } else {
+            ledControl = control;
+            y = cell.process(audio, ledControl);
+        }
+        lastOutput = y / 17.3677;
         return float(lastOutput);
     }
     // The analog resistor summing junction sees input and post-cell audio
@@ -642,22 +713,34 @@ public:
     // conductance to predict the CURRENT sample's post-cell audio. The optical
     // control state is still causal (one-sample old), but no audio waveform
     // is artificially delayed into the detector summing network.
-    float process(float x) noexcept {
+    float process(float x) noexcept { return render(x, detectOwn(x)); }
+    float detectorInput(float x) const noexcept {
         const float postEstimate=float(x*dB(-cell.gainReduction()));
         if(cell.selected()==CellKind::T4B && !feedforward) {
             const double f=detectorPreFraction();
-            return process(x,float(f*x+(1.-f)*postEstimate));
+            return float(f*x+(1.-f)*postEstimate);
         }
         if(!limiter && !feedforward && cell.selected()!=CellKind::T4B) {
             const double f=ledCompPreFraction();
-            return process(x,float(f*x+(1.-f)*postEstimate));
+            return float(f*x+(1.-f)*postEstimate);
         }
-        return process(x,feedforward?x:postEstimate);
+        return feedforward?x:postEstimate;
     }
     float lastAttenuatorOutput() const noexcept {return float(lastOutput);}
     double reductionDb() const noexcept {return cell.gainReduction();}
     double ldrOhms() const noexcept {return cell.resistance();}
+    double audioInputOhms() const noexcept {
+        return p.rSeries + 1. / (1. / p.rReceive + 1. / cell.resistance());
+    }
     double meterCellOhms() const noexcept {return cell.meterPhotocellOhms();}
+    double meterReductionDb() const noexcept {
+        if (!mkII || cell.selected() != CellKind::T4B) return reductionDb();
+        const double dark = 1. / cell.darkResistance();
+        const double conductance = 1. / meterCellOhms() - dark;
+        const double reference = 1. / p.rSeries + 1. / p.rReceive + dark;
+        // Calibrate the meter photocell at the EL reference illumination.
+        return 20. * std::log10(1. + conductance * (1200. / 750.) / reference);
+    }
     double detectorVolts() const noexcept {return detector.voltage();}
     double ledDriveVolts() const noexcept {return ledControl;}
     double ledAmps() const noexcept {return cell.actualLedAmps();}
@@ -667,8 +750,8 @@ private:
     double requestedAttackMs=15.,requestedReleaseMs=250.;
     bool feedforward=false,hpfEnabled=false,limiter=false;
     OpticalDetector detector,leadDetector;
-    HighPassCircuit t4Sidechain;
-    SidechainFollower sidechainFollower;
+    bool mkII=false;
+    SidechainFollower sidechainFollower, preTapFollower;
     LdrCell cell;
 };
 } // namespace optocircuit
