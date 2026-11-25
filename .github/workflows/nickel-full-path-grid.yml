@@ -4,6 +4,7 @@ on:
     branches: [feature/dual-nickel-zener-prototype]
     paths:
       - 'experiments/dual_nickel/measure_full_path_grid.cpp'
+      - 'experiments/dual_nickel/NodalBjtOutput.hpp'
       - '.github/workflows/nickel-full-path-grid.yml'
   workflow_dispatch:
 jobs:
