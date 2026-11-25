@@ -1,0 +1,21 @@
+name: Nickel VTL5C1 resistor calibration
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/tune_vtl5c1_resistors.cpp'
+      - '.github/workflows/vtl5c1-resistor-sweep.yml'
+  workflow_dispatch:
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -O2 -Wall -Wextra experiments/dual_nickel/tune_vtl5c1_resistors.cpp -o vtl-tune
+      - run: ./vtl-tune > vtl5c1-resistor-sweep.csv
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VTL5C1-resistor-curve-grid
+          path: vtl5c1-resistor-sweep.csv
