@@ -1,0 +1,80 @@
+name: Nickel Opto circuit validation
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/**'
+      - '.github/workflows/dual-nickel-ci.yml'
+  pull_request:
+    paths:
+      - 'experiments/dual_nickel/**'
+      - '.github/workflows/dual-nickel-ci.yml'
+  workflow_dispatch:
+jobs:
+  circuit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+      - name: Compile transistor, optical and full-path models
+        run: cmake --build build/nickel --target nickel_option_c nickel_analog_opto nickel_nodal_bjt nickel_opto_character nickel_opto_bursts nickel_opto_trace nickel_opto_memory nickel_analog_character nickel_analog_imd nickel_stage_frequency_stability nickel_ultrasonic_response nickel_opto_variants nickel_opto_ratio_sweep nickel_opto_resistor_tune nickel_t4_limiter_tune nickel_line_level_knee_tune nickel_full_line_level nickel_opto_burst_matrix --parallel 2
+      - name: Sweep Compressor and Limiter 1kHz curves for all optocells
+        run: ./build/nickel/nickel_opto_ratio_sweep | tee opto-ratio-1khz.csv
+      - name: Sweep candidate compressor feedback and diode series resistors
+        run: ./build/nickel/nickel_opto_resistor_tune | tee opto-compressor-resistors.csv
+      - name: Calibrate T4 limiter detector pre-post resistor summing
+        run: ./build/nickel/nickel_t4_limiter_tune | tee t4-limiter-resistors.csv
+      - name: Calibrate normal line level knee for the existing optocells
+        run: ./build/nickel/nickel_line_level_knee_tune | tee line-level-knee-calibration.csv
+      - name: Measure full nickel transformer output compression at 1kHz with INPUT 0dB
+        run: ./build/nickel/nickel_full_line_level | tee nickel-full-path-line-level.csv
+      - name: Measure optical cells with short and long 1kHz bursts
+        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv
+      - name: Run full physics and signal-path tests
+        run: ctest --test-dir build/nickel --output-on-failure -R 'option_c_driver|analog_opto_pipeline|nodal_bjt_output|opto_characterization|opto_burst_characterization|opto_memory_calibration|opto_cell_variants'
+      - name: Output MNA convergence and CPU results
+        run: ./build/nickel/nickel_nodal_bjt > nodal-bjt-results.txt
+      - name: Optical, low-mid and stereo test results
+        run: ./build/nickel/nickel_analog_opto > opto-results.txt
+      - name: Report level-dependent opto GR and attack/release
+        run: ./build/nickel/nickel_opto_character > opto-character-results.txt
+      - name: Record optical cell burst step responses
+        run: ./build/nickel/nickel_opto_bursts > opto-burst-response.csv
+      - name: Trace LED/photocell high-level overshoot
+        run: ./build/nickel/nickel_opto_trace > opto-feedback-trace.csv
+      - name: Characterize cell light history and 500ms off resistance
+        run: ./build/nickel/nickel_opto_memory > opto-memory-results.csv
+      - name: Characterize full analog path nonlinear phase and K2-K20
+        run: ./build/nickel/nickel_analog_character > analog-character-harmonics.csv
+      - name: Quantify bass/guitar 60Hz + 1kHz intermodulation
+        run: ./build/nickel/nickel_analog_imd > analog-character-imd.csv
+      - name: Compare 600/10k high frequency response by circuit stage and stability
+        run: ./build/nickel/nickel_stage_frequency_stability > stage-frequency-stability.csv
+      - name: Check 96kHz BJT and magnetic ultrasonic resonance to 45kHz
+        run: ./build/nickel/nickel_ultrasonic_response > ultrasonic-response-96khz.csv
+      - name: Validate VTL5C2 resistance curve and T4B EL photocell assembly
+        run: ./build/nickel/nickel_opto_variants | tee optical-cell-variants.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nickel-opto-circuit-measurements
+          path: |
+            nodal-bjt-results.txt
+            opto-results.txt
+            opto-character-results.txt
+            opto-burst-response.csv
+            opto-feedback-trace.csv
+            opto-memory-results.csv
+            analog-character-harmonics.csv
+            analog-character-imd.csv
+            stage-frequency-stability.csv
+            ultrasonic-response-96khz.csv
+            optical-cell-variants.txt
+            opto-ratio-1khz.csv
+            opto-compressor-resistors.csv
+            t4-limiter-resistors.csv
+            line-level-knee-calibration.csv
+            nickel-full-path-line-level.csv
+            opto-cell-burst-matrix.csv

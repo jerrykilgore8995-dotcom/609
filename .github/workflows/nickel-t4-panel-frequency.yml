@@ -1,0 +1,21 @@
+name: Nickel T4B panel drive frequency research
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/tune_t4_panel_frequency.cpp'
+      - '.github/workflows/nickel-t4-panel-frequency.yml'
+  workflow_dispatch:
+jobs:
+  t4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -O2 experiments/dual_nickel/tune_t4_panel_frequency.cpp -o t4-panel
+      - run: ./t4-panel > t4-panel-rc-frequency-sweep.csv
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: T4B-EL-panel-RC-frequency-sweep
+          path: t4-panel-rc-frequency-sweep.csv

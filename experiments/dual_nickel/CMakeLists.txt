@@ -1,0 +1,122 @@
+cmake_minimum_required(VERSION 3.22)
+project(DualNickelMagnetics LANGUAGES CXX)
+include(FetchContent)
+FetchContent_Declare(chowdsp_wdf
+  GIT_REPOSITORY https://github.com/Chowdhury-DSP/chowdsp_wdf.git
+  GIT_TAG main
+  GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(chowdsp_wdf)
+add_executable(nickel_smoke test_nickel.cpp)
+target_compile_features(nickel_smoke PRIVATE cxx_std_20)
+target_link_libraries(nickel_smoke PRIVATE chowdsp_wdf)
+add_executable(nickel_input_sweep sweep_input_drive.cpp)
+target_compile_features(nickel_input_sweep PRIVATE cxx_std_20)
+target_link_libraries(nickel_input_sweep PRIVATE chowdsp_wdf)
+add_executable(nickel_dual_sweep sweep_both_transformers.cpp)
+target_compile_features(nickel_dual_sweep PRIVATE cxx_std_20)
+target_link_libraries(nickel_dual_sweep PRIVATE chowdsp_wdf)
+enable_testing()
+add_test(NAME nickel_smoke COMMAND nickel_smoke)
+
+add_executable(nickel_option_c test_option_c.cpp)
+target_compile_features(nickel_option_c PRIVATE cxx_std_20)
+target_link_libraries(nickel_option_c PRIVATE chowdsp_wdf)
+add_test(NAME option_c_driver COMMAND nickel_option_c)
+
+add_executable(nickel_analog_opto test_analog_opto.cpp)
+target_compile_features(nickel_analog_opto PRIVATE cxx_std_20)
+target_link_libraries(nickel_analog_opto PRIVATE chowdsp_wdf)
+add_test(NAME analog_opto_pipeline COMMAND nickel_analog_opto)
+
+add_executable(nickel_nodal_bjt test_nodal_bjt.cpp)
+target_compile_features(nickel_nodal_bjt PRIVATE cxx_std_20)
+target_link_libraries(nickel_nodal_bjt PRIVATE chowdsp_wdf)
+add_test(NAME nodal_bjt_output COMMAND nickel_nodal_bjt)
+
+add_executable(nickel_opto_character test_opto_character.cpp)
+target_compile_features(nickel_opto_character PRIVATE cxx_std_20)
+add_test(NAME opto_characterization COMMAND nickel_opto_character)
+
+add_executable(nickel_opto_bursts test_opto_bursts.cpp)
+target_compile_features(nickel_opto_bursts PRIVATE cxx_std_20)
+add_test(NAME opto_burst_characterization COMMAND nickel_opto_bursts)
+
+add_executable(nickel_opto_trace trace_opto_feedback.cpp)
+target_compile_features(nickel_opto_trace PRIVATE cxx_std_20)
+
+add_executable(nickel_opto_memory test_opto_memory.cpp)
+target_compile_features(nickel_opto_memory PRIVATE cxx_std_20)
+add_test(NAME opto_memory_calibration COMMAND nickel_opto_memory)
+
+add_executable(nickel_analog_character measure_analog_character.cpp)
+target_compile_features(nickel_analog_character PRIVATE cxx_std_20)
+target_link_libraries(nickel_analog_character PRIVATE chowdsp_wdf)
+
+add_executable(nickel_analog_imd measure_analog_imd.cpp)
+target_compile_features(nickel_analog_imd PRIVATE cxx_std_20)
+target_link_libraries(nickel_analog_imd PRIVATE chowdsp_wdf)
+
+add_executable(nickel_stage_frequency_stability measure_stage_frequency_stability.cpp)
+target_compile_features(nickel_stage_frequency_stability PRIVATE cxx_std_20)
+target_link_libraries(nickel_stage_frequency_stability PRIVATE chowdsp_wdf)
+
+add_executable(nickel_ultrasonic_response measure_ultrasonic_response.cpp)
+target_compile_features(nickel_ultrasonic_response PRIVATE cxx_std_20)
+target_link_libraries(nickel_ultrasonic_response PRIVATE chowdsp_wdf)
+
+add_executable(nickel_opto_variants test_opto_variants.cpp)
+target_compile_features(nickel_opto_variants PRIVATE cxx_std_20)
+add_test(NAME opto_cell_variants COMMAND nickel_opto_variants)
+
+# Dedicated stock NSL-32 1kHz input/threshold static ratio measurement.
+add_executable(nickel_opto_ratio_sweep measure_opto_ratio.cpp)
+target_compile_features(nickel_opto_ratio_sweep PRIVATE cxx_std_20)
+
+add_executable(nickel_opto_resistor_tune tune_opto_compressor.cpp)
+target_compile_features(nickel_opto_resistor_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_t4_limiter_tune tune_t4_limiter.cpp)
+target_compile_features(nickel_t4_limiter_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_line_level_knee_tune tune_line_level_knee.cpp)
+target_compile_features(nickel_line_level_knee_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_full_line_level measure_full_line_level.cpp)
+target_compile_features(nickel_full_line_level PRIVATE cxx_std_20)
+target_link_libraries(nickel_full_line_level PRIVATE chowdsp_wdf)
+
+add_executable(nickel_opto_burst_matrix measure_opto_burst_matrix.cpp)
+target_compile_features(nickel_opto_burst_matrix PRIVATE cxx_std_20)
+
+add_executable(nickel_t4_recovery_tune tune_t4_recovery.cpp)
+target_compile_features(nickel_t4_recovery_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_t4_attack_tune tune_t4_attack.cpp)
+target_compile_features(nickel_t4_attack_tune PRIVATE cxx_std_20)
+
+add_executable(nickel_t4_source_profiles measure_t4_source_profiles.cpp)
+target_compile_features(nickel_t4_source_profiles PRIVATE cxx_std_20)
+
+add_executable(nickel_sidechain_follower test_sidechain_follower.cpp)
+target_compile_features(nickel_sidechain_follower PRIVATE cxx_std_20)
+
+add_executable(nickel_sidechain_audit measure_sidechain_audit.cpp)
+target_compile_features(nickel_sidechain_audit PRIVATE cxx_std_20)
+
+add_executable(nickel_led_datasheet measure_led_datasheet.cpp)
+target_compile_features(nickel_led_datasheet PRIVATE cxx_std_20)
+
+add_executable(nickel_opto_knee_fine measure_opto_knee_fine.cpp)
+target_compile_features(nickel_opto_knee_fine PRIVATE cxx_std_20)
+
+# Four-cartridge characterization, including isolated photocell harmonics.
+add_executable(nickel_opto_all_cells measure_all_opto_cells.cpp)
+target_compile_features(nickel_opto_all_cells PRIVATE cxx_std_20)
+
+add_executable(nickel_full_path_grid measure_full_path_grid.cpp)
+target_compile_features(nickel_full_path_grid PRIVATE cxx_std_20)
+target_link_libraries(nickel_full_path_grid PRIVATE chowdsp_wdf)
+
+add_executable(nickel_stage_fault measure_stage_fault.cpp)
+target_compile_features(nickel_stage_fault PRIVATE cxx_std_20)
+target_link_libraries(nickel_stage_fault PRIVATE chowdsp_wdf)

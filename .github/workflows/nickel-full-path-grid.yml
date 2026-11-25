@@ -1,0 +1,45 @@
+name: Nickel Opto full signal path FR phase THD grid
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/measure_full_path_grid.cpp'
+      - 'experiments/dual_nickel/NodalBjtOutput.hpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - '.github/workflows/nickel-full-path-grid.yml'
+  workflow_dispatch:
+jobs:
+  full-path-grid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure full analog chain
+        run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+      - name: Compile full path signal sweep
+        run: cmake --build build/nickel --target nickel_full_path_grid --parallel 2
+      - name: Measure transformer and all four cell signal paths
+        run: ./build/nickel/nickel_full_path_grid > full-path-fr-phase-thd-harmonics.csv
+      - name: Summarize numeric validity and drive dependence
+        run: |
+          python3 - <<'PY'
+          import csv, math
+          rows=list(csv.DictReader(open("full-path-fr-phase-thd-harmonics.csv")))
+          rows=[r for r in rows if r.get("section") in ("FULL","TRANSFORMER")]
+          assert rows, "No rows generated"
+          bad=[r for r in rows if any(not math.isfinite(float(r[k])) for k in ("gain_db","phase_deg","THD_percent"))]
+          print(f"measured_rows={len(rows)} invalid_rows={len(bad)}")
+          assert not bad, "Nonfinite measurement"
+          for drive in [-18,-12,0,6,12,18]:
+            x=[r for r in rows if r["section"]=="TRANSFORMER" and float(r["drive_db"])==drive and float(r["input_dbu"])==4 and float(r["freq_hz"])==1000]
+            if x: print("TRANSFORMER_1KHZ_+4dBu", drive, "THD_pct",x[0]["THD_percent"])
+          for cell in range(4):
+            x=[r for r in rows if r["section"]=="FULL" and int(r["cell"])==cell]
+            if x: print("CELL",cell,"rows",len(x),"max_abs_FR_dB",max(abs(float(r["FR_relative_1khz_db"])) for r in x),"max_THD_pct",max(float(r["THD_percent"]) for r in x))
+          PY
+      - name: Upload complete results even on errors
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NickelOpto-full-path-frequency-phase-THD-grid
+          path: full-path-fr-phase-thd-harmonics.csv

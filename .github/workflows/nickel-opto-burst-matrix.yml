@@ -1,0 +1,60 @@
+name: Nickel Opto 1kHz burst matrix
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/measure_opto_burst_matrix.cpp'
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/SidechainFollower.hpp'
+      - 'experiments/dual_nickel/test_sidechain_follower.cpp'
+      - 'experiments/dual_nickel/measure_sidechain_audit.cpp'
+      - 'experiments/dual_nickel/measure_led_datasheet.cpp'
+      - 'experiments/dual_nickel/report_sidechain_audit.py'
+      - 'experiments/dual_nickel/tune_t4_recovery.cpp'
+      - 'experiments/dual_nickel/tune_t4_attack.cpp'
+      - 'experiments/dual_nickel/measure_t4_source_profiles.cpp'
+      - '.github/workflows/nickel-opto-burst-matrix.yml'
+  workflow_dispatch:
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure optical cell measurement
+        run: cmake -S experiments/dual_nickel -B build/nickel -DCMAKE_BUILD_TYPE=Release
+      - name: Build only dedicated 1kHz optocell burst executable
+        run: cmake --build build/nickel --target nickel_led_datasheet nickel_sidechain_audit nickel_sidechain_follower nickel_t4_source_profiles nickel_opto_burst_matrix nickel_t4_recovery_tune nickel_t4_attack_tune nickel_opto_character nickel_opto_bursts nickel_opto_memory nickel_opto_variants --parallel 2
+      - name: Measure short and long attack and six-second recovery
+        run: ./build/nickel/nickel_opto_burst_matrix | tee opto-cell-burst-matrix.csv
+      - name: Measure T4B fast and trap recovery resistor-coupled CdS dynamics
+        run: ./build/nickel/nickel_t4_recovery_tune | tee t4-physical-recovery-tune.csv
+      - name: Measure T4B attack carrier times at three line levels
+        run: ./build/nickel/nickel_t4_attack_tune | tee t4-carrier-attack-tune.csv
+      - name: Verify optical character, bursts, memory, and all cell variants
+        run: ctest --test-dir build/nickel --output-on-failure -R 'opto_characterization|opto_burst_characterization|opto_memory_calibration|opto_cell_variants'
+      - name: Test bass kick and guitar bus proxy at 100 and 160 bpm
+        run: ./build/nickel/nickel_t4_source_profiles | tee t4-bass-kick-guitar-proxies.csv
+      - name: Validate nodal 2N5088 sidechain HPF and optical GR at 55 to 10kHz
+        run: set -o pipefail; ./build/nickel/nickel_sidechain_follower | tee buffered-sidechain-results.csv
+      - name: Record non-gating knee and timing matrix at bass mids highs and varied threshold
+        run: ./build/nickel/nickel_sidechain_audit | tee sidechain-knee-timing-matrix.csv
+      - name: Flag greater than 10 percent deviations and report optical onset without failing
+        run: python3 experiments/dual_nickel/report_sidechain_audit.py sidechain-knee-timing-matrix.csv | tee sidechain-audit-summary.txt
+      - name: Check physical NSL-32 VTL5C2 LED rise and 10-second dark recovery against datasheet
+        run: ./build/nickel/nickel_led_datasheet | tee optical-datasheet-timing.csv
+      - name: Publish measurements
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opto-cell-short-long-bursts-1khz
+          path: |
+            opto-cell-burst-matrix.csv
+            t4-physical-recovery-tune.csv
+            t4-carrier-attack-tune.csv
+            t4-bass-kick-guitar-proxies.csv
+            buffered-sidechain-results.csv
+            sidechain-knee-timing-matrix.csv
+            sidechain-audit-report.json
+            sidechain-audit-summary.txt
+            optical-datasheet-timing.csv

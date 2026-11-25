@@ -1,0 +1,34 @@
+name: Nickel Opto actual GUI screenshot
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/juce_plugin/CaptureActualGUI.cpp'
+      - 'experiments/dual_nickel/juce_plugin/Plugin.cpp'
+      - 'experiments/dual_nickel/juce_plugin/CMakeLists.txt'
+      - '.github/workflows/nickel-actual-gui-screenshot.yml'
+  workflow_dispatch:
+jobs:
+  capture:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure actual JUCE editor
+        run: cmake -S experiments/dual_nickel/juce_plugin -B build/gui-capture -G "Visual Studio 17 2022" -A x64
+      - name: Build actual editor screenshot renderer
+        run: cmake --build build/gui-capture --config Release --target NickelOptoCapture --parallel 2
+      - name: Render screenshots of compiled JUCE editor
+        shell: pwsh
+        run: |
+          $exe=Get-ChildItem build/gui-capture -Recurse -Filter "NickelOptoCapture.exe" | Select-Object -First 1
+          if (-not $exe) { throw "GUI renderer executable missing" }
+          & $exe.FullName
+          if ($LASTEXITCODE -ne 0) { throw "Actual GUI capture failed: $LASTEXITCODE" }
+          Get-Item NickelOpto-Actual-GUI-*.png | Format-Table Name,Length
+      - name: Upload exact native editor screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NickelOpto-ACTUAL-JUCE-GUI-Screenshots
+          path: NickelOpto-Actual-GUI-*.png
