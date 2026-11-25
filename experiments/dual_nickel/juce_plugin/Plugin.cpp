@@ -47,7 +47,7 @@ Layout makeParameters(){
           juce::StringArray{"Compressor","Limiter"},0));
     p.add(std::make_unique<juce::AudioParameterChoice>(
           juce::ParameterID{"cell",1},"Optical Cell",
-          juce::StringArray{"NSL-32","VTL5C2","T4B-style"},0));
+          juce::StringArray{"NSL-32","VTL5C2","T4B-style","VTL5C1"},0));
     p.add(std::make_unique<juce::AudioParameterChoice>(
           juce::ParameterID{"load",1},"Output Load",
           juce::StringArray{"600 ohm","10k ohm"},1));
@@ -241,6 +241,7 @@ public:
         cellModel.addItem("NSL-32",1);
         cellModel.addItem("VTL5C2",2);
         cellModel.addItem("T4B-style",3);
+        cellModel.addItem("VTL5C1",4);
         addAndMakeVisible(cellModel);
         cellAttachment=std::make_unique<ComboAttachment>(p.state,"cell",cellModel);
         options.setButtonText("OPTIONS  /  MIX");
@@ -297,7 +298,19 @@ public:
                    juce::Justification::right);
     }
 private:
-    void timerCallback() override {repaint();}
+    void timerCallback() override {
+        // The attack/release controls exist only for the VTL5C1 RC deck.
+        // Preserve their stored values when another optical cell is selected.
+        const auto* selected=p.state.getRawParameterValue("cell");
+        const bool variable=selected && int(selected->load())==3;
+        if(controls.size()>4) {
+            for(const int index:{3,4}) {
+                controls[std::size_t(index)].slider->setEnabled(variable);
+                controls[std::size_t(index)].label->setEnabled(variable);
+            }
+        }
+        repaint();
+    }
     struct Control {
         std::unique_ptr<juce::Slider> slider;
         std::unique_ptr<juce::Label> label;
