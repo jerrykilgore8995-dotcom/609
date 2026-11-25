@@ -1,0 +1,22 @@
+name: Nickel hidden VTL5C1 timing isolation
+on:
+  push:
+    branches: [feature/dual-nickel-zener-prototype]
+    paths:
+      - 'experiments/dual_nickel/OpticalCell.hpp'
+      - 'experiments/dual_nickel/test_hidden_vtl5c1_controls.cpp'
+      - '.github/workflows/nickel-hidden-timing.yml'
+  workflow_dispatch:
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -O2 experiments/dual_nickel/test_hidden_vtl5c1_controls.cpp -o timing-isolation
+      - run: ./timing-isolation | tee hidden-cell-timing-regression.txt
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NickelOpto-hidden-cell-isolation
+          path: hidden-cell-timing-regression.txt
