@@ -161,194 +161,294 @@ private:
     analogopto::StereoEngine stereo;
 };
 
-// Popup content owns its own APVTS attachment.  It outlives the click handler,
-// and the shared processor parameter keeps mono/stereo views synchronized.
+// Exact 609-width (1200 x 247), LA-2A-inspired 3U silverface layout.
+// No Teletronix, Universal Audio, or meter trademark / brand artwork.
+// All existing parameter IDs are retained for preset compatibility.
+class BakeliteLook final : public juce::LookAndFeel_V4 {
+public:
+    void drawRotarySlider(juce::Graphics& g,int x,int y,int width,int height,
+                          float sliderPos,float start,float end,
+                          juce::Slider& slider) override {
+        const bool main=slider.getName()=="large";
+        const auto rect=juce::Rectangle<float>(float(x),float(y),float(width),float(height));
+        const float d=std::min(rect.getWidth(),rect.getHeight())*(main?.85f:.83f);
+        const auto face=juce::Rectangle<float>(d,d).withCentre(rect.getCentre());
+        const auto center=face.getCentre();
+        const float radius=d*.5f,angle=start+sliderPos*(end-start);
+        g.setColour(juce::Colour(0x77000000));
+        g.fillEllipse(face.translated(2.5f,3.5f));
+        g.setColour(juce::Colour(0xffaeaaa1));
+        g.fillEllipse(face.expanded(2.f));
+        juce::ColourGradient plastic(juce::Colour(0xff444445),
+                         center.x-radius*.4f,center.y-radius*.9f,
+                         juce::Colour(0xff090a0c),
+                         center.x+radius*.65f,center.y+radius,true);
+        g.setGradientFill(plastic);g.fillEllipse(face);
+        g.setColour(juce::Colour(0xff18191b));
+        g.drawEllipse(face.reduced(3.f),2.f);
+        g.setColour(juce::Colour(0x448e8a83));
+        g.drawEllipse(face.reduced(radius*.16f),1.5f);
+        // Machined ivory pointer running radially along the top of the knob.
+        const float r0=radius*.30f,r1=radius*.80f;
+        juce::Path pointer;
+        pointer.startNewSubPath(center.x+std::sin(angle)*r0,
+                                center.y-std::cos(angle)*r0);
+        pointer.lineTo(center.x+std::sin(angle)*r1,
+                       center.y-std::cos(angle)*r1);
+        g.setColour(juce::Colour(0xfff3e9d4));
+        g.strokePath(pointer,juce::PathStrokeType(main?4.f:2.7f,
+                      juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+        g.setColour(juce::Colour(0xff161719));
+        g.fillEllipse(juce::Rectangle<float>(radius*.19f,radius*.19f)
+                        .withCentre(center));
+    }
+};
 class OptionsPopup final : public juce::Component {
 public:
-    explicit OptionsPopup(NickelOptoProcessor& processor) {
-        addAndMakeVisible(mixLabel);
-        mixLabel.setText("MIX  /  DRY - WET  (%)",juce::dontSendNotification);
-        mixLabel.setJustificationType(juce::Justification::centred);
-        mix.setSliderStyle(juce::Slider::LinearHorizontal);
-        mix.setTextBoxStyle(juce::Slider::TextBoxRight,false,65,22);
-        mix.setTextValueSuffix(" %");
-        addAndMakeVisible(mix);
-        mixAttachment=std::make_unique<SliderAttachment>(processor.state,"mix",mix);
-        setSize(310,92);
-    }
-    void resized() override {
-        mixLabel.setBounds(10,8,getWidth()-20,24);
-        mix.setBounds(12,37,getWidth()-24,42);
-    }
-private:
-    juce::Label mixLabel;
-    juce::Slider mix;
-    std::unique_ptr<SliderAttachment> mixAttachment;
-};
-
-class HardwarePanel final : public juce::Component,private juce::Timer {
-public:
-    HardwarePanel(NickelOptoProcessor& processor,int channel):
-        p(processor),channelIndex(channel) {
-        const std::array<std::pair<const char*,const char*>,13> settings{{
-          {"drive","INPUT"},{"threshold","THRESHOLD"},
-          {"makeup","MAKEUP"},{"attack","ATTACK"},{"release","RELEASE"},
-          {"hpfhz","S/C HPF"},{"output","OUTPUT"},{"pmcenter","LOW-MID FREQ"},
-          {"pmwidth","BANDWIDTH"},{"pmrange","DYN CUT"},{"pmthreshold","BAND THR"},
-          {"pmattack","BAND ATK"},{"pmrelease","BAND REL"}
-        }};
-        for(const auto& setting:settings) {
-            Control c{};
-            c.slider=std::make_unique<juce::Slider>();
-            c.slider->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-            c.slider->setTextBoxStyle(juce::Slider::TextBoxBelow,false,102,18);
-            c.slider->setColour(juce::Slider::rotarySliderFillColourId,
-                               juce::Colour(0xffd8ad65));
-            c.slider->setColour(juce::Slider::thumbColourId,
-                               juce::Colour(0xffeeeeeb));
-            c.label=std::make_unique<juce::Label>();
-            c.label->setText(setting.second,juce::dontSendNotification);
-            c.label->setJustificationType(juce::Justification::centred);
-            c.label->setColour(juce::Label::textColourId,
-                               juce::Colour(0xffe5e4df));
-            addAndMakeVisible(*c.slider);
-            addAndMakeVisible(*c.label);
-            c.attach=std::make_unique<SliderAttachment>(p.state,setting.first,
-                                                         *c.slider);
-            controls.push_back(std::move(c));
-        }
-        const std::array<std::pair<const char*,const char*>,4> switches{{
-            {"hpf","SIDECHAIN HPF"},{"palm","LOW-MID ON"},
-            {"link","LINK OUTPUT"},{"ff","FEEDFORWARD"}
-        }};
-        for(const auto& item:switches) {
-            Toggle t{};
-            t.button=std::make_unique<juce::ToggleButton>(item.second);
-            t.button->setColour(juce::ToggleButton::textColourId,
-                                juce::Colour(0xffe5e4df));
-            addAndMakeVisible(*t.button);
-            t.attach=std::make_unique<ButtonAttachment>(p.state,item.first,*t.button);
-            toggles.push_back(std::move(t));
-        }
-        mode.addItem("COMPRESSOR",1);
-        mode.addItem("LIMITER",2);
-        addAndMakeVisible(mode);
-        modeAttachment=std::make_unique<ComboAttachment>(p.state,"mode",mode);
-        load.addItem("600 ohm",1);
-        load.addItem("10 kOhm",2);
+    explicit OptionsPopup(NickelOptoProcessor& processor):p(processor) {
+        createKnob("mix","DRY / WET",0,0);
+        createKnob("hpfhz","S/C HPF Hz",1,0);
+        createKnob("pmcenter","CENTER Hz",0,1);
+        createKnob("pmwidth","WIDTH OCT",1,1);
+        createKnob("pmrange","MAX CUT dB",2,1);
+        createKnob("pmthreshold","BAND THR",3,1);
+        createKnob("pmattack","BAND ATTACK",4,1);
+        createKnob("pmrelease","BAND RELEASE",5,1);
+        createToggle("hpf","SIDECHAIN HPF",0);
+        createToggle("palm","LOW-MID ENABLE",1);
+        createToggle("link","LINK INPUT/OUTPUT",2);
+        createToggle("ff","FEEDFORWARD",3);
+        load.addItem("600 OHM",1);load.addItem("10 kOHM",2);
         addAndMakeVisible(load);
-        loadAttachment=std::make_unique<ComboAttachment>(p.state,"load",load);
-        cellModel.addItem("NSL-32",1);
-        cellModel.addItem("VTL5C2",2);
-        cellModel.addItem("T4B-style",3);
-        cellModel.addItem("VTL5C1",4);
-        addAndMakeVisible(cellModel);
-        cellAttachment=std::make_unique<ComboAttachment>(p.state,"cell",cellModel);
-        options.setButtonText("OPTIONS  /  MIX");
-        options.onClick=[this] {
-            juce::CallOutBox::launchAsynchronously(
-                std::make_unique<OptionsPopup>(p),options.getScreenBounds(),nullptr);
-        };
-        addAndMakeVisible(options);
-        startTimerHz(25);
+        loadAttach=std::make_unique<ComboAttachment>(p.state,"load",load);
+        setSize(850,300);
     }
     void resized() override {
-        constexpr int startX=28,unit=143;
-        for(int i=0;i<int(controls.size());++i) {
-            const int row=i/4,column=i%4;
-            const int x=startX+column*unit;
-            const int y=114+row*121;
-            controls[i].label->setBounds(x,y,124,19);
-            controls[i].slider->setBounds(x,y+20,124,94);
+        const int xs[]={18,155,292,429,566,703};
+        const int ys[]={42,168};
+        for(auto& k:knobs) {
+            const int x=xs[k.column],y=ys[k.row];
+            k.title->setBounds(x,y,127,20);
+            k.slider->setBounds(x+26,y+20,78,76);
         }
         for(int i=0;i<int(toggles.size());++i)
-            toggles[i].button->setBounds(22+i*148,615,143,26);
-        load.setBounds(388,685,174,30);
-        cellModel.setBounds(388,654,174,28);
-        options.setBounds(22,654,153,30);
-        mode.setBounds(22,685,153,30);
+            toggles[std::size_t(i)].button->setBounds(20+i*205,270,197,25);
+        load.setBounds(575,75,235,28);
     }
     void paint(juce::Graphics& g) override {
-        g.fillAll(juce::Colour(0xff1c1e22));
-        auto b=getLocalBounds().reduced(8);
-        g.setColour(juce::Colour(0xff414449));
-        g.drawRoundedRectangle(b.toFloat(),9.f,2.f);
-        g.setColour(juce::Colour(0xffd6a456));
-        g.setFont(juce::FontOptions(24.f,juce::Font::bold));
-        g.drawFittedText("NICKEL  •  OPTO",25,16,400,36,
-                          juce::Justification::left,1);
-        g.setFont(juce::FontOptions(13.f,juce::Font::bold));
-        g.drawText(channelIndex==0?"CHANNEL L / MONO":"CHANNEL R",
-                   415,24,170,24,juce::Justification::right);
-        const double reduction=std::clamp(
-            double(p.gr[std::size_t(channelIndex)].load()),0.,20.);
-        const juce::Rectangle<float> meter(29,72,540,18);
-        g.setColour(juce::Colour(0xff0a0b0d));g.fillRoundedRectangle(meter,4.f);
-        g.setColour(juce::Colour(0xffd9a65c));
-        g.fillRoundedRectangle(meter.withWidth(float(reduction/20.*meter.getWidth())),3.f);
-        g.setColour(juce::Colour(0xffeee7da));
+        g.fillAll(juce::Colour(0xff24282d));
+        g.setColour(juce::Colour(0xffd2ba8a));
+        g.setFont(juce::FontOptions(16.f,juce::Font::bold));
+        g.drawText("SIGNAL / SIDECHAIN",18,9,300,26,juce::Justification::left);
+        g.drawText("C4-STYLE DYNAMIC LOW-MID",18,133,500,26,juce::Justification::left);
+        g.setColour(juce::Colour(0xff6e7277));g.drawLine(15.f,128.f,835.f,128.f);
+        g.setColour(juce::Colour(0xffd4d5d0));
         g.setFont(juce::FontOptions(11.f));
-        g.drawText("0",30,92,50,16,juce::Justification::left);
-        g.drawText("20 dB GR",490,92,78,16,juce::Justification::right);
-        g.setColour(juce::Colour(0xffd6a456));
-        g.setFont(juce::FontOptions(14.f,juce::Font::bold));
-        g.drawText("OPTO CELL",190,654,190,25,
-                   juce::Justification::right);
-        g.drawText("600 / 10k OUTPUT LOAD",190,688,190,20,
-                   juce::Justification::right);
+        g.drawText("OUTPUT LOAD",575,54,235,18,juce::Justification::centred);
     }
 private:
-    void timerCallback() override {
-        // The attack/release controls exist only for the VTL5C1 RC deck.
-        // Preserve their stored values when another optical cell is selected.
-        const auto* selected=p.state.getRawParameterValue("cell");
-        const bool variable=selected && int(selected->load())==3;
-        if(controls.size()>4) {
-            for(const int index:{3,4}) {
-                controls[std::size_t(index)].slider->setEnabled(variable);
-                controls[std::size_t(index)].label->setEnabled(variable);
-            }
-        }
-        repaint();
-    }
-    struct Control {
+    struct Knob {
         std::unique_ptr<juce::Slider> slider;
-        std::unique_ptr<juce::Label> label;
-        std::unique_ptr<SliderAttachment> attach;
+        std::unique_ptr<juce::Label> title;
+        std::unique_ptr<SliderAttachment> attachment;
+        int column=0,row=0;
     };
     struct Toggle {
         std::unique_ptr<juce::ToggleButton> button;
-        std::unique_ptr<ButtonAttachment> attach;
+        std::unique_ptr<ButtonAttachment> attachment;
     };
+    void createKnob(const char* key,const char* title,int column,int row) {
+        Knob k;
+        k.slider=std::make_unique<juce::Slider>();
+        k.slider->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        k.slider->setTextBoxStyle(juce::Slider::TextBoxBelow,false,85,18);
+        k.title=std::make_unique<juce::Label>();
+        k.title->setText(title,juce::dontSendNotification);
+        k.title->setColour(juce::Label::textColourId,juce::Colour(0xffe9e5dc));
+        k.title->setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(*k.title);addAndMakeVisible(*k.slider);
+        k.attachment=std::make_unique<SliderAttachment>(p.state,key,*k.slider);
+        k.column=column;k.row=row;knobs.push_back(std::move(k));
+    }
+    void createToggle(const char* key,const char* name,int index) {
+        Toggle t;t.button=std::make_unique<juce::ToggleButton>(name);
+        t.button->setColour(juce::ToggleButton::textColourId,
+                            juce::Colour(0xffe9e5dc));
+        addAndMakeVisible(*t.button);
+        t.attachment=std::make_unique<ButtonAttachment>(p.state,key,*t.button);
+        toggles.push_back(std::move(t));
+        juce::ignoreUnused(index);
+    }
     NickelOptoProcessor& p;
-    int channelIndex=0;
-    std::vector<Control> controls;
+    std::vector<Knob> knobs;
     std::vector<Toggle> toggles;
-    juce::ComboBox load,cellModel,mode;
-    juce::TextButton options;
-    std::unique_ptr<ComboAttachment> loadAttachment,cellAttachment,modeAttachment;
+    juce::ComboBox load;
+    std::unique_ptr<ComboAttachment> loadAttach;
+};
+class HardwarePanel final : public juce::Component,private juce::Timer {
+public:
+    explicit HardwarePanel(NickelOptoProcessor& processor):p(processor) {
+        addRotary(input,"drive",false);
+        addRotary(output,"output",false);
+        addRotary(gain,"makeup",true);
+        addRotary(peak,"threshold",true);
+        addRotary(attack,"attack",false);
+        addRotary(release,"release",false);
+        cellModel.addItem("NSL-32",1);
+        cellModel.addItem("VTL5C2",2);
+        cellModel.addItem("T4B-STYLE",3);
+        cellModel.addItem("VTL5C1",4);
+        addAndMakeVisible(cellModel);
+        cellAttach=std::make_unique<ComboAttachment>(p.state,"cell",cellModel);
+        mode.addItem("COMPRESS",1);
+        mode.addItem("LIMIT",2);
+        addAndMakeVisible(mode);
+        modeAttach=std::make_unique<ComboAttachment>(p.state,"mode",mode);
+        advanced.setButtonText("ADVANCED  +  LOW-MID");
+        advanced.onClick=[this] {
+            juce::CallOutBox::launchAsynchronously(
+                std::make_unique<OptionsPopup>(p),
+                advanced.getScreenBounds(),nullptr);
+        };
+        addAndMakeVisible(advanced);
+        startTimerHz(25);
+        updateCellVisibility();
+    }
+    ~HardwarePanel() override {
+        input.setLookAndFeel(nullptr);output.setLookAndFeel(nullptr);
+        gain.setLookAndFeel(nullptr);peak.setLookAndFeel(nullptr);
+        attack.setLookAndFeel(nullptr);release.setLookAndFeel(nullptr);
+    }
+    void resized() override {
+        input.setBounds(184,3,58,50);
+        output.setBounds(1010,3,58,50);
+        gain.setBounds(266,95,126,126);
+        peak.setBounds(763,95,126,126);
+        mode.setBounds(47,161,165,28);
+        cellModel.setBounds(971,96,182,29);
+        attack.setBounds(972,153,84,81);
+        release.setBounds(1073,153,84,81);
+        advanced.setBounds(505,11,190,29);
+    }
+    void paint(juce::Graphics& g) override {
+        const auto ink=juce::Colour(0xff383530);
+        // Dark metal top rail deliberately OUTSIDE the classic silverface.
+        g.fillAll(juce::Colour(0xff121417));
+        g.setColour(juce::Colour(0xffc7b69a));
+        g.setFont(juce::FontOptions(11.f,juce::Font::bold));
+        g.drawText("INPUT DRIVE",82,16,103,20,juce::Justification::right);
+        g.drawText("OUTPUT TRIM",1071,16,111,20,juce::Justification::left);
+        g.setFont(juce::FontOptions(13.f,juce::Font::bold));
+        g.drawText("NICKEL   /   OPTO",22,10,240,24,juce::Justification::left);
+        g.setColour(juce::Colour(0xff73777c));g.drawLine(0.f,52.f,1200.f,52.f);
+        // Brushed silver three-rack-unit style faceplate (no borrowed logos).
+        juce::ColourGradient metal(juce::Colour(0xffe9e7df),0.f,55.f,
+                                   juce::Colour(0xffbdbbb4),0.f,246.f,false);
+        g.setGradientFill(metal);
+        g.fillRect(juce::Rectangle<int>(15,56,1170,190));
+        g.setColour(juce::Colour(0xff99978f));g.drawRect(15,56,1170,190,1);
+        for(int i=0;i<7;++i){
+            g.setColour(juce::Colour(0x0a383736));
+            g.drawHorizontalLine(62+i*27,16.f,1184.f);
+        }
+        auto screw=[&](float x,float y) {
+            g.setColour(juce::Colour(0xff777872));g.fillEllipse(x-5,y-5,10,10);
+            g.setColour(juce::Colour(0xffd9d8ce));g.drawEllipse(x-5,y-5,10,10,1);
+            g.setColour(juce::Colour(0xff4b4d4a));g.drawLine(x-2,y+2,x+2,y-2,1);
+        };
+        for(float x:{28.f,1172.f})for(float y:{69.f,232.f})screw(x,y);
+        g.setColour(juce::Colour(0xff803e3e));
+        g.setFont(juce::FontOptions(22.f,juce::Font::bold));
+        g.drawText("NICKEL",49,82,176,29,juce::Justification::centredLeft);
+        g.setFont(juce::FontOptions(11.f));
+        g.drawText("OPTICAL LEVELING AMPLIFIER",48,112,220,19,
+                    juce::Justification::centredLeft);
+        g.setColour(ink);g.setFont(juce::FontOptions(12.f,juce::Font::bold));
+        g.drawText("GAIN",271,220,116,18,juce::Justification::centred);
+        g.drawText("PEAK REDUCTION",755,220,140,18,juce::Justification::centred);
+        g.drawText("COMPRESS / LIMIT",49,139,165,19,juce::Justification::centred);
+        g.drawText("OPTO CELL",970,75,182,17,juce::Justification::centred);
+        if(attack.isVisible()) {
+            g.drawText("ATTACK",973,137,80,17,juce::Justification::centred);
+            g.drawText("RELEASE",1072,137,86,17,juce::Justification::centred);
+        } else {
+            g.setFont(juce::FontOptions(11.f,juce::Font::italic));
+            g.drawText("FIXED PHOTO-OPTICAL TIMING",967,162,198,48,
+                       juce::Justification::centred);
+        }
+        // Classic backlit VU meter with needle calibrated for 0-20 dB GR.
+        juce::Rectangle<float> bezel(429.f,74.f,305.f,155.f);
+        g.setColour(juce::Colour(0xff292725));g.fillRoundedRectangle(bezel,4.f);
+        g.setColour(juce::Colour(0xff76716b));g.drawRoundedRectangle(bezel,4.f,3.f);
+        auto glass=bezel.reduced(9.f);
+        juce::ColourGradient lamp(juce::Colour(0xfff4dda0),glass.getCentreX(),
+                                  glass.getY(),juce::Colour(0xffb88f4f),
+                                  glass.getCentreX(),glass.getBottom(),false);
+        g.setGradientFill(lamp);g.fillRoundedRectangle(glass,3.f);
+        const auto meterCenter=juce::Point<float>(glass.getCentreX(),glass.getBottom()+18.f);
+        g.setColour(juce::Colour(0xff625137));
+        for(int i=0;i<=10;++i) {
+            const float theta=juce::MathConstants<float>::pi*(.76f+1.48f*i/10.f);
+            auto point=[&](float rad) {
+                return juce::Point<float>(meterCenter.x+std::cos(theta)*rad,
+                                           meterCenter.y+std::sin(theta)*rad);
+            };
+            const auto a=point(147.f),b=point(i%2==0?132.f:138.f);
+            g.drawLine(a.x,a.y,b.x,b.y,i%2==0?1.7f:1.f);
+        }
+        g.setFont(juce::FontOptions(11.f,juce::Font::bold));
+        g.drawText("GAIN REDUCTION",glass.toNearestInt().withTrimmedTop(16)
+                                    .withHeight(24),juce::Justification::centred);
+        const float reduction=juce::jlimit(0.f,20.f,p.gr[0].load());
+        const float theta=juce::MathConstants<float>::pi*
+                            (.76f+1.48f*reduction/20.f);
+        const juce::Point<float> tip(meterCenter.x+std::cos(theta)*127.f,
+                                     meterCenter.y+std::sin(theta)*127.f);
+        g.setColour(juce::Colour(0xff25221d));g.drawLine(meterCenter.x,
+                    meterCenter.y,tip.x,tip.y,2.4f);
+        g.fillEllipse(meterCenter.x-5,meterCenter.y-5,10,10);
+    }
+private:
+    void addRotary(juce::Slider& slider,const char* param,bool large) {
+        slider.setName(large?"large":"small");
+        slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        slider.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
+        slider.setLookAndFeel(&knobLook);
+        slider.setRotaryParameters(juce::degreesToRadians(225.f),
+                                   juce::degreesToRadians(495.f),true);
+        addAndMakeVisible(slider);
+        knobAttachments.push_back(
+            std::make_unique<SliderAttachment>(p.state,param,slider));
+    }
+    void updateCellVisibility() {
+        const auto* val=p.state.getRawParameterValue("cell");
+        const bool variable=val && int(val->load())==3;
+        attack.setVisible(variable);release.setVisible(variable);
+        attack.setEnabled(variable);release.setEnabled(variable);
+    }
+    void timerCallback() override {
+        updateCellVisibility();
+        repaint(430,76,302,152);
+    }
+    NickelOptoProcessor& p;
+    BakeliteLook knobLook;
+    juce::Slider input,output,gain,peak,attack,release;
+    std::vector<std::unique_ptr<SliderAttachment>> knobAttachments;
+    juce::ComboBox mode,cellModel;
+    juce::TextButton advanced;
+    std::unique_ptr<ComboAttachment> modeAttach,cellAttach;
 };
 class NickelOptoEditor final : public juce::AudioProcessorEditor {
 public:
     explicit NickelOptoEditor(NickelOptoProcessor& p):
-         juce::AudioProcessorEditor(p),processor(p),
-         left(std::make_unique<HardwarePanel>(p,0)) {
-        addAndMakeVisible(*left);
-        if(!p.isMono()) {
-            right=std::make_unique<HardwarePanel>(p,1);
-            addAndMakeVisible(*right);
-        }
+        juce::AudioProcessorEditor(p),panel(std::make_unique<HardwarePanel>(p)) {
+        addAndMakeVisible(*panel);
         setResizable(false,false);
-        setSize(right?1240:620,730);
+        setSize(1200,247); // same window size as the 609 MkV plugin
     }
-    void resized() override {
-        left->setBounds(0,0,620,730);
-        if(right)right->setBounds(620,0,620,730);
-    }
-    void paint(juce::Graphics& g) override {g.fillAll(juce::Colours::black);}
+    void resized() override {panel->setBounds(getLocalBounds());}
 private:
-    NickelOptoProcessor& processor;
-    std::unique_ptr<HardwarePanel> left,right;
+    std::unique_ptr<HardwarePanel> panel;
 };
 juce::AudioProcessorEditor* NickelOptoProcessor::createEditor() {
     return new NickelOptoEditor(*this);
