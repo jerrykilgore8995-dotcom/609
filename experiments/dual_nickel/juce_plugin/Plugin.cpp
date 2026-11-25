@@ -441,7 +441,7 @@ public:
         const auto meterCenter=juce::Point<float>(glass.getCentreX(),glass.getBottom()+18.f);
         g.setColour(juce::Colour(0xff625137));
         for(int i=0;i<=10;++i) {
-            const float theta=juce::MathConstants<float>::pi*(.76f+1.48f*i/10.f);
+            const float theta=juce::degreesToRadians(200.f+140.f*i/10.f);
             auto point=[&](float rad) {
                 return juce::Point<float>(meterCenter.x+std::cos(theta)*rad,
                                            meterCenter.y+std::sin(theta)*rad);
@@ -453,8 +453,7 @@ public:
         g.drawText("GAIN REDUCTION",glass.toNearestInt().withTrimmedTop(16)
                                     .withHeight(24),juce::Justification::centred);
         const float reduction=juce::jlimit(0.f,20.f,p.gr[0].load());
-        const float theta=juce::MathConstants<float>::pi*
-                            (.76f+1.48f*reduction/20.f);
+        const float theta=juce::degreesToRadians(200.f+140.f*reduction/20.f);
         const juce::Point<float> tip(meterCenter.x+std::cos(theta)*127.f,
                                      meterCenter.y+std::sin(theta)*127.f);
         g.setColour(juce::Colour(0xff25221d));g.drawLine(meterCenter.x,
