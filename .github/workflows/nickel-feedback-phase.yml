@@ -16,6 +16,31 @@ jobs:
       - uses: actions/checkout@v4
       - run: g++ -std=c++20 -O2 experiments/dual_nickel/measure_feedback_phase.cpp -o phase-probe
       - run: ./phase-probe > four-optocell-feedback-frequency.csv
+      - name: Verify identical 1k/20k conditions for all cells in both modes and rates
+        run: |
+          python3 - <<'PY'
+          import csv,math
+          rows=list(csv.DictReader(open("four-optocell-feedback-frequency.csv")))
+          worst=[]
+          for sr in (44100,96000):
+            for cell in range(4):
+              for mode in ("FB","FF"):
+                for level in (4.,12.):
+                  sub=[r for r in rows if int(r["cell"])==cell and
+                    float(r["fs"])==sr and r["mode"]==mode and
+                    float(r["level_dbu"])==level]
+                  by_freq={float(r["hz"]):float(r["gr_db"]) for r in sub}
+                  assert 1000. in by_freq and 20000. in by_freq
+                  diff=by_freq[20000.]-by_freq[1000.]
+                  assert math.isfinite(diff)
+                  worst.append((abs(diff),sr,cell,mode,level,diff))
+          for a in sorted(worst,reverse=True)[:16]:
+            print("GR_20k_minus_1k",a)
+          # Difference is tracked, not an arbitrary absolute THD test.
+          # Multi-dB suppression of HIGH-frequency compression in a
+          # deliberately flat sidechain is a true regression.
+          assert max(x[0] for x in worst)<2., "Unexpected high frequency GR mismatch"
+          PY
       - if: always()
         uses: actions/upload-artifact@v4
         with:
