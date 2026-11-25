@@ -203,9 +203,9 @@ void checkReceiverHeadroom() {
 void checkIsolatedPhotocellHarmonics() {
     constexpr int samples = 4410; // 100 cycles of the 1 kHz test tone.
     for (int kind = 0; kind < 4; ++kind) {
-        const auto measure = [kind](double polarity, double reductionDb) {
+        const auto measure = [kind](double polarity, double reductionDb, double driveDb = -18.) {
             optocircuit::OptoParts parts;
-            parts.cellContactAsymmetry *= polarity;
+            parts.cellContactScale = polarity;
             optocircuit::LdrCell cell;
             cell.prepare(sampleRate, parts, true);
             const auto cellKind = static_cast<optocircuit::CellKind>(kind);
@@ -221,7 +221,7 @@ void checkIsolatedPhotocellHarmonics() {
             for (int i = -441; i < samples; ++i) {
                 const double phase = 2. * std::numbers::pi * 1000. * i / sampleRate;
                 const double y = cell.processIllumination(
-                    nickel::fullScalePeakVolts * nickel::dbGain(-18.) * std::sin(phase),
+                    nickel::fullScalePeakVolts * nickel::dbGain(driveDb) * std::sin(phase),
                     light, 0., panel);
                 if (i < 0) continue;
                 for (const int k : {1, 2, 4}) {
@@ -232,15 +232,24 @@ void checkIsolatedPhotocellHarmonics() {
             const double fundamental = std::hypot(cosine[1], sine[1]);
             return std::array{cosine[2] / fundamental,
                 std::hypot(cosine[2], sine[2]) / fundamental,
-                std::hypot(cosine[4], sine[4]) / fundamental};
+                std::hypot(cosine[4], sine[4]) / fundamental,
+                2. * fundamental / (samples * nickel::fullScalePeakVolts)};
         };
         const auto positive = measure(1., 6.);
         const auto negative = measure(-1., 6.);
         const auto symmetric = measure(0., 6.);
         const auto dark = measure(1., 0.);
         const auto normalized = [](double amplitude) { return 20. * std::log10(amplitude) - 18.; };
-        check(normalized(positive[1]) > -100. && normalized(positive[1]) < -95.,
-              "Illuminated photocell should generate small but measurable K2");
+        const auto driven = measure(1., 6., -6.);
+        const auto compressed = measure(1., 12., -6.);
+        check(normalized(positive[1]) > -93. && normalized(positive[1]) < -72.,
+              "Illuminated photocell should generate the intended K2");
+        for (const int k : {1, 2}) {
+            check(driven[k] * driven[3] > positive[k] * positive[3],
+                  "Even harmonics should grow with drive at fixed illumination");
+            check(compressed[k] * compressed[3] < driven[k] * driven[3],
+                  "Deeper compression should reduce the even harmonic output");
+        }
         check(symmetric[1] < 1.e-6 && dark[1] < 1.e-8,
               "Photocell K2 should fall to the baseline with no asymmetry or light");
         check(positive[0] * negative[0] < 0.
@@ -248,7 +257,11 @@ void checkIsolatedPhotocellHarmonics() {
               "Reversing contact polarity should reverse K2 phase");
         check(positive[2] > symmetric[2] * 10., "Photocell crossover should produce K4");
         std::cout << names[kind] << " fixed light at 6 dB GR, normalized K2/K4 "
-                  << normalized(positive[1]) << '/' << normalized(positive[2]) << " dBFS\n";
+                  << normalized(positive[1]) << '/' << normalized(positive[2]) << " dBFS, "
+                  << "actual K2/K4 at -6 dBFS drive and 6 to 12 dB GR "
+                  << 20. * std::log10(driven[1] * driven[3]) << '/' << 20. * std::log10(driven[2] * driven[3])
+                  << " -> " << 20. * std::log10(compressed[1] * compressed[3]) << '/'
+                  << 20. * std::log10(compressed[2] * compressed[3]) << " dBFS\n";
     }
 }
 

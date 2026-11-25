@@ -33,9 +33,14 @@ The current Mk II shunt solve includes a symmetric film term plus a small
 polarity-dependent photocurrent. At low voltage the contact term varies
 quadratically with voltage and at higher voltage the polarity mismatch
 approaches a bounded fraction of the photocurrent. At zero light the
-contact term vanishes. The provisional asymmetry and crossover voltage
-are shared across the four cartridges. They need separate fixed-light
-bipolar I–V measurements for individual calibration.
+contact term vanishes. The four cartridges use separate provisional mismatch, crossover and
+knee parameters. The solved shunt voltage controls the harmonic current,
+and finite contact conductance restrains it at heavy gain reduction.
+PerkinElmer Figure 3 informs the relative voicing of the Vactrols.
+The [Manley ELOP+ manual](https://static1.squarespace.com/static/582f5ce4e4fcb562b921bdc3/t/5aa325d808522975557c0d5e/1520641505519/ELOP%2B%2BMANUAL%2BREV%2B1.5_WEB.pdf)
+and [ART Pro VLA II specifications](https://artproaudio.com/legacy/product/293543/provlaii)
+give aggregate distortion for complete signal chains. Individual profiles
+require fixed-light bipolar I–V measurements for calibration.
 
 The Mk II regression measures K2 and K4 with fixed illumination and no
 input DC. Reversing the modeled contact mismatch reverses the phase of

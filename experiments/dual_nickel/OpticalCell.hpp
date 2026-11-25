@@ -61,9 +61,8 @@ struct OptoParts {
     double rSeries=10000.0, rReceive=47000.0, cellDark=1e6;
     // Symmetric voltage dependence of the CdS film.
     double cellNonlinearityAt10V=0.002;
-    // Mk II mismatch between the two contact polarities in the illuminated
-    // current path. Provisional common values pending cell-by-cell I-V data.
-    double cellContactAsymmetry=.00043, cellContactKneeVolts=.35;
+    // Scales the per-cell contact profile for reference and polarity tests.
+    double cellContactScale=1.;
     double rAt20mA=500.0, ledReferenceA=0.020, maxLedA=.025;
     double ledIs=2.0e-18, ledN=2., thermalV=.02585;
     double ledSeriesOhms=220., ledSupply=12.;
@@ -466,12 +465,15 @@ public:
         const double rhs=audioVolts*sourceG+capG*panelAudioV;
         const double gCell=1./lastResistance;
         const double linear=sourceG+loadG+gCell+capG;
-        // Photoconductor KCL: symmetric film current and a bounded
-        // polarity mismatch around zero voltage. The mismatch scales with
-        // photocurrent and vanishes in the dark. See PerkinElmer Fig. 3.
+        // The asymmetric contact current rises as the film lights up,
+        // then approaches a finite conductance. Its available voltage is
+        // the solved shunt voltage, which falls under deeper compression.
         const double cubic = gCell * p.cellNonlinearityAt10V / 100.;
-        const double contact = mkII ? (conductance - gdark) * p.cellContactAsymmetry : 0.;
-        const double kneeSquared = p.cellContactKneeVolts * p.cellContactKneeVolts;
+        const auto& profile = contactProfiles[static_cast<std::size_t>(cellKind)];
+        const double photoG = conductance - gdark;
+        const double networkG = sourceG + loadG + gdark;
+        const double contact = mkII ? p.cellContactScale * photoG * networkG / (networkG + photoG) : 0.;
+        const double kneeSquared = profile.kneeVolts * profile.kneeVolts;
         double v = rhs / linear;
         for (int iteration = 0; iteration < 3; ++iteration) {
             const double squared = v * v;
@@ -480,8 +482,12 @@ public:
             if (contact != 0.) {
                 const double scale = squared + kneeSquared;
                 const double contactG = contact / std::sqrt(scale);
-                current += contactG * squared;
-                slope += contactG * v * (1. + kneeSquared / scale);
+                const double aboveKnee = squared / scale;
+                const double crossover = profile.crossover * aboveKnee;
+                const double shape = profile.polarityMismatch + crossover;
+                current += contactG * squared * shape;
+                const double belowKnee = 1. - aboveKnee;
+                slope += contactG * v * (shape * (1. + belowKnee) + 2. * crossover * belowKnee);
             }
             const double error = linear * v + current - rhs;
             v -= error / std::max(1e-12, slope);
@@ -505,6 +511,17 @@ public:
     }
     double gainReduction() const noexcept { return -toDb(relativeGain()); }
 private:
+    struct ContactProfile {
+        double polarityMismatch, crossover, kneeVolts;
+    };
+    // Listening targets based on the range of published AOI behavior.
+    // Each entry uses a nominal orientation and awaits bipolar I-V data.
+    static constexpr std::array<ContactProfile, 4> contactProfiles{{
+        {-.0062, .0023, .43},   // NSL-32
+        {-.0043, 0., .77}   , // VTL5C2
+        {-.0084, .0039, .77},   // T4B
+        {-.0091, .00145, .30}  // VTL5C1
+    }};
     static constexpr std::size_t ledCurveIntervals = 4096;
     std::size_t ledCurveIndex() const noexcept {
         const int cellIndex = cellKind == CellKind::VTL5C1 ? 2 : int(cellKind);
